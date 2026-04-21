@@ -1,8 +1,20 @@
 # Repixelizer
 
-Repixelizer is a standalone Python CLI for turning "fake pixel art" into true grid-aligned pixel art.
+Repixelizer is a standalone Python CLI for images that are doing a pixel art impression instead of actually respecting the grid.
 
-The project targets images that look locally pixelated but do not actually sit on one clean lattice. Instead of treating that as a resize problem, Repixelizer treats it as a lattice-inference and local-structure-preservation problem: infer the implied grid, choose real output cells, and snap them back onto a coherent pixel lattice while preserving the source's local adjacency patterns.
+It is aimed at the annoying middle ground: sprites, emblems, and logos that look locally pixelated but fall apart the second you ask them to commit to one lattice like grown-ups.
+
+Instead of pretending this is a resize problem, Repixelizer treats it as lattice inference plus local structure preservation: infer the implied grid, choose real output cells, and snap them back onto a coherent pixel lattice while preserving the source's local adjacency patterns.
+
+## Real Example
+
+This input was not chosen because it was easy. It has glossy shading, chunky highlights, and enough large-scale structure to confuse size inference in ways that are frankly a little rude.
+
+The cleanest result here came from forcing `--target-size 128`:
+
+![Real repixelize example](docs/readme-assets/badge-example-sheet.png)
+
+Automatic lattice inference on this badge is much less wrong than it used to be, but this is still a good example of the kind of image where a manual target size can help.
 
 ## Current Status
 

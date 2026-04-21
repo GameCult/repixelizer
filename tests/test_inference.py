@@ -1,7 +1,23 @@
 from __future__ import annotations
 
-from repixelizer.inference import infer_lattice
+from repixelizer.inference import (
+    _axis_prior_from_estimates,
+    _combine_axis_priors,
+    infer_lattice,
+)
 from repixelizer.synthetic import fake_pixelize, make_emblem
+
+
+def test_axis_prior_stays_close_to_spacing_when_autocorr_hits_large_multiple() -> None:
+    prior, reliability = _axis_prior_from_estimates(8.0, 0.75, 32.0)
+    assert prior < 10.0
+    assert reliability > 0.6
+
+
+def test_combined_axis_prior_prefers_consistent_shared_cell_size() -> None:
+    shared_prior, reliability = _combine_axis_priors([(9.0, 0.7), (11.2, 0.2)])
+    assert 8.5 < shared_prior < 10.5
+    assert 0.2 < reliability < 0.6
 
 
 def test_infer_lattice_recovers_emblem_scale() -> None:

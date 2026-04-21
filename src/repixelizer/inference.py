@@ -137,14 +137,47 @@ def _estimate_lattice_spacing(rgba: np.ndarray) -> tuple[tuple[float | None, flo
     return _estimate_spacing_cell_size(delta_x, premult_rgba.shape[1]), _estimate_spacing_cell_size(delta_y, premult_rgba.shape[0])
 
 
-def _blend_prior(spacing: float | None, spacing_confidence: float, autocorr: float) -> float:
+def _weighted_geometric_mean(values: list[float], weights: list[float]) -> float:
+    safe_values = [float(max(1e-6, value)) for value in values]
+    safe_weights = [float(max(0.0, weight)) for weight in weights]
+    total_weight = float(sum(safe_weights))
+    if total_weight <= 1e-6:
+        return float(np.mean(safe_values))
+    logs = np.log(np.asarray(safe_values, dtype=np.float32))
+    return float(np.exp(np.dot(logs, np.asarray(safe_weights, dtype=np.float32)) / total_weight))
+
+
+def _axis_prior_from_estimates(spacing: float | None, spacing_confidence: float, autocorr: float) -> tuple[float, float]:
     if spacing is None:
-        return float(autocorr)
-    weight = float(np.clip(spacing_confidence, 0.0, 0.85))
-    return float(spacing * weight + autocorr * (1.0 - weight))
+        return float(autocorr), 0.12
+    ratio = max(autocorr, spacing) / max(1e-6, min(autocorr, spacing))
+    suspicious_multiple = ratio >= 1.9 and abs(ratio - round(ratio)) <= 0.2
+    autocorr_weight = float(np.clip(1.0 - spacing_confidence, 0.05, 0.65))
+    if suspicious_multiple and spacing_confidence >= 0.15:
+        autocorr_weight *= 0.35
+    prior = _weighted_geometric_mean([spacing, autocorr], [1.0, autocorr_weight])
+    reliability = float(np.clip(0.15 + 0.75 * spacing_confidence, 0.1, 0.9))
+    if suspicious_multiple:
+        reliability *= 0.9
+    return prior, float(reliability)
 
 
-def _estimate_lattice_prior(rgba: np.ndarray) -> tuple[float, float]:
+def _combine_axis_priors(axis_priors: list[tuple[float, float]]) -> tuple[float, float]:
+    priors = [float(prior) for prior, weight in axis_priors if weight > 1e-6]
+    weights = [float(weight) for _, weight in axis_priors if weight > 1e-6]
+    if not priors:
+        return 16.0, 0.0
+    shared_prior = _weighted_geometric_mean(priors, weights)
+    if len(priors) == 1:
+        return shared_prior, float(np.clip(weights[0], 0.1, 0.9))
+    log_priors = np.log(np.asarray(priors, dtype=np.float32))
+    spread = float(np.mean(np.abs(log_priors - np.mean(log_priors))))
+    consistency = float(np.exp(-spread * 1.25))
+    reliability = float(np.clip((sum(weights) / len(weights)) * consistency, 0.08, 0.9))
+    return shared_prior, reliability
+
+
+def _estimate_lattice_prior_details(rgba: np.ndarray) -> tuple[float, float, float]:
     alpha = rgba[..., 3]
     luminance = rgba[..., 0] * 0.2126 + rgba[..., 1] * 0.7152 + rgba[..., 2] * 0.0722
     dx = np.zeros_like(luminance)
@@ -156,7 +189,15 @@ def _estimate_lattice_prior(rgba: np.ndarray) -> tuple[float, float]:
     spacing_x, spacing_y = _estimate_lattice_spacing(rgba)
     autocorr_x = _estimate_cell_size(profile_x)
     autocorr_y = _estimate_cell_size(profile_y)
-    return _blend_prior(spacing_x[0], spacing_x[1], autocorr_x), _blend_prior(spacing_y[0], spacing_y[1], autocorr_y)
+    axis_x = _axis_prior_from_estimates(spacing_x[0], spacing_x[1], autocorr_x)
+    axis_y = _axis_prior_from_estimates(spacing_y[0], spacing_y[1], autocorr_y)
+    shared_prior, reliability = _combine_axis_priors([axis_x, axis_y])
+    return shared_prior, shared_prior, reliability
+
+
+def _estimate_lattice_prior(rgba: np.ndarray) -> tuple[float, float]:
+    prior_x, prior_y, _ = _estimate_lattice_prior_details(rgba)
+    return prior_x, prior_y
 
 
 def _build_phase_grid(
@@ -261,6 +302,7 @@ def _score_phase_group(
     target_height: int,
     prior_cell_x: float,
     prior_cell_y: float,
+    prior_reliability: float,
     phase_values: np.ndarray,
     device: str,
 ):
@@ -291,7 +333,8 @@ def _score_phase_group(
     prior_score_x = np.exp(-abs(np.log((cell_x + 1e-6) / (prior_cell_x + 1e-6))) * 0.8)
     prior_score_y = np.exp(-abs(np.log((cell_y + 1e-6) / (prior_cell_y + 1e-6))) * 0.8)
     size_prior = float((prior_score_x + prior_score_y) * 0.5)
-    score = breakdown["coherence_score"] * 0.55 + size_prior * 0.45
+    size_prior_weight = float(np.clip(0.10 + prior_reliability * 0.35, 0.10, 0.45))
+    score = breakdown["coherence_score"] * (1.0 - size_prior_weight) + size_prior * size_prior_weight
     score_np = score.detach().cpu().numpy()
 
     candidates: list[InferenceCandidate] = []
@@ -305,6 +348,7 @@ def _score_phase_group(
             "color_chatter": float(breakdown["color_chatter"][index].detach().cpu().item()),
             "coherence_score": float(breakdown["coherence_score"][index].detach().cpu().item()),
             "size_prior": size_prior,
+            "size_prior_weight": size_prior_weight,
         }
         candidates.append(
             InferenceCandidate(
@@ -323,7 +367,7 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
     torch, _ = _require_torch()
     resolved_device = _resolve_device(torch, device)
     height, width = rgba.shape[:2]
-    prior_cell_x, prior_cell_y = _estimate_lattice_prior(rgba)
+    prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
     phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
 
     candidates: list[InferenceCandidate] = []
@@ -335,6 +379,7 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
                 target_height=target_height,
                 prior_cell_x=prior_cell_x,
                 prior_cell_y=prior_cell_y,
+                prior_reliability=prior_reliability,
                 phase_values=phase_values,
                 device=resolved_device,
             )
