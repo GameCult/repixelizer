@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .io import premultiply
+from .metrics import source_lattice_evidence_breakdown
 from .types import InferenceCandidate, InferenceResult
 
 
@@ -28,7 +29,13 @@ def _resolve_device(torch, requested: str) -> str:
     return requested
 
 
-def _candidate_dims(width: int, height: int, target_size: int | None) -> list[tuple[int, int]]:
+def _candidate_dims(
+    width: int,
+    height: int,
+    target_size: int | None,
+    *,
+    hinted_sizes: list[int] | None = None,
+) -> list[tuple[int, int]]:
     if target_size is not None:
         if width >= height:
             return [(target_size, max(1, round(height * target_size / width)))]
@@ -37,8 +44,15 @@ def _candidate_dims(width: int, height: int, target_size: int | None) -> list[tu
     min_size = max(12, int(round(max_dim / 48)))
     max_size = min(256, max(24, int(round(max_dim / 2.5))))
     step = 2 if max_size <= 96 else 4
+    size_values = set(range(min_size, max_size + 1, step))
+    if hinted_sizes:
+        for hinted_size in hinted_sizes:
+            for delta in range(-2, 3):
+                candidate = int(hinted_size) + delta
+                if min_size <= candidate <= max_size:
+                    size_values.add(candidate)
     dims: list[tuple[int, int]] = []
-    for size in range(min_size, max_size + 1, step):
+    for size in sorted(size_values):
         if width >= height:
             dims.append((size, max(1, round(height * size / width))))
         else:
@@ -193,6 +207,99 @@ def _estimate_lattice_prior_details(rgba: np.ndarray) -> tuple[float, float, flo
     axis_y = _axis_prior_from_estimates(spacing_y[0], spacing_y[1], autocorr_y)
     shared_prior, reliability = _combine_axis_priors([axis_x, axis_y])
     return shared_prior, shared_prior, reliability
+
+
+def _hint_target_sizes_from_spacing(
+    width: int,
+    height: int,
+    spacing_x: tuple[float | None, float],
+    spacing_y: tuple[float | None, float],
+) -> list[int]:
+    hinted_sizes: set[int] = set()
+    if width >= height:
+        if spacing_x[0] is not None and spacing_x[1] >= 0.15:
+            hinted_sizes.add(max(1, int(round(width / max(1e-6, spacing_x[0])))))
+        if spacing_y[0] is not None and spacing_y[1] >= 0.15:
+            hinted_sizes.add(max(1, int(round(height / max(1e-6, spacing_y[0])))))
+    else:
+        if spacing_y[0] is not None and spacing_y[1] >= 0.15:
+            hinted_sizes.add(max(1, int(round(height / max(1e-6, spacing_y[0])))))
+        if spacing_x[0] is not None and spacing_x[1] >= 0.15:
+            hinted_sizes.add(max(1, int(round(width / max(1e-6, spacing_x[0])))))
+    return sorted(hinted_sizes)
+
+
+def _top_candidates_by_size(candidates: list[InferenceCandidate], limit: int = 8) -> list[InferenceCandidate]:
+    selected: list[InferenceCandidate] = []
+    seen_sizes: set[tuple[int, int]] = set()
+    for candidate in candidates:
+        size_key = (candidate.target_width, candidate.target_height)
+        if size_key in seen_sizes:
+            continue
+        selected.append(candidate)
+        seen_sizes.add(size_key)
+        if len(selected) >= limit:
+            break
+    return selected
+
+
+def _normalize_candidate_scores(values: np.ndarray) -> np.ndarray:
+    if values.size == 0:
+        return values
+    if values.size == 1:
+        return np.ones_like(values, dtype=np.float32)
+    minimum = float(np.min(values))
+    maximum = float(np.max(values))
+    span = maximum - minimum
+    if span <= 1e-6:
+        return np.full_like(values, 0.5, dtype=np.float32)
+    return ((values - minimum) / span).astype(np.float32)
+
+
+def _rerank_size_candidates_with_source_evidence(
+    rgba: np.ndarray,
+    candidates: list[InferenceCandidate],
+) -> list[InferenceCandidate]:
+    if len(candidates) <= 1:
+        return candidates
+
+    base_scores = np.asarray([candidate.score for candidate in candidates], dtype=np.float32)
+    evidence_breakdowns = [
+        source_lattice_evidence_breakdown(
+            rgba,
+            target_width=candidate.target_width,
+            target_height=candidate.target_height,
+            phase_x=candidate.phase_x,
+            phase_y=candidate.phase_y,
+        )
+        for candidate in candidates
+    ]
+    evidence_scores = np.asarray([breakdown["score"] for breakdown in evidence_breakdowns], dtype=np.float32)
+    base_norm = _normalize_candidate_scores(base_scores)
+    evidence_norm = _normalize_candidate_scores(evidence_scores)
+
+    reranked: list[InferenceCandidate] = []
+    for candidate, evidence, base_component, evidence_component in zip(candidates, evidence_breakdowns, base_norm, evidence_norm):
+        breakdown = dict(candidate.breakdown)
+        breakdown["base_score"] = float(candidate.score)
+        breakdown["source_cell_dispersion"] = float(evidence["cell_dispersion"])
+        breakdown["source_adjacency_strength"] = float(evidence["adjacency_strength"])
+        breakdown["source_lattice_evidence"] = float(evidence["score"])
+        breakdown["base_score_norm"] = float(base_component)
+        breakdown["source_lattice_evidence_norm"] = float(evidence_component)
+        combined_score = float(base_component * 0.35 + evidence_component * 0.65)
+        reranked.append(
+            InferenceCandidate(
+                target_width=candidate.target_width,
+                target_height=candidate.target_height,
+                phase_x=candidate.phase_x,
+                phase_y=candidate.phase_y,
+                score=combined_score,
+                breakdown=breakdown,
+            )
+        )
+    reranked.sort(key=lambda item: item.score, reverse=True)
+    return reranked
 
 
 def _estimate_lattice_prior(rgba: np.ndarray) -> tuple[float, float]:
@@ -367,11 +474,13 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
     torch, _ = _require_torch()
     resolved_device = _resolve_device(torch, device)
     height, width = rgba.shape[:2]
+    spacing_x, spacing_y = _estimate_lattice_spacing(rgba)
+    hinted_sizes = _hint_target_sizes_from_spacing(width, height, spacing_x, spacing_y)
     prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
     phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
 
     candidates: list[InferenceCandidate] = []
-    for target_width, target_height in _candidate_dims(width, height, target_size):
+    for target_width, target_height in _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes):
         candidates.extend(
             _score_phase_group(
                 rgba,
@@ -386,16 +495,19 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
         )
 
     candidates.sort(key=lambda item: item.score, reverse=True)
-    best = candidates[0]
-    second = candidates[1] if len(candidates) > 1 else best
+    size_candidates = _top_candidates_by_size(candidates, limit=len(candidates))
+    reranked_candidates = _rerank_size_candidates_with_source_evidence(rgba, size_candidates)
+    best = reranked_candidates[0]
+    second = reranked_candidates[1] if len(reranked_candidates) > 1 else best
     confidence = max(0.0, best.score - second.score)
+    top_candidates = reranked_candidates[:8]
     return InferenceResult(
         target_width=best.target_width,
         target_height=best.target_height,
         phase_x=best.phase_x,
         phase_y=best.phase_y,
         confidence=confidence,
-        top_candidates=candidates[:8],
+        top_candidates=top_candidates,
     )
 
 

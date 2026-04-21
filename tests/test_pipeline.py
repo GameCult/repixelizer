@@ -32,7 +32,16 @@ def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
 
 def test_pipeline_beats_naive_on_roundtrip_fidelity_for_synthetic_emblem(tmp_path: Path) -> None:
     source = make_emblem(32, 32)
-    fake = fake_pixelize(source, upscale=12, phase_x=0.2, phase_y=0.35, blur_radius=0.65)
+    fake = fake_pixelize(
+        source,
+        upscale=12,
+        phase_x=0.2,
+        phase_y=0.35,
+        blur_radius=0.65,
+        warp_strength=0.28,
+        warp_detail=6,
+        seed=5,
+    )
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
 
@@ -111,3 +120,37 @@ def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) ->
     selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
     assert selected.phase_x == candidate_b.phase_x
     assert selected.phase_y == candidate_b.phase_y
+
+
+def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None:
+    source = np.zeros((4, 4, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=3, target_height=3, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={})
+    inference = InferenceResult(
+        target_width=2,
+        target_height=2,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class DummyArtifacts:
+        def __init__(self, rgba: np.ndarray) -> None:
+            self.target_rgba = rgba
+
+    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
+        return DummyArtifacts(rgba)
+
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+        if target_width == 2:
+            return {"score": 0.10}
+        return {"score": 0.01}
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
+    monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
+
+    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    assert selected.target_width == candidate_b.target_width
+    assert selected.target_height == candidate_b.target_height

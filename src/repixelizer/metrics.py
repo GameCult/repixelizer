@@ -123,6 +123,31 @@ def foreground_adjacency_error(
     return float(np.mean(values[weights]))
 
 
+def foreground_adjacency_strength(
+    rgba: np.ndarray,
+    alpha_threshold: float = 0.05,
+) -> float:
+    premul = premultiply(rgba)
+    mask = rgba[..., 3] >= alpha_threshold
+    strengths: list[np.ndarray] = []
+    weights: list[np.ndarray] = []
+
+    for axis in (0, 1):
+        delta = np.mean(np.abs(np.diff(premul, axis=axis)), axis=-1)
+        if axis == 0:
+            edge_mask = mask[1:, :] | mask[:-1, :]
+        else:
+            edge_mask = mask[:, 1:] | mask[:, :-1]
+        strengths.append(delta.reshape(-1))
+        weights.append(edge_mask.reshape(-1))
+
+    values = np.concatenate(strengths, axis=0)
+    support = np.concatenate(weights, axis=0)
+    if not np.any(support):
+        return 0.0
+    return float(np.mean(values[support]))
+
+
 def foreground_motif_error(
     a: np.ndarray,
     b: np.ndarray,
@@ -177,6 +202,32 @@ def source_lattice_consistency_breakdown(
         "motif_error": motif_error,
         "cell_dispersion": dispersion,
         "score": score,
+    }
+
+
+def source_lattice_evidence_breakdown(
+    source_rgba: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+    alpha_threshold: float = 0.05,
+) -> dict[str, float]:
+    lattice_source, dispersion = lattice_source_rgba(
+        source_rgba,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+        alpha_threshold=alpha_threshold,
+    )
+    adjacency_strength = foreground_adjacency_strength(lattice_source, alpha_threshold=alpha_threshold)
+    evidence_score = adjacency_strength - dispersion * 0.8
+    return {
+        "cell_dispersion": dispersion,
+        "adjacency_strength": adjacency_strength,
+        "score": evidence_score,
     }
 
 

@@ -6,15 +6,15 @@ It is aimed at the annoying middle ground: sprites, emblems, and logos that look
 
 Instead of pretending this is a resize problem, Repixelizer treats it as lattice inference plus local structure preservation: infer the implied grid, choose real output cells, and snap them back onto a coherent pixel lattice while preserving the source's local adjacency patterns.
 
-## Real Example
+## Examples
 
-This input was not chosen because it was easy. It has glossy shading, chunky highlights, and enough large-scale structure to confuse size inference in ways that are frankly a little rude.
+Repixelizer was built to rescue fake pixel art, but it can also be used to generate pixel art directly from non-pixel source art when the shapes are clean and the local structure is doing something useful.
 
-The cleanest result here came from forcing `--target-size 128`:
+Top row: glossy non-pixel badge art repixelized at `128x128`. Bottom row: an AI fake-pixel interpretation of the same badge cleaned up with automatic lattice inference, which landed on `122x122` for this image.
 
-![Real repixelize example](docs/readme-assets/badge-example-sheet.png)
+![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
-Automatic lattice inference on this badge is much less wrong than it used to be, but this is still a good example of the kind of image where a manual target size can help.
+That is the two-headed pitch in one image: force non-pixel art onto a coherent grid, or take AI pixel art that only respects the grid locally and make it commit.
 
 ## Current Status
 
