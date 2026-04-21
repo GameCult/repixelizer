@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .io import premultiply
+
 
 def luminance(rgba: np.ndarray) -> np.ndarray:
     return rgba[..., 0] * 0.2126 + rgba[..., 1] * 0.7152 + rgba[..., 2] * 0.0722
@@ -65,7 +67,137 @@ def outline_straightness(rgba: np.ndarray) -> float:
 
 
 def reconstruction_error(a: np.ndarray, b: np.ndarray) -> float:
-    return float(np.mean(np.abs(a - b)))
+    return float(np.mean(np.abs(premultiply(a) - premultiply(b))))
+
+
+def sprite_mask(a: np.ndarray, b: np.ndarray, alpha_threshold: float = 0.05, halo: int = 1) -> np.ndarray:
+    mask = np.maximum(a[..., 3], b[..., 3]) >= alpha_threshold
+    if np.any(mask) and halo > 0:
+        mask = _dilate_mask(mask, radius=halo)
+    return mask
+
+
+def foreground_coverage(a: np.ndarray, b: np.ndarray, alpha_threshold: float = 0.05, halo: int = 1) -> float:
+    return float(np.mean(sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)))
+
+
+def foreground_reconstruction_error(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+) -> float:
+    mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)
+    if not np.any(mask):
+        return reconstruction_error(a, b)
+    diff = np.mean(np.abs(premultiply(a) - premultiply(b)), axis=-1)
+    return float(np.mean(diff[mask]))
+
+
+def foreground_adjacency_error(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+) -> float:
+    premul_a = premultiply(a)
+    premul_b = premultiply(b)
+    mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)
+    diffs: list[np.ndarray] = []
+    masks: list[np.ndarray] = []
+
+    for axis in (0, 1):
+        delta_a = np.diff(premul_a, axis=axis)
+        delta_b = np.diff(premul_b, axis=axis)
+        if axis == 0:
+            edge_mask = mask[1:, :] | mask[:-1, :]
+        else:
+            edge_mask = mask[:, 1:] | mask[:, :-1]
+        diffs.append(np.mean(np.abs(delta_a - delta_b), axis=-1))
+        masks.append(edge_mask)
+
+    weights = np.concatenate([edge_mask.reshape(-1) for edge_mask in masks], axis=0)
+    values = np.concatenate([diff.reshape(-1) for diff in diffs], axis=0)
+    if not np.any(weights):
+        return 0.0
+    return float(np.mean(values[weights]))
+
+
+def foreground_motif_error(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+) -> float:
+    premul_a = premultiply(a)
+    premul_b = premultiply(b)
+    mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)
+    if premul_a.shape[0] < 2 or premul_a.shape[1] < 2:
+        return foreground_adjacency_error(a, b, alpha_threshold=alpha_threshold, halo=halo)
+
+    blocks_a = _motif_blocks(premul_a)
+    blocks_b = _motif_blocks(premul_b)
+    block_mask = mask[:-1, :-1] | mask[:-1, 1:] | mask[1:, :-1] | mask[1:, 1:]
+    if not np.any(block_mask):
+        return 0.0
+    diff = np.mean(np.abs(blocks_a - blocks_b), axis=(-2, -1))
+    return float(np.mean(diff[block_mask]))
+
+
+def source_lattice_consistency_breakdown(
+    source_rgba: np.ndarray,
+    output_rgba: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+    alpha_threshold: float = 0.05,
+) -> dict[str, float]:
+    lattice_source, dispersion = lattice_source_rgba(
+        source_rgba,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+        alpha_threshold=alpha_threshold,
+    )
+    cell_error = foreground_reconstruction_error(output_rgba, lattice_source, alpha_threshold=alpha_threshold, halo=0)
+    adjacency_error = foreground_adjacency_error(output_rgba, lattice_source, alpha_threshold=alpha_threshold, halo=0)
+    motif_error = foreground_motif_error(output_rgba, lattice_source, alpha_threshold=alpha_threshold, halo=0)
+    score = (
+        cell_error * 0.34
+        + adjacency_error * 0.24
+        + motif_error * 0.24
+        + dispersion * 0.18
+    )
+    return {
+        "cell_error": cell_error,
+        "adjacency_error": adjacency_error,
+        "motif_error": motif_error,
+        "cell_dispersion": dispersion,
+        "score": score,
+    }
+
+
+def exact_match_ratio(a: np.ndarray, b: np.ndarray) -> float:
+    a8 = np.clip(np.rint(premultiply(a) * 255.0), 0, 255).astype(np.uint8)
+    b8 = np.clip(np.rint(premultiply(b) * 255.0), 0, 255).astype(np.uint8)
+    return float(np.mean(np.all(a8 == b8, axis=-1)))
+
+
+def foreground_exact_match_ratio(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+) -> float:
+    mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)
+    if not np.any(mask):
+        return 1.0
+    a8 = np.clip(np.rint(premultiply(a) * 255.0), 0, 255).astype(np.uint8)
+    b8 = np.clip(np.rint(premultiply(b) * 255.0), 0, 255).astype(np.uint8)
+    return float(np.mean(np.all(a8[mask] == b8[mask], axis=-1)))
 
 
 def coherence_breakdown(rgba: np.ndarray) -> dict[str, float]:
@@ -84,3 +216,98 @@ def coherence_breakdown(rgba: np.ndarray) -> dict[str, float]:
         + 0.15 * (1.0 - min(1.0, breakdown["color_chatter"]))
     )
     return breakdown
+
+
+def _dilate_mask(mask: np.ndarray, radius: int) -> np.ndarray:
+    if radius <= 0:
+        return mask
+    height, width = mask.shape
+    padded = np.pad(mask, radius, mode="constant", constant_values=False)
+    windows = []
+    for dy in range(radius * 2 + 1):
+        for dx in range(radius * 2 + 1):
+            windows.append(padded[dy : dy + height, dx : dx + width])
+    return np.any(np.stack(windows, axis=0), axis=0)
+
+
+def _motif_blocks(premul: np.ndarray) -> np.ndarray:
+    blocks = np.stack(
+        [
+            premul[:-1, :-1, :],
+            premul[:-1, 1:, :],
+            premul[1:, :-1, :],
+            premul[1:, 1:, :],
+        ],
+        axis=-2,
+    )
+    centered = blocks - np.mean(blocks, axis=-2, keepdims=True)
+    scale = np.maximum(1e-4, np.mean(np.abs(centered), axis=(-2, -1), keepdims=True))
+    return centered / scale
+
+
+def lattice_source_rgba(
+    source_rgba: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+    alpha_threshold: float = 0.05,
+) -> tuple[np.ndarray, float]:
+    indices = _lattice_indices(
+        height=source_rgba.shape[0],
+        width=source_rgba.shape[1],
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+    )
+    cell_count = max(1, target_width * target_height)
+    premul = premultiply(source_rgba)
+    flat_idx = indices.reshape(-1)
+    flat_premul = premul.reshape(-1, premul.shape[-1])
+    counts = np.bincount(flat_idx, minlength=cell_count).astype(np.float32)
+    safe_counts = np.maximum(counts, 1.0)
+    channel_sums = [
+        np.bincount(flat_idx, weights=flat_premul[:, channel], minlength=cell_count).astype(np.float32)
+        for channel in range(flat_premul.shape[-1])
+    ]
+    mean_premul = np.stack(channel_sums, axis=-1) / safe_counts[:, None]
+    mean_premul = mean_premul.reshape(target_height, target_width, premul.shape[-1])
+    mean_rgba = _unpremultiply_array(mean_premul)
+
+    per_pixel_mean = mean_premul.reshape(-1, premul.shape[-1])[flat_idx]
+    pixel_diff = np.mean(np.abs(flat_premul - per_pixel_mean), axis=-1)
+    source_alpha = source_rgba.reshape(-1, source_rgba.shape[-1])[:, 3]
+    lattice_alpha = mean_rgba.reshape(-1, mean_rgba.shape[-1])[flat_idx, 3]
+    support_mask = np.maximum(source_alpha, lattice_alpha) >= alpha_threshold
+    if np.any(support_mask):
+        dispersion = float(np.mean(pixel_diff[support_mask]))
+    else:
+        dispersion = float(np.mean(pixel_diff)) if pixel_diff.size else 0.0
+    return mean_rgba.astype(np.float32), dispersion
+
+
+def _lattice_indices(
+    *,
+    height: int,
+    width: int,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+) -> np.ndarray:
+    cell_x = width / max(1, target_width)
+    cell_y = height / max(1, target_height)
+    xs = (np.arange(width, dtype=np.float32) + 0.5) / cell_x - phase_x
+    ys = (np.arange(height, dtype=np.float32) + 0.5) / cell_y - phase_y
+    x_idx = np.clip(np.floor(xs).astype(np.int32), 0, max(0, target_width - 1))
+    y_idx = np.clip(np.floor(ys).astype(np.int32), 0, max(0, target_height - 1))
+    return y_idx[:, None] * target_width + x_idx[None, :]
+
+
+def _unpremultiply_array(premul: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    out = premul.copy()
+    alpha = np.maximum(out[..., 3:4], eps)
+    out[..., :3] = np.where(out[..., 3:4] > eps, out[..., :3] / alpha, 0.0)
+    return np.clip(out, 0.0, 1.0)

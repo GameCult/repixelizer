@@ -24,10 +24,12 @@ def _local_energy(patch: np.ndarray) -> float:
     return isolation + alpha_kink * 0.25
 
 
-def cleanup_pixels(rgba: np.ndarray, source_guidance: np.ndarray, iterations: int = 2) -> CleanupArtifacts:
+def cleanup_pixels(rgba: np.ndarray, source_guidance: np.ndarray, iterations: int = 0) -> CleanupArtifacts:
     result = rgba.copy()
     height, width = result.shape[:2]
     heatmap = np.zeros((height, width), dtype=np.float32)
+    if iterations <= 0:
+        return CleanupArtifacts(cleaned_rgba=result, isolated_heatmap=heatmap)
     for _ in range(iterations):
         updated = result.copy()
         for y in range(1, height - 1):
@@ -42,8 +44,6 @@ def cleanup_pixels(rgba: np.ndarray, source_guidance: np.ndarray, iterations: in
                     result[y + 1, x],
                     result[y, x - 1],
                     result[y, x + 1],
-                    np.mean(patch.reshape(-1, 4), axis=0),
-                    np.median(patch.reshape(-1, 4), axis=0),
                 ]
                 best = result[y, x]
                 best_energy = current_energy

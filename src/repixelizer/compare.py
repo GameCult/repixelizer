@@ -9,7 +9,13 @@ from PIL import Image, ImageDraw
 from .baselines import error_diffusion_baseline, naive_resize_baseline
 from .diagnostics import write_compare_csv, write_json
 from .io import load_rgba, nearest_resize, save_rgba
-from .metrics import coherence_breakdown, reconstruction_error
+from .metrics import (
+    coherence_breakdown,
+    foreground_adjacency_error,
+    foreground_motif_error,
+    foreground_reconstruction_error,
+    reconstruction_error,
+)
 from .palette import load_palette
 from .pipeline import run_pipeline
 
@@ -51,7 +57,7 @@ def run_compare(
     diagnostics_dir: str | Path | None = None,
     seed: int = 7,
     steps: int = 200,
-    device: str = "cpu",
+    device: str = "auto",
 ) -> dict[str, Any]:
     diagnostics_path = Path(diagnostics_dir) if diagnostics_dir else Path(output_path).with_suffix("")
     diagnostics_path.mkdir(parents=True, exist_ok=True)
@@ -94,6 +100,9 @@ def run_compare(
                 "isolated_penalty": coherence["isolated_penalty"],
                 "color_chatter": coherence["color_chatter"],
                 "reconstruction_error": reconstruction_error(preview, source),
+                "foreground_reconstruction_error": foreground_reconstruction_error(preview, source),
+                "foreground_adjacency_error": foreground_adjacency_error(preview, source),
+                "foreground_motif_error": foreground_motif_error(preview, source),
             }
         )
     write_compare_csv(diagnostics_path / "compare.csv", rows)

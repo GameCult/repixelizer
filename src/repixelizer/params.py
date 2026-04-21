@@ -1,0 +1,34 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+
+@dataclass(slots=True)
+class SolverHyperParams:
+    representative_softmax_scale: float = 18.0
+    boundary_probe_scale: float = 0.22
+    boundary_signed_weight: float = 0.55
+    boundary_direction_weight: float = 0.30
+    boundary_magnitude_weight: float = 0.15
+    snap_base_match_weight: float = 0.65
+    snap_neighbor_weight: float = 0.35
+    snap_diagonal_weight: float = 0.14
+    refine_anchor_weight: float = 0.60
+    refine_representative_weight: float = 0.20
+    refine_alpha_weight: float = 0.10
+    refine_distance_weight: float = 0.10
+    refine_source_delta_weight: float = 0.25
+    refine_orthogonal_weight: float = 0.24
+    refine_diagonal_weight: float = 0.08
+    structure_boundary_weight: float = 0.60
+    structure_anchor_adjacency_weight: float = 0.15
+    structure_anchor_motif_weight: float = 0.20
+    structure_representative_weight: float = 0.05
+    alpha_foreground_threshold: float = 0.50
+    alpha_representative_foreground_threshold: float = 0.60
+    alpha_opaque_threshold: float = 0.95
+    alpha_transparent_threshold: float = 0.05
+    phase_rerank_margin: float = 0.004
+
+    def to_dict(self) -> dict[str, float]:
+        return asdict(self)

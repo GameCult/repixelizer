@@ -2,35 +2,19 @@
 
 Repixelizer is a standalone Python CLI for turning "fake pixel art" into true grid-aligned pixel art.
 
-The core idea is simple: generated images often look like pixel art without actually obeying a single clean pixel grid. Repixelizer treats that as an optimization problem instead of a resize problem. It estimates the implied lattice, builds a real target grid, optimizes how output pixels sample the source image, then cleans the result up on the discrete grid.
+The project targets images that look locally pixelated but do not actually sit on one clean lattice. Instead of treating that as a resize problem, Repixelizer treats it as a lattice-inference and local-structure-preservation problem: infer the implied grid, choose real output cells, and snap them back onto a coherent pixel lattice while preserving the source's local adjacency patterns.
 
-This project is meant to stand on its own. It should be understandable without any StreamPixels-specific context.
+## Current Status
 
-## What it does
+This is already a serious experimental baseline, not a toy prototype:
 
-Repixelizer currently focuses on single-image inputs such as:
-- icons
-- emblems
-- logos
-- simple sprites
+- CUDA-backed inference and solver paths are wired up
+- round-trip corpus benchmarking is built in
+- soft and crisp corruption profiles are supported
+- diagnostics and baseline comparisons are written automatically
+- a black-box tuning harness exists for longer offline parameter sweeps
 
-The current pipeline is:
-
-1. infer the source image's implied fake-pixel lattice
-2. choose a target output resolution, unless the user overrides it
-3. initialize a UV/sample field over the target grid
-4. optimize that field in premultiplied RGBA space with PyTorch
-5. project onto a true pixel grid
-6. run discrete cleanup to reduce noise and isolated-pixel garbage
-7. optionally quantize into a palette-constrained result
-8. write diagnostics and baseline comparisons
-
-## Project docs
-
-- Product and technical spec: [docs/spec.md](</E:/Projects/repixelizer/docs/spec.md>)
-- Living implementation plan: [docs/implementation-plan.md](</E:/Projects/repixelizer/docs/implementation-plan.md>)
-
-If you are moving this project into a fresh workspace, those two docs are the main handoff.
+The current pipeline is especially strong on benchmarked sprite and emblem inputs where local fake-pixel texture is meaningful but the global grid is inconsistent.
 
 ## Quickstart
 
@@ -43,7 +27,7 @@ Run the optimizer:
 
 ```powershell
 repixelize input.png --out output.png
-repixelize input.png --out output.png --target-size 120 --diagnostics-dir diagnostics
+repixelize input.png --out output.png --diagnostics-dir diagnostics --device auto
 ```
 
 Run the optimizer plus baselines:
@@ -52,106 +36,78 @@ Run the optimizer plus baselines:
 repixelize compare input.png --out output.png --diagnostics-dir diagnostics
 ```
 
-## CLI contract
+## Corpus And Benchmarks
 
-Primary command shape:
+Prepare a local Creative Commons corpus:
 
 ```powershell
-repixelize input.png --out output.png
-repixelize compare input.png --out output.png
+repixelize prepare-corpus --corpus-dir examples/corpus
 ```
 
-Important flags:
+Run the round-trip benchmark:
 
-- `--target-size <n>`: override inferred target max dimension
-- `--palette <file>`: palette file in `.gpl`, `.txt`, or `.json`
-- `--palette-mode off|fit|strict`: palette behavior
-- `--diagnostics-dir <path>`: write visual and JSON diagnostics
-- `--seed <n>`: deterministic optimizer seed
-- `--steps <n>`: number of optimization steps
-- `--device cpu|cuda`: PyTorch device
+```powershell
+repixelize benchmark --corpus-dir examples/corpus --out-dir artifacts/benchmark
+```
 
-### Palette modes
+Useful benchmark flags:
 
-- `off`: keep the output unconstrained
-- `fit`: adapt the result to a derived or supplied palette
-- `strict`: stay strictly inside the supplied palette
+- `--profile soft` or `--profile crisp`
+- `--case <name>` repeated for a focused slice
+- `--limit <n>` for the first `n` matching cases
+- `--infer-size` to test automatic size inference
+- `--keep-existing` if you explicitly want to preserve an old output directory
 
-Palette constraints are optional by design. Many fake-pixel-art inputs are not born from a coherent palette, so palette enforcement is useful but not assumed.
+By default the benchmark clears its output directory before each run so the artifacts folder stays readable.
 
-## Outputs
+## Tuning
 
-Main output:
-- final RGBA PNG
+Repixelizer includes a black-box tuning loop for longer offline searches over solver weights:
 
-Optional diagnostics:
-- `run.json`: chosen size, phase, settings, timings, and score breakdown
-- `lattice-overlay.png`: inferred lattice preview over the source image
-- `comparison.png`: source, optimized output, and nearest-neighbor preview
-- `alpha-preview.png`: alpha behavior before and after
-- `noise-heatmap.png`: isolated-pixel and local-noise hotspots
-- `cluster-preview.png`: coarse material/color clustering
+```powershell
+repixelize tune --corpus-dir examples/corpus --out-dir artifacts/tuning --profile soft --limit 8
+```
 
-Additional compare-mode outputs:
-- `compare.json`
-- `compare.csv`
-- `compare-sheet.png`
+This is intentionally a search-based tuner, not gradient descent. The objective depends on discrete argmins, thresholding, and benchmark comparisons, so it is better treated as a repeatable black-box optimization problem.
 
-## Repo layout
+## Repository Hygiene
+
+This repo is set up to be safe for local experimentation:
+
+- generated outputs under `artifacts/` are ignored
+- local corpus payloads under `examples/corpus/originals/` are ignored
+- archived raw sprite sheets under `examples/corpus/source-sheets/` are ignored
+- generated corpus metadata files are ignored
+
+That keeps benchmark assets, attribution exports, and tuning runs from polluting upstream history while still keeping the code, docs, and corpus layout tracked.
+
+## Repo Layout
 
 - `src/repixelizer`: core package
-- `tests`: synthetic and pipeline-focused tests
-- `examples`: reserved for future real example inputs
-- `artifacts`: local smoke-test outputs, not core source
+- `tests`: focused regression tests
+- `docs/spec.md`: product and technical spec
+- `docs/implementation-plan.md`: working roadmap
+- `examples/corpus/README.md`: local corpus layout and attribution workflow
 
 Core modules:
-- `inference.py`: target-size and phase inference
-- `analysis.py`: edge, alpha, and coarse clustering analysis
-- `continuous.py`: UV-field optimization
-- `discrete.py`: local cleanup after projection
-- `palette.py`: palette loading and optional quantization
-- `compare.py`: baseline comparisons and contact-sheet output
-- `synthetic.py`: benchmark generators for tests
 
-## Current status
-
-The project is bootstrapped and runnable:
-- editable install works
-- PyTorch-based optimization is wired in
-- synthetic tests are in place
-- compare mode writes diagnostics and baseline metrics
-
-What exists today is a serious experimental baseline, not a finished research result. It is strong enough to iterate on algorithmically, but it is not yet proven across a broad real-world image corpus.
-
-## Current limitations
-
-- single-image only
-- no multi-frame sprite-sheet consistency yet
-- no GUI yet
-- no user-painted masks or region hints yet
-- lattice inference is heuristic, not learned
-- continuous optimization is real, but still early and intentionally conservative
+- `inference.py`: target size and phase inference
+- `continuous.py`: source-aware lattice snapping and local discrete refinement
+- `metrics.py`: fidelity, adjacency, and motif metrics
+- `benchmark.py`: corpus benchmark runner
+- `tuning.py`: black-box hyperparameter search harness
+- `synthetic.py`: facsimile generation for tests and benchmarks
 
 ## Validation
 
-The current test suite checks:
-- resolution inference on synthetic emblem inputs
-- palette loading and strict palette enforcement
-- pipeline output and diagnostics writing
-- compare-mode artifact generation
-- a basic default CLI execution path
-
-Run it with:
+Run the focused test suite with:
 
 ```powershell
 .venv\Scripts\python -m pytest -q
 ```
 
-## Near-term direction
+## Notes
 
-The next useful steps are:
-- improve inference on real-world generated inputs
-- make the optimizer outperform resize-and-dither baselines more consistently
-- expand the curated benchmark corpus
-- add smarter discrete cleanup rules for outlines, highlights, and material bands
-- optionally add manual guidance in a later version, once the automatic baseline is stable
+- The local corpus is optional; the codebase is still usable without it.
+- The benchmark and tuning commands are designed for iterative local work, not for shipping generated artifacts in git.
+- Palette enforcement is optional and can be left off for unconstrained recovery runs.

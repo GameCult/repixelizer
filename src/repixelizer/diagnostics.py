@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .io import nearest_resize, save_rgba
-from .metrics import coherence_breakdown, reconstruction_error
+from .metrics import coherence_breakdown, foreground_reconstruction_error, reconstruction_error
 from .types import InferenceResult, RunResult
 
 
@@ -55,7 +55,7 @@ def write_comparison(path: str | Path, source_rgba: np.ndarray, output_rgba: np.
         Image.fromarray(_to_uint8(preview), mode="RGBA"),
         Image.fromarray(_to_uint8(output_rgba), mode="RGBA").resize((width, height), resample=Image.Resampling.NEAREST),
     ]
-    labels = ["Source", "NN Preview", "Target"]
+    labels = ["Source Facsimile", "Output @ Source Size", "Output Grid"]
     canvas = Image.new("RGBA", (width * len(tiles), height + 24), (24, 24, 24, 255))
     for index, tile in enumerate(tiles):
         panel = _make_checker((width, height))
@@ -113,5 +113,17 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         "confidence": result.inference.confidence,
         "coherence": coherence_breakdown(result.output_rgba),
         "source_preview_reconstruction_error": reconstruction_error(source_preview, result.source_rgba),
+        "source_preview_foreground_error": foreground_reconstruction_error(source_preview, result.source_rgba),
+        "output_colors_from_source_ratio": _source_color_ratio(result.source_rgba, result.output_rgba),
         "loss_history": result.solver.loss_history,
     }
+
+
+def _source_color_ratio(source_rgba: np.ndarray, output_rgba: np.ndarray) -> float:
+    source8 = _to_uint8(source_rgba).reshape(-1, 4)
+    output8 = _to_uint8(output_rgba).reshape(-1, 4)
+    source_colors = {tuple(px.tolist()) for px in source8}
+    output_colors = {tuple(px.tolist()) for px in output8}
+    if not output_colors:
+        return 1.0
+    return float(sum(color in source_colors for color in output_colors) / len(output_colors))
