@@ -152,7 +152,7 @@ def _build_guard_strip(
     include_lanczos: bool = True,
     panel_width: int = 220,
     panel_height: int = 170,
-    title: str = "Sword guard close-up",
+    title: str | None = "Sword guard close-up",
 ) -> Image.Image:
     panels = [
         _render_panel("Source", rgba=source_crop, pixelated=True, panel_width=panel_width, panel_height=panel_height),
@@ -163,19 +163,48 @@ def _build_guard_strip(
             1,
             _render_panel("Lanczos", rgba=lanczos_crop, pixelated=True, panel_width=panel_width, panel_height=panel_height),
         )
-    title_height = 24
+    title_height = 24 if title else 0
     gap = 10
     width = sum(panel.image.width for panel in panels) + gap * (len(panels) + 1)
     height = title_height + max(panel.image.height for panel in panels) + gap * 2
     canvas = Image.new("RGBA", (width, height), (14, 14, 16, 242))
     draw = ImageDraw.Draw(canvas)
     draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=12, fill=(14, 14, 16, 242), outline=(92, 92, 104, 255), width=1)
-    draw.text((gap, 4), title, fill=(255, 255, 255, 255))
+    if title:
+        draw.text((gap, 4), title, fill=(255, 255, 255, 255))
     x = gap
     for panel in panels:
         canvas.alpha_composite(panel.image, (x, title_height + gap))
         x += panel.image.width + gap
     return canvas
+
+
+def _build_pip_inset(
+    rgba_crop: np.ndarray,
+    *,
+    width: int = 126,
+    height: int = 94,
+) -> Image.Image:
+    fitted, (inner_x, inner_y, inner_w, inner_h) = _fit_rgba(
+        rgba_crop,
+        target_width=width - 12,
+        target_height=height - 12,
+        pixelated=True,
+    )
+    canvas = Image.new("RGBA", (width, height), (14, 14, 16, 236))
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle((0, 0, width - 1, height - 1), radius=10, fill=(14, 14, 16, 236), outline=(92, 92, 104, 255), width=1)
+    checker = _checkerboard(width - 12, height - 12, tile=8)
+    canvas.alpha_composite(checker, (6, 6))
+    canvas.alpha_composite(fitted, (6 + inner_x, 6 + inner_y))
+    return canvas
+
+
+def _add_pip_inset(render: RenderedPanel, inset: Image.Image, *, margin_x: int = 12, margin_y: int = 12) -> None:
+    inner_x, inner_y, inner_w, inner_h = render.content_box
+    placement_x = inner_x + max(0, inner_w - inset.width - margin_x)
+    placement_y = inner_y + max(0, inner_h - inset.height - margin_y)
+    render.image.alpha_composite(inset, (placement_x, placement_y))
 
 
 def _cell_bbox_to_source_bbox(
@@ -325,17 +354,16 @@ def main() -> None:
         _crop_rgba(ai_source, guard_bbox),
         _crop_rgba(ai_lanczos_preview, guard_bbox),
         _crop_rgba(ai_repixelized_preview, guard_bbox),
+        title=None,
     )
     guard_strip.save(out_guard_crop)
-    guard_inset = _build_guard_strip(
+    ai_crops = [
         _crop_rgba(ai_source, guard_bbox),
         _crop_rgba(ai_lanczos_preview, guard_bbox),
         _crop_rgba(ai_repixelized_preview, guard_bbox),
-        include_lanczos=False,
-        panel_width=190,
-        panel_height=142,
-        title="Sword guard",
-    )
+    ]
+    for panel, crop in zip(ai_panels, ai_crops, strict=True):
+        _add_pip_inset(panel, _build_pip_inset(crop))
 
     width = margin * 2 + panel_width * 3 + col_gap * 2
     height = margin * 2 + row_title_height * 2 + panel_height * 2 + row_gap
@@ -354,10 +382,6 @@ def main() -> None:
     for panel in ai_panels:
         canvas.alpha_composite(panel.image, (x, row2_y))
         x += panel_width + col_gap
-
-    inset_x = width - guard_inset.width - margin
-    inset_y = row2_y + panel_height - guard_inset.height - 18
-    canvas.alpha_composite(guard_inset, (inset_x, inset_y))
 
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_sheet)
