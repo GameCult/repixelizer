@@ -250,6 +250,40 @@ def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> N
     assert tile_score <= naive_score
 
 
+def test_tile_graph_keeps_shallow_connected_stroke_from_fanning_out() -> None:
+    source = np.zeros((48, 48, 4), dtype=np.float32)
+    for y in range(48):
+        x = int(round(8 + y * 0.65))
+        source[max(0, y - 1) : min(48, y + 2), max(0, x - 1) : min(48, x + 2)] = np.asarray(
+            [1.0, 1.0, 1.0, 1.0],
+            dtype=np.float32,
+        )
+
+    artifacts, _ = optimize_tile_graph(
+        source,
+        inference=InferenceResult(
+            target_width=6,
+            target_height=6,
+            phase_x=0.0,
+            phase_y=0.0,
+            confidence=1.0,
+            top_candidates=[],
+        ),
+        analysis=analyze_source(source, seed=7),
+        steps=0,
+        seed=7,
+        device="cpu",
+    )
+
+    occupied_per_row = [
+        int(np.count_nonzero(artifacts.target_rgba[y, :, 3] > 0.5))
+        for y in range(artifacts.target_rgba.shape[0])
+    ]
+
+    assert sum(count > 1 for count in occupied_per_row) <= 1
+    assert sum(occupied_per_row) <= artifacts.target_rgba.shape[0] + 1
+
+
 def test_tile_graph_preserves_transparent_background_on_sparse_detail() -> None:
     source = np.zeros((12, 12, 4), dtype=np.float32)
     source[5:7, 5:7] = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32)

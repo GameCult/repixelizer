@@ -46,6 +46,8 @@ Current tile-graph status:
 - source-region connected-components now have a device-side Torch path, so the expensive labeling step no longer depends on Python flood fill
 - on the real cleaned badge, the current tile-graph model build now takes about `9.48s` on CPU versus `6.37s` on CUDA while producing the same `2499` source regions and `23223` candidates
 - the remaining large-fixture bottleneck is the per-component one-cell window cutting pass, which still hops back to CPU after labeling
+- elongated source regions now get a stroke-aware slicing pass that follows their principal axis instead of only marching with cardinal queue steps, and the repo now has a shallow-stroke regression that checks for fan-out on that kind of component
+- that stroke-aware slicer is a real synthetic improvement but not a real-badge win yet: the latest badge probe under `artifacts/badge-tile-graph-stroke-v2-cuda/` still keeps the initial assignment and slightly regresses source-fidelity (`0.1832` vs `0.1800`)
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
 - the older hard-edge-only candidate widening pass under `artifacts/full-emblem-tile-graph-hard-edge-v2-cuda/` remains a useful negative result: more edge choices alone sharpen some cells locally but still regress full-emblem source-fidelity (`0.0377`)

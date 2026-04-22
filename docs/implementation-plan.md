@@ -56,24 +56,25 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass replaced the custom Python source-region flood fill with a device-side connected-components pass, which is the right seam for the GPU labeling work the tile-graph path needed.
+This pass tried the next geometry-focused experiment on tile-graph: cutting elongated source regions like strokes instead of treating them like generic blobs.
 
 What landed:
-- `tile_graph.py` now labels source-side atomic regions through a Torch CCL pass instead of a Python BFS when the source-region extractor runs on a device-backed path
-- the region builder still projects those source regions onto output coords and layers them together with the older sharp/edge anchors
-- tile-graph still keeps its initial assignment whenever the propagation loop would worsen source-lattice fidelity
-- the focused CUDA-vs-CPU regression still matches after the CCL swap, and the full suite is green at `56 passed`
+- `tile_graph.py` now computes principal-axis stats for source-side atomic regions and gives elongated components a stroke-aware slicing path
+- stroke-like components are now seeded and cut along their fitted axis, and then thinned to one best candidate per dominant row or column band before they reach the per-cell candidate buckets
+- a new shallow-stroke regression in `tests/test_tile_graph.py` checks that connected slanted strokes do not fan out across too many output cells
+- tile-graph still keeps its initial assignment whenever the propagation loop would worsen source-lattice fidelity, because that safeguard is still doing real work on the badge
 
 Current implementation note:
-- source-region labeling is now device-backed, but the one-cell window cutting pass still runs as a CPU queue walk over the labeled members, so candidate extraction remains the dominant runtime cost on large real fixtures
-- on the cleaned badge, the current tile-graph model build now takes about `9.48s` on CPU versus `6.37s` on CUDA while producing the same `2499` source regions and `23223` candidates
+- source-region labeling is still device-backed, but the one-cell window cutting pass remains CPU-side and still dominates large-fixture runtime
+- the stroke-aware slicer is a meaningful synthetic change, but it is not yet a real-badge quality win: the latest run under `artifacts/badge-tile-graph-stroke-v2-cuda/` lands at `0.1832`, slightly worse than the previous CCL-only tile-graph badge run at `0.1800`
+- the latest badge stroke-aware run still keeps its initial assignment, which reinforces that the current badge weakness is mostly in initial candidate ownership/selection rather than in the later propagation loop
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
-- the latest cleaned-badge tile-graph CUDA probe under `artifacts/badge-tile-graph-ccl-cuda/` completes end-to-end and keeps its initial assignment at `0.1800` source-fidelity, which is not a quality win but confirms the new CCL seam is stable on the real stress fixture
 
 Next after that:
-- move the one-cell window cutting pass closer to the user's original "consume one-cell regions and step through larger regions" design now that the region ownership itself is source-side
+- keep pushing the initial candidate builder toward true source-side stroke ownership instead of only better stroke slicing within the same builder
 - port the per-component window cutting pass back toward a fully device-friendly formulation instead of only accelerating the labeling step
+- decide whether the next stroke pass should use a real contour/skeleton trace instead of only a principal-axis approximation
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
 - evaluate whether the tile-graph propagation loop should become more contour-aware or simply stay more conservative now that the initial assignment is stronger
 - rerun tuning after the tile-graph objective and candidate sets stabilize
@@ -101,6 +102,7 @@ Current status:
 - on the full emblem, the tile-graph atomic path under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` now reaches `0.0224`, which is the best tile-graph full-emblem result so far in this repo
 - the remaining weakness on tile-graph is not candidate color purity anymore; it is candidate extraction cost plus deciding how aggressive the propagation step should be once the initial assignment is already strong
 - on the cleaned badge, the new CCL-backed tile-graph run under `artifacts/badge-tile-graph-ccl-cuda/` still lands at a weak `0.1800`, so the current CCL work should be treated as an infrastructure/performance step rather than a visual-quality fix
+- the new stroke-aware badge run under `artifacts/badge-tile-graph-stroke-v2-cuda/` still does not solve the guard-contour problem and slightly regresses to `0.1832`, so the next stroke pass should be judged on whether it changes the source-side path model more fundamentally
 
 Important note:
 - the checkerboard is baked into the source image, not transparency

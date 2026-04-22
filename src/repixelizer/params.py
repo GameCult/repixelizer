@@ -81,6 +81,9 @@ class SolverHyperParams:
     tile_graph_source_region_stride: int = 0
     tile_graph_source_region_min_area_ratio: float = 0.06
     tile_graph_source_region_window_coverage: float = 0.12
+    tile_graph_stroke_linearity_threshold: float = 0.72
+    tile_graph_stroke_step_scale: float = 0.95
+    tile_graph_stroke_minor_limit_scale: float = 0.55
     tile_graph_nonedge_sharp_weight: float = 0.85
     tile_graph_nonedge_mean_weight: float = 0.15
     tile_graph_edge_mean_weight: float = 0.03
