@@ -19,4 +19,4 @@ def test_compare_writes_comparison_artifacts(tmp_path: Path) -> None:
     assert output_path.exists()
     assert (diagnostics_dir / "compare-sheet.png").exists()
     assert (diagnostics_dir / "compare.csv").exists()
-    assert len(payload["rows"]) == 3
+    assert len(payload["rows"]) == 4

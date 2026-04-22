@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .baselines import error_diffusion_baseline, naive_resize_baseline
+from .baselines import error_diffusion_baseline, lanczos_resize_baseline, naive_resize_baseline
 from .diagnostics import write_compare_csv, write_json
 from .io import nearest_resize, save_rgba
 from .metrics import (
@@ -30,6 +30,7 @@ def _to_uint8(rgba: np.ndarray) -> np.ndarray:
 def _contact_sheet(
     source: np.ndarray,
     optimized: np.ndarray,
+    lanczos: np.ndarray,
     naive: np.ndarray,
     diffusion: np.ndarray,
     path: str | Path,
@@ -38,6 +39,7 @@ def _contact_sheet(
     panels = [
         ("Source", source),
         ("Optimized", nearest_resize(optimized, width=width, height=height)),
+        ("Lanczos", nearest_resize(lanczos, width=width, height=height)),
         ("Naive", nearest_resize(naive, width=width, height=height)),
         ("Diffusion", nearest_resize(diffusion, width=width, height=height)),
     ]
@@ -79,6 +81,7 @@ def run_compare(
     )
     source = result.source_rgba
     palette = load_palette(palette_path) if palette_path else None
+    lanczos = lanczos_resize_baseline(source, width=result.inference.target_width, height=result.inference.target_height)
     naive = naive_resize_baseline(source, width=result.inference.target_width, height=result.inference.target_height)
     diffusion = error_diffusion_baseline(
         source,
@@ -86,10 +89,11 @@ def run_compare(
         height=result.inference.target_height,
         palette=palette,
     )
-    _contact_sheet(source, result.output_rgba, naive, diffusion, diagnostics_path / "compare-sheet.png")
+    _contact_sheet(source, result.output_rgba, lanczos, naive, diffusion, diagnostics_path / "compare-sheet.png")
     rows = []
     for name, image in (
         ("optimized", result.output_rgba),
+        ("lanczos", lanczos),
         ("naive", naive),
         ("diffusion", diffusion),
     ):

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import numpy as np
 
-from .io import box_resize
+from .io import box_resize, lanczos_resize
 from .palette import derive_palette
 
 
 def naive_resize_baseline(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
     return box_resize(rgba, width=width, height=height)
+
+
+def lanczos_resize_baseline(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
+    return lanczos_resize(rgba, width=width, height=height)
 
 
 def _nearest_palette_color(pixel: np.ndarray, palette: np.ndarray) -> np.ndarray:

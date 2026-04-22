@@ -10,7 +10,7 @@ Instead of pretending this is a resize problem, Repixelizer treats it as lattice
 
 Repixelizer was built to rescue fake pixel art, but it can also be used to generate pixel art directly from non-pixel source art when the shapes are clean and the local structure is doing something useful.
 
-Top row: glossy non-pixel badge art repixelized at `128x128`. Bottom row: an AI fake-pixel interpretation of the same badge cleaned up with automatic lattice inference, which landed on `122x122` for this image.
+Rows show the source art, a plain Lanczos downscale to the same target size, and the repixelized result. The bottom row also carries a sword-guard picture-in-picture, because that tiny region is one of the more honest tests of whether the tool is preserving local cell adjacency instead of just getting the vibes approximately correct.
 
 ![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
@@ -117,6 +117,16 @@ Run the focused test suite with:
 ```powershell
 .venv\Scripts\python -m pytest -q
 ```
+
+## Regenerating README Assets
+
+The README comparison sheet is generated from repo-tracked fixtures, not from random artifacts left lying around:
+
+```powershell
+.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device cpu
+```
+
+That regenerates the README sheet, the standalone sword-guard closeup strip, and scratch outputs under `artifacts/readme-build/` so you can inspect the actual low-res results used to build the docs sample.
 
 ## Diagnostic Closeups
 
