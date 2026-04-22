@@ -75,6 +75,7 @@ class SolverHyperParams:
     phase_rerank_margin: float = 0.004
     tile_graph_max_candidates: int = 768
     tile_graph_max_candidates_per_coord: int = 2
+    tile_graph_edge_candidates_per_coord: int = 6
     tile_graph_component_min_area_ratio: float = 0.10
     tile_graph_large_component_ratio: float = 1.35
     tile_graph_window_coverage_threshold: float = 0.16
@@ -82,6 +83,10 @@ class SolverHyperParams:
     tile_graph_proposal_edge_weight: float = 0.40
     tile_graph_proposal_distance_weight: float = 0.22
     tile_graph_proposal_cluster_weight: float = 0.12
+    tile_graph_proposal_color_weight: float = 0.10
+    tile_graph_nonedge_sharp_weight: float = 0.85
+    tile_graph_nonedge_mean_weight: float = 0.15
+    tile_graph_edge_mean_weight: float = 0.03
     tile_graph_area_weight: float = 0.03
     tile_graph_alpha_weight: float = 0.25
     tile_graph_coverage_weight: float = 0.05

@@ -77,10 +77,13 @@ Experimental tile-graph note:
 - the later per-cell-local rewrite fixed the repeated-label and opaque-black-background failures by making candidates output-coord-scoped
 - the newest GPU-friendly rewrite keeps that local-candidate behavior but replaces the old component walk with per-cell top-k proposal scoring, which is fast enough to run end-to-end on CUDA
 - the current badge CUDA probe under `artifacts/tile-graph-cuda-pass/badge-cuda/` completes end-to-end at the selected `126x126` lattice with `24142` candidates and `0.0283` final source-fidelity
+- the latest hard-edge candidate pass widens edge-cell proposal sets with same-cell edge neighbors and strongest same-cell edge pixels, and it does reduce some medoid-like contour picks locally
+- that hard-edge pass is not a clean win yet: on the full badge fixture it increases candidate count to about `30k` and average choices to about `1.92`, but regresses full-image source-fidelity to about `0.0377`, so it remains exploratory
 
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
 - improve per-cell tile-graph proposal diversity so thin contours get more than “sharp vs edge-peak” in hard cells
+- separate “edge-side selection” from “more edge candidates” so we can test contour-targeted scoring without paying the current whole-image fidelity penalty
 - evaluate coordinated local moves when single-cell refinement still breaks thin contours
 - rerun tuning now that the tile-graph proposal and device path have changed materially
 - decide whether the tile-graph path should stay a diagnostics-only experiment, become a refine-stage candidate generator, or mature into a full alternate solver
@@ -122,6 +125,7 @@ What future work should improve here:
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
 - for the experimental tile-graph path specifically, better local proposal diversity and stronger adjacency evidence are still needed even after switching candidates back to literal source pixels
+- for the experimental tile-graph path specifically, edge-cell diversity alone is not enough; the current hard-edge candidate pass shows that simply widening edge-cell choices can sharpen some contour pixels while still making the global arrangement worse
 - for the experimental tile-graph path specifically, the next useful step is pruning and richer proposal families rather than more component-walk optimization, because the old CPU walk is now gone
 
 Current optimizer diagnosis:

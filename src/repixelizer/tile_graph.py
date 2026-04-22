@@ -59,6 +59,8 @@ class TileGraphModel:
     cell_candidate_indices: np.ndarray
     reference_mean_rgba: np.ndarray
     reference_sharp_rgba: np.ndarray
+    reference_edge_rgba: np.ndarray
+    edge_strength: np.ndarray
     component_count: int
     edge_density: float
     average_choices: float
@@ -157,6 +159,7 @@ def build_tile_graph_model(
     flat_y_t = pixel_y_t.reshape(-1)
     flat_x_t = pixel_x_t.reshape(-1)
     sharp_rgba_flat_t = flat_rgba_t[sharp_linear_t]
+    edge_rgba_flat_t = flat_rgba_t[edge_linear_t]
     sharp_cluster_flat_t = flat_cluster_t[sharp_linear_t]
     sharp_dist_t = (
         (flat_y_t.to(dtype=torch.float32) - sharp_y_flat_t[lattice_indices_t].to(dtype=torch.float32)).abs() / max(cell_h, 1.0)
@@ -169,10 +172,17 @@ def build_tile_graph_model(
     same_cluster_t = (
         (flat_cluster_t >= 0) & (flat_cluster_t == sharp_cluster_flat_t[lattice_indices_t])
     ).to(dtype=torch.float32)
-    color_error_t = (flat_rgba_t - sharp_rgba_flat_t[lattice_indices_t]).abs().mean(dim=-1)
+    sharp_color_error_t = (flat_rgba_t - sharp_rgba_flat_t[lattice_indices_t]).abs().mean(dim=-1)
+    edge_color_error_t = (flat_rgba_t - edge_rgba_flat_t[lattice_indices_t]).abs().mean(dim=-1)
+    edge_cell_mask_t = edge_strength_flat_t[lattice_indices_t] >= solver_params.source_edge_detail_threshold
+    proposal_color_error_t = torch.where(
+        edge_cell_mask_t,
+        torch.minimum(sharp_color_error_t, edge_color_error_t),
+        sharp_color_error_t,
+    )
     edge_cell_boost_t = (
         (1.0 - edge_focus_dist_t.clamp(0.0, 1.0))
-        * (edge_strength_flat_t[lattice_indices_t] >= solver_params.source_edge_detail_threshold).to(dtype=torch.float32)
+        * edge_cell_mask_t.to(dtype=torch.float32)
     )
     proposal_score_t = (
         flat_alpha_t
@@ -181,12 +191,19 @@ def build_tile_graph_model(
         + edge_cell_boost_t * getattr(solver_params, "tile_graph_proposal_edge_weight", 0.40) * 0.5
         + cell_support_flat_t[lattice_indices_t] * 0.08
         - sharp_dist_t * getattr(solver_params, "tile_graph_proposal_distance_weight", 0.22)
-        - color_error_t * 0.10
+        - proposal_color_error_t * getattr(solver_params, "tile_graph_proposal_color_weight", 0.10)
     )
     ranked_pool_t = _build_ranked_proposal_pool_torch(
         torch,
         lattice_indices_t,
         proposal_score_t,
+        cell_count=output_area,
+        pool_size=proposal_pool_size,
+    )
+    edge_ranked_pool_t = _build_ranked_proposal_pool_torch(
+        torch,
+        lattice_indices_t,
+        flat_edge_t + flat_alpha_t * 0.05,
         cell_count=output_area,
         pool_size=proposal_pool_size,
     )
@@ -205,7 +222,21 @@ def build_tile_graph_model(
 
     sharp_linear_np = sharp_linear_t.detach().cpu().numpy().astype(np.int64)
     edge_linear_np = edge_linear_t.detach().cpu().numpy().astype(np.int64)
+    edge_neighbor_linear_np: list[np.ndarray] = []
+    cell_ids_t = torch.arange(output_area, device=resolved_device, dtype=torch.long)
+    for _, dy, dx in _DIRS:
+        neighbor_y_t = (edge_peak_y_flat_t + dy).clamp(0, max(0, height - 1))
+        neighbor_x_t = (edge_peak_x_flat_t + dx).clamp(0, max(0, width - 1))
+        neighbor_linear_t = neighbor_y_t * width + neighbor_x_t
+        same_cell_neighbor_t = lattice_indices_t[neighbor_linear_t] == cell_ids_t
+        masked_neighbor_linear_t = torch.where(
+            same_cell_neighbor_t,
+            neighbor_linear_t,
+            torch.full_like(neighbor_linear_t, -1),
+        )
+        edge_neighbor_linear_np.append(masked_neighbor_linear_t.detach().cpu().numpy().astype(np.int64))
     ranked_pool_np = ranked_pool_t.detach().cpu().numpy().astype(np.int64)
+    edge_ranked_pool_np = edge_ranked_pool_t.detach().cpu().numpy().astype(np.int64)
     pixel_coverage_np = pixel_coverage_t.detach().cpu().numpy().astype(np.float32)
     edge_strength_np = source_reference.edge_strength.reshape(-1).astype(np.float32)
     flat_alpha_np = source_rgba.reshape(-1, source_rgba.shape[-1])[:, 3].astype(np.float32)
@@ -215,14 +246,20 @@ def build_tile_graph_model(
     candidate_area_ratio: list[float] = []
     candidate_coverage: list[float] = []
     choice_counts_list: list[int] = []
+    edge_candidate_cap = max(max_candidates_per_coord, int(getattr(solver_params, "tile_graph_edge_candidates_per_coord", max_candidates_per_coord)))
     for flat_index in range(output_area):
         coord_y = flat_index // inference.target_width
         coord_x = flat_index % inference.target_width
         seen_pixels: set[int] = set()
         cell_start = len(candidate_linear)
+        edge_cell = edge_strength_np[flat_index] >= solver_params.source_edge_detail_threshold
+        allowed_candidates = edge_candidate_cap if edge_cell else max_candidates_per_coord
         proposal_pixels = [int(sharp_linear_np[flat_index])]
-        if edge_strength_np[flat_index] >= solver_params.source_edge_detail_threshold:
+        if edge_cell:
             proposal_pixels.append(int(edge_linear_np[flat_index]))
+            for neighbor_linear in edge_neighbor_linear_np:
+                proposal_pixels.append(int(neighbor_linear[flat_index]))
+            proposal_pixels.extend(int(pixel_idx) for pixel_idx in edge_ranked_pool_np[flat_index].tolist() if int(pixel_idx) >= 0)
         proposal_pixels.extend(int(pixel_idx) for pixel_idx in ranked_pool_np[flat_index].tolist() if int(pixel_idx) >= 0)
         for pixel_index in proposal_pixels:
             if pixel_index < 0 or pixel_index in seen_pixels:
@@ -232,7 +269,7 @@ def build_tile_graph_model(
             if (
                 not is_primary
                 and coverage < solver_params.tile_graph_window_coverage_threshold
-                and edge_strength_np[flat_index] < solver_params.source_edge_detail_threshold
+                and not edge_cell
             ):
                 continue
             seen_pixels.add(pixel_index)
@@ -240,7 +277,7 @@ def build_tile_graph_model(
             candidate_coords.append((coord_y, coord_x))
             candidate_area_ratio.append(1.0)
             candidate_coverage.append(max(coverage, float(flat_alpha_np[pixel_index])))
-            if len(seen_pixels) >= max_candidates_per_coord:
+            if len(seen_pixels) >= allowed_candidates:
                 break
         if len(candidate_linear) == cell_start:
             pixel_index = int(sharp_linear_np[flat_index])
@@ -303,6 +340,8 @@ def build_tile_graph_model(
         cell_candidate_indices=cell_candidate_indices_np,
         reference_mean_rgba=source_reference.mean_rgba.astype(np.float32),
         reference_sharp_rgba=source_reference.sharp_rgba.astype(np.float32),
+        reference_edge_rgba=edge_rgba_flat_t.reshape(inference.target_height, inference.target_width, -1).detach().cpu().numpy().astype(np.float32),
+        edge_strength=source_reference.edge_strength.astype(np.float32),
         component_count=int(np.unique(analysis.cluster_map[analysis.alpha_map >= solver_params.alpha_transparent_threshold]).size),
         edge_density=edge_density,
         average_choices=average_choices,
@@ -345,11 +384,18 @@ def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperPara
             indices = model.cell_candidate_indices[start:end]
             reference_sharp = model.reference_sharp_rgba[y, x]
             reference_mean = model.reference_mean_rgba[y, x]
+            reference_edge = model.reference_edge_rgba[y, x]
             candidates = model.candidate_rgba[indices]
-            color_error = (
-                np.mean(np.abs(reference_sharp[None, :] - candidates), axis=-1) * 0.85
-                + np.mean(np.abs(reference_mean[None, :] - candidates), axis=-1) * 0.15
-            )
+            sharp_error = np.mean(np.abs(reference_sharp[None, :] - candidates), axis=-1)
+            mean_error = np.mean(np.abs(reference_mean[None, :] - candidates), axis=-1)
+            edge_error = np.mean(np.abs(reference_edge[None, :] - candidates), axis=-1)
+            if float(model.edge_strength[y, x]) >= solver_params.source_edge_detail_threshold:
+                color_error = np.minimum(sharp_error, edge_error) + mean_error * solver_params.tile_graph_edge_mean_weight
+            else:
+                color_error = (
+                    sharp_error * solver_params.tile_graph_nonedge_sharp_weight
+                    + mean_error * solver_params.tile_graph_nonedge_mean_weight
+                )
             area_error = np.abs(np.log(np.clip(model.candidate_area_ratio[indices], 1e-4, None) + 1e-4))
             alpha_error = np.abs(candidates[:, 3] - reference_mean[3])
             coverage_error = 1.0 - np.clip(model.candidate_coverage[indices], 0.0, 1.0)
@@ -377,12 +423,20 @@ def _tile_graph_unary_cost_torch(
     candidate_coverage_t = torch.from_numpy(model.candidate_coverage).to(device=device, dtype=torch.float32)
     reference_sharp_t = torch.from_numpy(model.reference_sharp_rgba).to(device=device, dtype=torch.float32)
     reference_mean_t = torch.from_numpy(model.reference_mean_rgba).to(device=device, dtype=torch.float32)
+    reference_edge_t = torch.from_numpy(model.reference_edge_rgba).to(device=device, dtype=torch.float32)
+    edge_strength_t = torch.from_numpy(model.edge_strength).to(device=device, dtype=torch.float32)
 
     choice_rgba_t = candidate_rgba_t[choice_indices_t]
     choice_deltas_t = candidate_deltas_t[choice_indices_t]
-    color_error = (
-        (reference_sharp_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1) * 0.85
-        + (reference_mean_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1) * 0.15
+    sharp_error_t = (reference_sharp_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
+    mean_error_t = (reference_mean_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
+    edge_error_t = (reference_edge_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
+    edge_cell_mask_t = edge_strength_t[..., None] >= solver_params.source_edge_detail_threshold
+    color_error = torch.where(
+        edge_cell_mask_t,
+        torch.minimum(sharp_error_t, edge_error_t) + mean_error_t * solver_params.tile_graph_edge_mean_weight,
+        sharp_error_t * solver_params.tile_graph_nonedge_sharp_weight
+        + mean_error_t * solver_params.tile_graph_nonedge_mean_weight,
     )
     area_error = torch.log(candidate_area_t[choice_indices_t].clamp_min(1e-4) + 1e-4).abs()
     alpha_error = (choice_rgba_t[..., 3] - reference_mean_t[..., None, 3]).abs()

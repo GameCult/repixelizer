@@ -105,6 +105,44 @@ def test_tile_graph_candidates_are_scoped_to_their_output_coord() -> None:
             assert np.all(coords[:, 1] == x)
 
 
+def test_tile_graph_edge_cells_include_multiple_same_cell_contour_colors() -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    source[:4, 0] = np.asarray([1.0, 0.9, 0.2, 1.0], dtype=np.float32)
+    source[:4, 1] = np.asarray([0.85, 0.6, 0.1, 1.0], dtype=np.float32)
+    source[:4, 2] = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    source[:4, 3] = np.asarray([0.9, 0.2, 0.1, 1.0], dtype=np.float32)
+    source[:4, 4:] = np.asarray([0.2, 0.8, 0.2, 1.0], dtype=np.float32)
+    source[4:, :] = np.asarray([0.2, 0.2, 0.8, 1.0], dtype=np.float32)
+
+    inference = InferenceResult(
+        target_width=2,
+        target_height=2,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+    model = build_tile_graph_model(
+        source,
+        inference=inference,
+        analysis=analyze_source(source, seed=17),
+        device="cpu",
+    )
+
+    start = int(model.cell_candidate_offsets[0])
+    end = int(model.cell_candidate_offsets[1])
+    candidates = {
+        tuple(np.round(color, 4))
+        for color in model.candidate_rgba[model.cell_candidate_indices[start:end]]
+    }
+    non_black_candidates = {color for color in candidates if color[:3] != (np.float32(0.0), np.float32(0.0), np.float32(0.0))}
+
+    assert len(candidates) >= 3
+    assert tuple(np.round(np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32), 4)) in candidates
+    assert len(non_black_candidates) >= 2
+
+
 def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
     source[4:12, 8] = np.asarray([0.95, 0.95, 0.95, 1.0], dtype=np.float32)
