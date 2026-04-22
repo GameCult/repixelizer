@@ -38,17 +38,15 @@ Recent adjacency-focused status:
 
 Current tile-graph status:
 
-- it now builds literal source-pixel candidates from lattice-assigned per-cell proposals instead of walking connected components on the CPU
-- it now places candidates from a per-cell local candidate set instead of treating the whole image as one reusable global tile vocabulary
-- the full tile-graph path now honors `--device`: source analysis, source-lattice reference construction, proposal scoring, and the local solver all run through Torch
-- it no longer invents averaged patch colors during candidate extraction; the current regression suite now checks that tile-graph candidates stay on real source colors
-- each output cell now scores a small raw-pixel proposal pool built from its inferred lattice assignment, sharp exemplar, and edge peak instead of borrowing candidates from distant regions
-- edge-heavy cells now widen their local candidate set with same-cell edge neighbors and strongest same-cell edge pixels, so the mode can at least consider harder contour colors instead of only a single medoid-like pick
-- it already beats naive resize on the repo's synthetic thin-feature regression
+- it now keeps candidates strictly local to each output coord and only uses literal source-pixel colors, so it no longer invents averaged patch colors or borrow labels from distant regions
+- candidate seeding now includes atomic connected color regions within each inferred lattice cell, layered together with the old sharp/edge anchors instead of replacing them outright
+- the latest full-emblem probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the earlier full-CUDA tile-graph baseline at `0.0283`
+- tile-graph now falls back to its initial assignment when the propagation loop would make source-lattice fidelity worse, which is currently important for preserving sharp internal contour cells
+- it still beats naive resize on the repo's synthetic thin-feature regression and now does so without letting the final propagation step blur past the initial placement
+- the solver, source analysis, and shared lattice reference still honor `--device`, but the new atomic-component candidate extraction is CPU-side again and is now the main runtime bottleneck on large real fixtures
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
-- the current badge CUDA probe under `artifacts/tile-graph-cuda-pass/badge-cuda/` now completes end-to-end on the selected `126x126` lattice and lands at `0.0283` final source-fidelity
-- the latest hard-edge candidate pass under `artifacts/full-emblem-tile-graph-hard-edge-v2-cuda/` improves local candidate diversity and slightly sharpens some internal contour cells, but it still regresses full-emblem source-fidelity (`0.0377` vs `0.0283` for the previous tile-graph pass), so it should be treated as an experiment rather than a settled default
+- the older hard-edge-only candidate widening pass under `artifacts/full-emblem-tile-graph-hard-edge-v2-cuda/` remains a useful negative result: more edge choices alone sharpen some cells locally but still regress full-emblem source-fidelity (`0.0377`)
 
 ## Quickstart
 

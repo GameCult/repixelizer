@@ -187,6 +187,14 @@ def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> N
         phase_x=0.18,
         phase_y=-0.12,
     )["score"]
+    initial_tile_score = source_lattice_consistency_breakdown(
+        fake,
+        artifacts.initial_rgba,
+        target_width=16,
+        target_height=16,
+        phase_x=0.18,
+        phase_y=-0.12,
+    )["score"]
     naive_score = source_lattice_consistency_breakdown(
         fake,
         naive,
@@ -196,6 +204,7 @@ def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> N
         phase_y=-0.12,
     )["score"]
 
+    assert tile_score <= initial_tile_score + 1e-6
     assert tile_score <= naive_score
 
 

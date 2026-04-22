@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 
+from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
 from .source_reference import build_source_lattice_reference
 from .types import InferenceResult, SolverArtifacts, SourceAnalysis
@@ -81,28 +82,136 @@ def _make_regular_uv(height: int, width: int, target_height: int, target_width: 
     return uv.astype(np.float32)
 
 
-def _build_ranked_proposal_pool_torch(torch, cell_indices_t, proposal_score_t, *, cell_count: int, pool_size: int):
-    if pool_size <= 0:
-        return torch.full((cell_count, 0), -1, device=cell_indices_t.device, dtype=torch.long)
-    if cell_indices_t.numel() == 0:
-        return torch.full((cell_count, pool_size), -1, device=cell_indices_t.device, dtype=torch.long)
-    score_lo_t = torch.min(proposal_score_t)
-    score_hi_t = torch.max(proposal_score_t)
-    normalized_score_t = (proposal_score_t - score_lo_t) / (score_hi_t - score_lo_t).clamp_min(1e-6)
-    sort_key_t = cell_indices_t.to(dtype=torch.float64) * 2.0 + (1.0 - normalized_score_t.to(dtype=torch.float64))
-    order_t = torch.argsort(sort_key_t)
-    sorted_cells_t = cell_indices_t[order_t]
-    positions_t = torch.arange(order_t.shape[0], device=cell_indices_t.device, dtype=torch.long)
-    start_flags_t = torch.ones_like(sorted_cells_t, dtype=torch.bool)
-    if sorted_cells_t.numel() > 1:
-        start_flags_t[1:] = sorted_cells_t[1:] != sorted_cells_t[:-1]
-    group_start_t = torch.where(start_flags_t, positions_t, torch.zeros_like(positions_t))
-    group_start_t = torch.cummax(group_start_t, dim=0).values
-    rank_t = positions_t - group_start_t
-    keep_mask_t = rank_t < pool_size
-    pool_t = torch.full((cell_count, pool_size), -1, device=cell_indices_t.device, dtype=torch.long)
-    pool_t[sorted_cells_t[keep_mask_t], rank_t[keep_mask_t]] = order_t[keep_mask_t]
-    return pool_t
+def _rgba_luminance(rgba: np.ndarray) -> np.ndarray:
+    return rgba[..., 0] * 0.2126 + rgba[..., 1] * 0.7152 + rgba[..., 2] * 0.0722
+
+
+def _segment_atomic_components_in_cell(
+    *,
+    linear_indices: np.ndarray,
+    flat_y: np.ndarray,
+    flat_x: np.ndarray,
+    flat_rgba: np.ndarray,
+    flat_premul: np.ndarray,
+    flat_edge: np.ndarray,
+    color_threshold: float,
+    alpha_threshold: float,
+) -> list[dict[str, float | int | np.ndarray]]:
+    if linear_indices.size == 0:
+        return []
+    ys = flat_y[linear_indices]
+    xs = flat_x[linear_indices]
+    premul = flat_premul[linear_indices]
+    rgba = flat_rgba[linear_indices]
+    edges = flat_edge[linear_indices]
+    y0 = int(np.min(ys))
+    x0 = int(np.min(xs))
+    local_y = ys - y0
+    local_x = xs - x0
+    local_index = -np.ones((int(np.max(local_y)) + 1, int(np.max(local_x)) + 1), dtype=np.int32)
+    local_index[local_y, local_x] = np.arange(linear_indices.shape[0], dtype=np.int32)
+    visited = np.zeros(linear_indices.shape[0], dtype=bool)
+    components: list[dict[str, float | int | np.ndarray]] = []
+
+    for seed in range(linear_indices.shape[0]):
+        if visited[seed]:
+            continue
+        visited[seed] = True
+        queue = [seed]
+        members: list[int] = []
+        seed_premul = premul[seed]
+        seed_alpha = float(rgba[seed, 3])
+        while queue:
+            pos = queue.pop()
+            members.append(pos)
+            cy = int(local_y[pos])
+            cx = int(local_x[pos])
+            for dy, dx in ((0, 1), (1, 0), (0, -1), (-1, 0)):
+                ny = cy + dy
+                nx = cx + dx
+                if ny < 0 or nx < 0 or ny >= local_index.shape[0] or nx >= local_index.shape[1]:
+                    continue
+                neighbor = int(local_index[ny, nx])
+                if neighbor < 0 or visited[neighbor]:
+                    continue
+                color_diff = float(np.mean(np.abs(premul[neighbor] - seed_premul)))
+                alpha_diff = abs(float(rgba[neighbor, 3]) - seed_alpha)
+                if color_diff > color_threshold or alpha_diff > alpha_threshold:
+                    continue
+                visited[neighbor] = True
+                queue.append(neighbor)
+        member_array = np.asarray(members, dtype=np.int32)
+        member_linear = linear_indices[member_array]
+        member_y = ys[member_array].astype(np.float32)
+        member_x = xs[member_array].astype(np.float32)
+        centroid_y = float(np.mean(member_y))
+        centroid_x = float(np.mean(member_x))
+        centroid_dist = (member_y - centroid_y) ** 2 + (member_x - centroid_x) ** 2
+        centroid_pick = int(np.argmin(centroid_dist))
+        edge_pick = int(np.argmax(edges[member_array]))
+        edge_peak = float(np.max(edges[member_array]))
+        rep_slot = edge_pick if edge_peak > 0.0 else centroid_pick
+        rep_linear = int(member_linear[rep_slot])
+        rep_rgba = rgba[member_array][rep_slot].astype(np.float32)
+        rgba_mean = np.mean(rgba[member_array], axis=0).astype(np.float32)
+        components.append(
+            {
+                "rep_linear": rep_linear,
+                "rep_rgba": rep_rgba,
+                "coverage": float(member_array.size / max(1, linear_indices.size)),
+                "edge_peak": edge_peak,
+                "alpha_mean": float(np.mean(rgba[member_array, 3])),
+                "luminance": float(_rgba_luminance(rgba_mean[None, :])[0]),
+                "size": int(member_array.size),
+            }
+        )
+    return components
+
+
+def _select_atomic_cell_candidates(
+    *,
+    components: list[dict[str, float | int | np.ndarray]],
+    allowed_candidates: int,
+    min_component_coverage: float,
+    reference_rgba: np.ndarray,
+    edge_reference_rgba: np.ndarray,
+    prefer_edge: bool,
+) -> list[dict[str, float | int | np.ndarray]]:
+    if not components:
+        return []
+    picked: list[dict[str, float | int | np.ndarray]] = []
+    seen_linear: set[int] = set()
+
+    def add(component: dict[str, float | int | np.ndarray]) -> None:
+        rep_linear = int(component["rep_linear"])
+        if rep_linear in seen_linear:
+            return
+        if float(component["coverage"]) < min_component_coverage and picked:
+            return
+        seen_linear.add(rep_linear)
+        picked.append(component)
+
+    by_area = sorted(components, key=lambda comp: (-float(comp["coverage"]), -float(comp["edge_peak"])))
+    by_edge = sorted(components, key=lambda comp: (-float(comp["edge_peak"]), -float(comp["coverage"])))
+    by_reference = sorted(
+        components,
+        key=lambda comp: float(np.mean(np.abs(np.asarray(comp["rep_rgba"], dtype=np.float32) - reference_rgba))),
+    )
+    by_edge_reference = sorted(
+        components,
+        key=lambda comp: float(np.mean(np.abs(np.asarray(comp["rep_rgba"], dtype=np.float32) - edge_reference_rgba))),
+    )
+
+    add(by_area[0])
+    add(by_reference[0])
+    if prefer_edge:
+        add(by_edge_reference[0])
+        add(by_edge[0])
+    for component in by_area:
+        add(component)
+        if len(picked) >= allowed_candidates:
+            break
+    return picked[:allowed_candidates]
 
 
 def build_tile_graph_model(
@@ -131,18 +240,17 @@ def build_tile_graph_model(
     cell_w = width / max(1, inference.target_width)
     output_area = max(1, inference.target_height * inference.target_width)
     max_candidates_per_coord = max(1, int(solver_params.tile_graph_max_candidates_per_coord))
-    proposal_pool_size = max(max_candidates_per_coord, int(getattr(solver_params, "tile_graph_proposal_pool_size", 4)))
 
     source_t = torch.from_numpy(source_rgba).to(device=resolved_device, dtype=torch.float32)
-    edge_t = torch.from_numpy(analysis.edge_map).to(device=resolved_device, dtype=torch.float32)
-    cluster_t = torch.from_numpy(analysis.cluster_map).to(device=resolved_device, dtype=torch.long)
     flat_rgba_t = source_t.reshape(-1, source_t.shape[-1])
-    flat_alpha_t = flat_rgba_t[:, 3]
-    flat_edge_t = edge_t.reshape(-1)
-    flat_cluster_t = cluster_t.reshape(-1)
+    pixel_y_t, pixel_x_t = torch.meshgrid(
+        torch.arange(height, device=resolved_device, dtype=torch.long),
+        torch.arange(width, device=resolved_device, dtype=torch.long),
+        indexing="ij",
+    )
+    flat_y_t = pixel_y_t.reshape(-1)
+    flat_x_t = pixel_x_t.reshape(-1)
     lattice_indices_t = torch.from_numpy(source_reference.lattice_indices).to(device=resolved_device, dtype=torch.long).reshape(-1)
-    cell_support_flat_t = torch.from_numpy(source_reference.cell_support.reshape(-1)).to(device=resolved_device, dtype=torch.float32)
-    cell_counts_flat_t = torch.from_numpy(source_reference.cell_counts.reshape(-1)).to(device=resolved_device, dtype=torch.float32)
     edge_strength_flat_t = torch.from_numpy(source_reference.edge_strength.reshape(-1)).to(device=resolved_device, dtype=torch.float32)
     sharp_x_flat_t = torch.from_numpy(source_reference.sharp_x.reshape(-1)).to(device=resolved_device, dtype=torch.long)
     sharp_y_flat_t = torch.from_numpy(source_reference.sharp_y.reshape(-1)).to(device=resolved_device, dtype=torch.long)
@@ -151,101 +259,30 @@ def build_tile_graph_model(
     sharp_linear_t = sharp_y_flat_t * width + sharp_x_flat_t
     edge_linear_t = edge_peak_y_flat_t * width + edge_peak_x_flat_t
 
-    pixel_y_t, pixel_x_t = torch.meshgrid(
-        torch.arange(height, device=resolved_device, dtype=torch.long),
-        torch.arange(width, device=resolved_device, dtype=torch.long),
-        indexing="ij",
-    )
-    flat_y_t = pixel_y_t.reshape(-1)
-    flat_x_t = pixel_x_t.reshape(-1)
-    sharp_rgba_flat_t = flat_rgba_t[sharp_linear_t]
-    edge_rgba_flat_t = flat_rgba_t[edge_linear_t]
-    sharp_cluster_flat_t = flat_cluster_t[sharp_linear_t]
-    sharp_dist_t = (
-        (flat_y_t.to(dtype=torch.float32) - sharp_y_flat_t[lattice_indices_t].to(dtype=torch.float32)).abs() / max(cell_h, 1.0)
-        + (flat_x_t.to(dtype=torch.float32) - sharp_x_flat_t[lattice_indices_t].to(dtype=torch.float32)).abs() / max(cell_w, 1.0)
-    )
-    edge_focus_dist_t = (
-        (flat_y_t.to(dtype=torch.float32) - edge_peak_y_flat_t[lattice_indices_t].to(dtype=torch.float32)).abs() / max(cell_h, 1.0)
-        + (flat_x_t.to(dtype=torch.float32) - edge_peak_x_flat_t[lattice_indices_t].to(dtype=torch.float32)).abs() / max(cell_w, 1.0)
-    )
-    same_cluster_t = (
-        (flat_cluster_t >= 0) & (flat_cluster_t == sharp_cluster_flat_t[lattice_indices_t])
-    ).to(dtype=torch.float32)
-    sharp_color_error_t = (flat_rgba_t - sharp_rgba_flat_t[lattice_indices_t]).abs().mean(dim=-1)
-    edge_color_error_t = (flat_rgba_t - edge_rgba_flat_t[lattice_indices_t]).abs().mean(dim=-1)
-    edge_cell_mask_t = edge_strength_flat_t[lattice_indices_t] >= solver_params.source_edge_detail_threshold
-    proposal_color_error_t = torch.where(
-        edge_cell_mask_t,
-        torch.minimum(sharp_color_error_t, edge_color_error_t),
-        sharp_color_error_t,
-    )
-    edge_cell_boost_t = (
-        (1.0 - edge_focus_dist_t.clamp(0.0, 1.0))
-        * edge_cell_mask_t.to(dtype=torch.float32)
-    )
-    proposal_score_t = (
-        flat_alpha_t
-        + flat_edge_t * getattr(solver_params, "tile_graph_proposal_edge_weight", 0.40)
-        + same_cluster_t * getattr(solver_params, "tile_graph_proposal_cluster_weight", 0.12)
-        + edge_cell_boost_t * getattr(solver_params, "tile_graph_proposal_edge_weight", 0.40) * 0.5
-        + cell_support_flat_t[lattice_indices_t] * 0.08
-        - sharp_dist_t * getattr(solver_params, "tile_graph_proposal_distance_weight", 0.22)
-        - proposal_color_error_t * getattr(solver_params, "tile_graph_proposal_color_weight", 0.10)
-    )
-    ranked_pool_t = _build_ranked_proposal_pool_torch(
-        torch,
-        lattice_indices_t,
-        proposal_score_t,
-        cell_count=output_area,
-        pool_size=proposal_pool_size,
-    )
-    edge_ranked_pool_t = _build_ranked_proposal_pool_torch(
-        torch,
-        lattice_indices_t,
-        flat_edge_t + flat_alpha_t * 0.05,
-        cell_count=output_area,
-        pool_size=proposal_pool_size,
-    )
-
-    cluster_count = max(1, int(max(analysis.cluster_centers.shape[0], 1)))
-    pixel_coverage_t = torch.maximum(flat_alpha_t.clamp(0.0, 1.0), flat_alpha_t.new_zeros(flat_alpha_t.shape))
-    valid_cluster_mask_t = flat_cluster_t >= 0
-    if bool(valid_cluster_mask_t.any().item()):
-        cluster_keys_t = lattice_indices_t[valid_cluster_mask_t] * cluster_count + flat_cluster_t[valid_cluster_mask_t]
-        cluster_counts_t = torch.bincount(cluster_keys_t, minlength=output_area * cluster_count).to(dtype=torch.float32)
-        pixel_coverage_t = torch.zeros_like(flat_alpha_t, dtype=torch.float32)
-        pixel_coverage_t[valid_cluster_mask_t] = (
-            cluster_counts_t[cluster_keys_t] / cell_counts_flat_t[lattice_indices_t[valid_cluster_mask_t]].clamp_min(1.0)
-        )
-        pixel_coverage_t = torch.maximum(pixel_coverage_t, flat_alpha_t * 0.5)
-
+    flat_rgba_np = source_rgba.reshape(-1, source_rgba.shape[-1]).astype(np.float32)
+    flat_premul_np = flat_rgba_np.copy()
+    flat_premul_np[:, :3] *= flat_premul_np[:, 3:4]
+    flat_edge_np = analysis.edge_map.reshape(-1).astype(np.float32)
+    flat_idx_np = source_reference.lattice_indices.reshape(-1).astype(np.int32)
+    counts_np = np.bincount(flat_idx_np, minlength=output_area).astype(np.int32)
+    offsets_np = np.zeros(output_area + 1, dtype=np.int32)
+    offsets_np[1:] = np.cumsum(counts_np, dtype=np.int32)
+    order_np = np.argsort(flat_idx_np, kind="stable")
+    flat_y_np, flat_x_np = np.divmod(np.arange(flat_idx_np.size, dtype=np.int64), width)
+    flat_y_np = flat_y_np.astype(np.int32)
+    flat_x_np = flat_x_np.astype(np.int32)
     sharp_linear_np = sharp_linear_t.detach().cpu().numpy().astype(np.int64)
     edge_linear_np = edge_linear_t.detach().cpu().numpy().astype(np.int64)
-    edge_neighbor_linear_np: list[np.ndarray] = []
-    cell_ids_t = torch.arange(output_area, device=resolved_device, dtype=torch.long)
-    for _, dy, dx in _DIRS:
-        neighbor_y_t = (edge_peak_y_flat_t + dy).clamp(0, max(0, height - 1))
-        neighbor_x_t = (edge_peak_x_flat_t + dx).clamp(0, max(0, width - 1))
-        neighbor_linear_t = neighbor_y_t * width + neighbor_x_t
-        same_cell_neighbor_t = lattice_indices_t[neighbor_linear_t] == cell_ids_t
-        masked_neighbor_linear_t = torch.where(
-            same_cell_neighbor_t,
-            neighbor_linear_t,
-            torch.full_like(neighbor_linear_t, -1),
-        )
-        edge_neighbor_linear_np.append(masked_neighbor_linear_t.detach().cpu().numpy().astype(np.int64))
-    ranked_pool_np = ranked_pool_t.detach().cpu().numpy().astype(np.int64)
-    edge_ranked_pool_np = edge_ranked_pool_t.detach().cpu().numpy().astype(np.int64)
-    pixel_coverage_np = pixel_coverage_t.detach().cpu().numpy().astype(np.float32)
+    flat_alpha_np = flat_rgba_np[:, 3].astype(np.float32)
+    edge_rgba_np = flat_rgba_np[edge_linear_np]
     edge_strength_np = source_reference.edge_strength.reshape(-1).astype(np.float32)
-    flat_alpha_np = source_rgba.reshape(-1, source_rgba.shape[-1])[:, 3].astype(np.float32)
 
     candidate_linear: list[int] = []
     candidate_coords: list[tuple[int, int]] = []
     candidate_area_ratio: list[float] = []
     candidate_coverage: list[float] = []
     choice_counts_list: list[int] = []
+    component_total = 0
     edge_candidate_cap = max(max_candidates_per_coord, int(getattr(solver_params, "tile_graph_edge_candidates_per_coord", max_candidates_per_coord)))
     for flat_index in range(output_area):
         coord_y = flat_index // inference.target_width
@@ -254,37 +291,44 @@ def build_tile_graph_model(
         cell_start = len(candidate_linear)
         edge_cell = edge_strength_np[flat_index] >= solver_params.source_edge_detail_threshold
         allowed_candidates = edge_candidate_cap if edge_cell else max_candidates_per_coord
-        proposal_pixels = [int(sharp_linear_np[flat_index])]
-        if edge_cell:
-            proposal_pixels.append(int(edge_linear_np[flat_index]))
-            for neighbor_linear in edge_neighbor_linear_np:
-                proposal_pixels.append(int(neighbor_linear[flat_index]))
-            proposal_pixels.extend(int(pixel_idx) for pixel_idx in edge_ranked_pool_np[flat_index].tolist() if int(pixel_idx) >= 0)
-        proposal_pixels.extend(int(pixel_idx) for pixel_idx in ranked_pool_np[flat_index].tolist() if int(pixel_idx) >= 0)
-        for pixel_index in proposal_pixels:
-            if pixel_index < 0 or pixel_index in seen_pixels:
-                continue
-            is_primary = len(seen_pixels) == 0
-            coverage = float(pixel_coverage_np[pixel_index])
-            if (
-                not is_primary
-                and coverage < solver_params.tile_graph_window_coverage_threshold
-                and not edge_cell
-            ):
-                continue
+
+        def add_candidate(pixel_index: int, coverage: float) -> None:
+            if pixel_index in seen_pixels or len(seen_pixels) >= allowed_candidates:
+                return
             seen_pixels.add(pixel_index)
             candidate_linear.append(pixel_index)
             candidate_coords.append((coord_y, coord_x))
             candidate_area_ratio.append(1.0)
-            candidate_coverage.append(max(coverage, float(flat_alpha_np[pixel_index])))
-            if len(seen_pixels) >= allowed_candidates:
-                break
+            candidate_coverage.append(float(np.clip(coverage, 0.0, 1.0)))
+
+        linear_indices = order_np[offsets_np[flat_index] : offsets_np[flat_index + 1]]
+        components = _segment_atomic_components_in_cell(
+            linear_indices=linear_indices,
+            flat_y=flat_y_np,
+            flat_x=flat_x_np,
+            flat_rgba=flat_rgba_np,
+            flat_premul=flat_premul_np,
+            flat_edge=flat_edge_np,
+            color_threshold=float(getattr(solver_params, "tile_graph_component_color_threshold", 0.055)),
+            alpha_threshold=float(getattr(solver_params, "tile_graph_component_alpha_threshold", 0.12)),
+        )
+        component_total += len(components)
+        selected_components = _select_atomic_cell_candidates(
+            components=components,
+            allowed_candidates=allowed_candidates,
+            min_component_coverage=float(getattr(solver_params, "tile_graph_component_min_coverage", 0.02)),
+            reference_rgba=source_reference.sharp_rgba.reshape(-1, 4)[flat_index],
+            edge_reference_rgba=edge_rgba_np[flat_index],
+            prefer_edge=edge_cell,
+        )
+        add_candidate(int(sharp_linear_np[flat_index]), max(0.05, float(flat_alpha_np[int(sharp_linear_np[flat_index])])))
+        if edge_cell:
+            add_candidate(int(edge_linear_np[flat_index]), max(0.05, float(flat_alpha_np[int(edge_linear_np[flat_index])])))
+        for component in selected_components:
+            pixel_index = int(component["rep_linear"])
+            add_candidate(pixel_index, float(component["coverage"]))
         if len(candidate_linear) == cell_start:
-            pixel_index = int(sharp_linear_np[flat_index])
-            candidate_linear.append(pixel_index)
-            candidate_coords.append((coord_y, coord_x))
-            candidate_area_ratio.append(1.0)
-            candidate_coverage.append(max(float(pixel_coverage_np[pixel_index]), float(flat_alpha_np[pixel_index])))
+            add_candidate(int(sharp_linear_np[flat_index]), max(0.05, float(flat_alpha_np[int(sharp_linear_np[flat_index])])))
         choice_counts_list.append(len(candidate_linear) - cell_start)
 
     candidate_linear_t = torch.as_tensor(candidate_linear, device=resolved_device, dtype=torch.long)
@@ -309,26 +353,9 @@ def build_tile_graph_model(
     choice_counts = np.diff(cell_candidate_offsets)
     average_choices = float(np.mean(choice_counts)) if choice_counts.size else 0.0
 
-    extracted_choice_grid = np.maximum(choice_counts.reshape(inference.target_height, inference.target_width) - 1, 0)
-    edge_support = 0.0
-    edge_total = 0
-    if inference.target_width > 1:
-        edge_support += float(
-            np.mean(
-                (extracted_choice_grid[:, :-1] > 0).astype(np.float32)
-                * (extracted_choice_grid[:, 1:] > 0).astype(np.float32)
-            )
-        )
-        edge_total += 1
-    if inference.target_height > 1:
-        edge_support += float(
-            np.mean(
-                (extracted_choice_grid[:-1, :] > 0).astype(np.float32)
-                * (extracted_choice_grid[1:, :] > 0).astype(np.float32)
-            )
-        )
-        edge_total += 1
-    edge_density = edge_support / max(1, edge_total)
+    edge_density = float(
+        np.mean(source_reference.edge_strength >= solver_params.source_edge_detail_threshold)
+    )
 
     return TileGraphModel(
         candidate_rgba=candidate_rgba_np,
@@ -340,9 +367,9 @@ def build_tile_graph_model(
         cell_candidate_indices=cell_candidate_indices_np,
         reference_mean_rgba=source_reference.mean_rgba.astype(np.float32),
         reference_sharp_rgba=source_reference.sharp_rgba.astype(np.float32),
-        reference_edge_rgba=edge_rgba_flat_t.reshape(inference.target_height, inference.target_width, -1).detach().cpu().numpy().astype(np.float32),
+        reference_edge_rgba=edge_rgba_np.reshape(inference.target_height, inference.target_width, -1).astype(np.float32),
         edge_strength=source_reference.edge_strength.astype(np.float32),
-        component_count=int(np.unique(analysis.cluster_map[analysis.alpha_map >= solver_params.alpha_transparent_threshold]).size),
+        component_count=component_total,
         edge_density=edge_density,
         average_choices=average_choices,
         model_device=resolved_device,
@@ -720,17 +747,41 @@ def optimize_tile_graph(
     selected = selected_t.detach().cpu().numpy().astype(np.int32)
     initial_rgba = _assignment_rgba(model, initial_selected).astype(np.float32)
     target_rgba = _assignment_rgba(model, selected).astype(np.float32)
+    initial_source_fidelity = source_lattice_consistency_breakdown(
+        rgba,
+        initial_rgba,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+    )["score"]
+    final_source_fidelity = source_lattice_consistency_breakdown(
+        rgba,
+        target_rgba,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+    )["score"]
+    kept_initial_assignment = False
+    if final_source_fidelity > initial_source_fidelity + 1e-6:
+        target_rgba = initial_rgba.copy()
+        final_source_fidelity = initial_source_fidelity
+        kept_initial_assignment = True
     diagnostics = {
         "mode": "tile-graph",
         "tile_graph_model_device": model.model_device,
         "tile_graph_solver_device": resolved_device,
-        "tile_graph_proposal_mode": "lattice-topk",
+        "tile_graph_proposal_mode": "atomic-components",
         "tile_graph_component_count": model.component_count,
         "tile_graph_candidate_count": int(model.candidate_rgba.shape[0]),
         "tile_graph_edge_density": model.edge_density,
         "tile_graph_average_choices": model.average_choices,
         "tile_graph_initial_score": float(loss_history[0]),
         "tile_graph_final_score": float(loss_history[-1]),
+        "tile_graph_initial_source_fidelity": float(initial_source_fidelity),
+        "tile_graph_final_source_fidelity": float(final_source_fidelity),
+        "tile_graph_kept_initial_assignment": kept_initial_assignment,
     }
     return (
         SolverArtifacts(
