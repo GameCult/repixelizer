@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from repixelizer.analysis import analyze_source
 from repixelizer.baselines import naive_resize_baseline
@@ -196,6 +197,45 @@ def test_tile_graph_preserves_transparent_background_on_sparse_detail() -> None:
     alpha_zero_ratio = float((artifacts.target_rgba[..., 3] <= 0.05).mean())
 
     assert alpha_zero_ratio >= 0.75
+
+
+def test_tile_graph_cuda_matches_cpu_on_small_case() -> None:
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is not available in this environment")
+
+    source = make_emblem(16, 16)
+    fake = fake_pixelize(source, upscale=8, phase_x=0.1, phase_y=-0.05, blur_radius=0.4, warp_strength=0.15, warp_detail=4)
+    inference = InferenceResult(
+        target_width=16,
+        target_height=16,
+        phase_x=0.1,
+        phase_y=-0.05,
+        confidence=1.0,
+        top_candidates=[],
+    )
+    analysis = analyze_source(fake, seed=7)
+
+    cpu_artifacts, cpu_diag = optimize_tile_graph(
+        fake,
+        inference=inference,
+        analysis=analysis,
+        steps=0,
+        seed=7,
+        device="cpu",
+    )
+    cuda_artifacts, cuda_diag = optimize_tile_graph(
+        fake,
+        inference=inference,
+        analysis=analysis,
+        steps=0,
+        seed=7,
+        device="cuda",
+    )
+
+    assert cpu_diag["tile_graph_solver_device"] == "cpu"
+    assert cuda_diag["tile_graph_solver_device"] == "cuda"
+    assert np.allclose(cpu_artifacts.target_rgba, cuda_artifacts.target_rgba, atol=1e-5)
 
 
 def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Path) -> None:

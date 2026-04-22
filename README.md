@@ -40,11 +40,12 @@ Current tile-graph status:
 
 - it now builds literal source-pixel candidates from connected source clusters plus lattice-aligned fallback coverage
 - it now places candidates from a per-cell local candidate set instead of treating the whole image as one reusable global tile vocabulary
+- the local tile-graph solver now honors `--device` and runs through Torch, so its scoring/update loop can use CUDA instead of being hardwired to NumPy on the CPU
 - it no longer invents averaged patch colors during candidate extraction; the current regression suite now checks that tile-graph candidates stay on real source colors
 - accepted component candidates now consume a cell-sized source footprint, and each output cell only sees candidates attached to its own inferred lattice coord
 - it already beats naive resize on the repo's synthetic thin-feature regression
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
-- the tradeoff is that large real-fixture runs are now slower because candidate count scales with the inferred output area, so performance tuning is now a first-class concern for this path
+- the remaining performance bottleneck is still candidate extraction/building on large real fixtures, so CUDA improves the solver stage but does not yet make badge-scale tile-graph runs fast end-to-end
 
 ## Quickstart
 

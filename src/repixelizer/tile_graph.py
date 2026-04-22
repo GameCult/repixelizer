@@ -28,6 +28,27 @@ _OPPOSITE = {
 }
 
 
+def _require_torch():
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - exercised only when torch missing
+        raise RuntimeError(
+            "PyTorch is required for the tile-graph solver. Install project dependencies first."
+        ) from exc
+    return torch
+
+
+def _resolve_device(torch, requested: str) -> str:
+    if requested == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA was requested, but this PyTorch build does not have a usable CUDA device. "
+            "Install a CUDA-enabled PyTorch build or use --device cpu."
+        )
+    return requested
+
+
 @dataclass(slots=True)
 class TileGraphModel:
     candidate_rgba: np.ndarray
@@ -486,6 +507,24 @@ def _cell_candidate_span(model: TileGraphModel, y: int, x: int) -> tuple[int, in
     return int(model.cell_candidate_offsets[flat_index]), int(model.cell_candidate_offsets[flat_index + 1])
 
 
+def _build_choice_grid(model: TileGraphModel) -> tuple[np.ndarray, np.ndarray]:
+    height, width = model.reference_sharp_rgba.shape[:2]
+    choice_counts = np.diff(model.cell_candidate_offsets)
+    max_choices = int(np.max(choice_counts)) if choice_counts.size else 1
+    choice_indices = np.zeros((height, width, max_choices), dtype=np.int64)
+    choice_mask = np.zeros((height, width, max_choices), dtype=bool)
+    for flat_index, count in enumerate(choice_counts.tolist()):
+        if count <= 0:
+            continue
+        y = flat_index // width
+        x = flat_index % width
+        start = int(model.cell_candidate_offsets[flat_index])
+        end = int(model.cell_candidate_offsets[flat_index + 1])
+        choice_indices[y, x, :count] = model.cell_candidate_indices[start:end]
+        choice_mask[y, x, :count] = True
+    return choice_indices, choice_mask
+
+
 def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperParams) -> np.ndarray:
     height, width = model.reference_sharp_rgba.shape[:2]
     unary_cost = np.full(model.cell_candidate_indices.shape[0], np.inf, dtype=np.float32)
@@ -512,6 +551,159 @@ def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperPara
                 + coverage_error * solver_params.tile_graph_coverage_weight
             ).astype(np.float32)
     return unary_cost
+
+
+def _tile_graph_unary_cost_torch(
+    torch,
+    model: TileGraphModel,
+    choice_indices_t,
+    choice_mask_t,
+    *,
+    device: str,
+    solver_params: SolverHyperParams,
+):
+    candidate_rgba_t = torch.from_numpy(model.candidate_rgba).to(device=device, dtype=torch.float32)
+    candidate_deltas_t = torch.from_numpy(model.candidate_deltas).to(device=device, dtype=torch.float32)
+    candidate_area_t = torch.from_numpy(model.candidate_area_ratio).to(device=device, dtype=torch.float32)
+    candidate_coverage_t = torch.from_numpy(model.candidate_coverage).to(device=device, dtype=torch.float32)
+    reference_sharp_t = torch.from_numpy(model.reference_sharp_rgba).to(device=device, dtype=torch.float32)
+    reference_mean_t = torch.from_numpy(model.reference_mean_rgba).to(device=device, dtype=torch.float32)
+
+    choice_rgba_t = candidate_rgba_t[choice_indices_t]
+    choice_deltas_t = candidate_deltas_t[choice_indices_t]
+    color_error = (
+        (reference_sharp_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1) * 0.85
+        + (reference_mean_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1) * 0.15
+    )
+    area_error = torch.log(candidate_area_t[choice_indices_t].clamp_min(1e-4) + 1e-4).abs()
+    alpha_error = (choice_rgba_t[..., 3] - reference_mean_t[..., None, 3]).abs()
+    coverage_error = 1.0 - candidate_coverage_t[choice_indices_t].clamp(0.0, 1.0)
+    unary_cost_t = (
+        color_error
+        + area_error * solver_params.tile_graph_area_weight
+        + alpha_error * solver_params.tile_graph_alpha_weight
+        + coverage_error * solver_params.tile_graph_coverage_weight
+    )
+    unary_cost_t = unary_cost_t.masked_fill(~choice_mask_t, float("inf"))
+    return unary_cost_t, candidate_rgba_t, candidate_deltas_t, choice_rgba_t, choice_deltas_t
+
+
+def _pair_penalty_selected_torch(torch, candidate_rgba_t, candidate_deltas_t, left_indices_t, right_indices_t, direction: int, weight: float):
+    left_rgba = candidate_rgba_t[left_indices_t]
+    right_rgba = candidate_rgba_t[right_indices_t]
+    observed_delta = right_rgba - left_rgba
+    expected = candidate_deltas_t[left_indices_t, direction]
+    reverse = candidate_deltas_t[right_indices_t, _OPPOSITE[direction]]
+    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
+    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
+    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+
+
+def _pair_penalty_option_right_torch(
+    torch,
+    fixed_left_indices_t,
+    option_rgba_t,
+    option_deltas_t,
+    candidate_rgba_t,
+    candidate_deltas_t,
+    *,
+    weight: float,
+):
+    fixed_left_rgba = candidate_rgba_t[fixed_left_indices_t]
+    expected = candidate_deltas_t[fixed_left_indices_t, _RIGHT][..., None, :]
+    reverse = option_deltas_t[..., _LEFT, :]
+    observed_delta = option_rgba_t - fixed_left_rgba[..., None, :]
+    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
+    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
+    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+
+
+def _pair_penalty_option_left_torch(
+    torch,
+    option_rgba_t,
+    option_deltas_t,
+    fixed_right_indices_t,
+    candidate_rgba_t,
+    candidate_deltas_t,
+    *,
+    weight: float,
+):
+    fixed_right_rgba = candidate_rgba_t[fixed_right_indices_t]
+    expected = option_deltas_t[..., _RIGHT, :]
+    reverse = candidate_deltas_t[fixed_right_indices_t, _LEFT][..., None, :]
+    observed_delta = fixed_right_rgba[..., None, :] - option_rgba_t
+    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
+    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
+    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+
+
+def _pair_penalty_option_down_torch(
+    torch,
+    fixed_up_indices_t,
+    option_rgba_t,
+    option_deltas_t,
+    candidate_rgba_t,
+    candidate_deltas_t,
+    *,
+    weight: float,
+):
+    fixed_up_rgba = candidate_rgba_t[fixed_up_indices_t]
+    expected = candidate_deltas_t[fixed_up_indices_t, _DOWN][..., None, :]
+    reverse = option_deltas_t[..., _UP, :]
+    observed_delta = option_rgba_t - fixed_up_rgba[..., None, :]
+    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
+    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
+    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+
+
+def _pair_penalty_option_up_torch(
+    torch,
+    option_rgba_t,
+    option_deltas_t,
+    fixed_down_indices_t,
+    candidate_rgba_t,
+    candidate_deltas_t,
+    *,
+    weight: float,
+):
+    fixed_down_rgba = candidate_rgba_t[fixed_down_indices_t]
+    expected = option_deltas_t[..., _DOWN, :]
+    reverse = candidate_deltas_t[fixed_down_indices_t, _UP][..., None, :]
+    observed_delta = fixed_down_rgba[..., None, :] - option_rgba_t
+    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
+    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
+    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+
+
+def _assignment_score_torch(torch, selected_t, unary_cost_t, choice_indices_t, candidate_rgba_t, candidate_deltas_t, solver_params: SolverHyperParams) -> float:
+    selected_choice_t = (choice_indices_t == selected_t[..., None]).to(dtype=torch.int64).argmax(dim=-1)
+    gathered = torch.take_along_dim(unary_cost_t, selected_choice_t[..., None], dim=2)[..., 0]
+    score = float(gathered.mean().item())
+    if selected_t.shape[1] > 1:
+        score += float(
+            _pair_penalty_selected_torch(
+                torch,
+                candidate_rgba_t,
+                candidate_deltas_t,
+                selected_t[:, :-1],
+                selected_t[:, 1:],
+                _RIGHT,
+                solver_params.tile_graph_delta_weight,
+            ).mean().item()
+        )
+    if selected_t.shape[0] > 1:
+        score += float(
+            _pair_penalty_selected_torch(
+                torch,
+                candidate_rgba_t,
+                candidate_deltas_t,
+                selected_t[:-1, :],
+                selected_t[1:, :],
+                _DOWN,
+                solver_params.tile_graph_delta_weight,
+            ).mean().item()
+        )
+    return score
 
 
 def _assignment_rgba(model: TileGraphModel, selected: np.ndarray) -> np.ndarray:
@@ -565,56 +757,108 @@ def optimize_tile_graph(
     device: str,
     solver_params: SolverHyperParams | None = None,
 ) -> tuple[SolverArtifacts, dict[str, Any]]:
-    del steps, seed, device
+    del steps
+    torch = _require_torch()
+    resolved_device = _resolve_device(torch, device)
     solver_params = solver_params or SolverHyperParams()
+    torch.manual_seed(seed)
+    if resolved_device == "cuda":
+        torch.cuda.manual_seed_all(seed)
     model = build_tile_graph_model(
         rgba,
         inference=inference,
         analysis=analysis,
         solver_params=solver_params,
     )
-    unary_cost = _tile_graph_unary_cost(model, solver_params)
-    selected = np.zeros((inference.target_height, inference.target_width), dtype=np.int32)
-    for y in range(inference.target_height):
-        for x in range(inference.target_width):
-            start, end = _cell_candidate_span(model, y, x)
-            assert end > start, "each output cell must have at least one local tile candidate"
-            local_cost = unary_cost[start:end]
-            local_indices = model.cell_candidate_indices[start:end]
-            selected[y, x] = int(local_indices[int(np.argmin(local_cost))])
-    initial_selected = selected.copy()
-    loss_history = [_assignment_score(selected, model, unary_cost, solver_params)]
+    choice_indices_np, choice_mask_np = _build_choice_grid(model)
+    choice_indices_t = torch.from_numpy(choice_indices_np).to(device=resolved_device, dtype=torch.long)
+    choice_mask_t = torch.from_numpy(choice_mask_np).to(device=resolved_device, dtype=torch.bool)
+    unary_cost_t, candidate_rgba_t, candidate_deltas_t, choice_rgba_t, choice_deltas_t = _tile_graph_unary_cost_torch(
+        torch,
+        model,
+        choice_indices_t,
+        choice_mask_t,
+        device=resolved_device,
+        solver_params=solver_params,
+    )
+    initial_choice_t = torch.argmin(unary_cost_t, dim=2)
+    selected_t = torch.take_along_dim(choice_indices_t, initial_choice_t[..., None], dim=2)[..., 0]
+    initial_selected_t = selected_t.clone()
+    loss_history = [_assignment_score_torch(torch, selected_t, unary_cost_t, choice_indices_t, candidate_rgba_t, candidate_deltas_t, solver_params)]
+    grid_y_t, grid_x_t = torch.meshgrid(
+        torch.arange(inference.target_height, device=resolved_device, dtype=torch.long),
+        torch.arange(inference.target_width, device=resolved_device, dtype=torch.long),
+        indexing="ij",
+    )
     for _ in range(max(0, int(solver_params.tile_graph_iterations))):
         changed = 0
         for parity in (0, 1):
-            for y in range(selected.shape[0]):
-                for x in range((y + parity) % 2, selected.shape[1], 2):
-                    start, end = _cell_candidate_span(model, y, x)
-                    local_indices = model.cell_candidate_indices[start:end]
-                    local_cost = unary_cost[start:end].copy()
-                    for option_index, candidate_index in enumerate(local_indices.tolist()):
-                        option_cost = float(local_cost[option_index])
-                        if x > 0:
-                            option_cost += _pair_penalty(model, int(selected[y, x - 1]), int(candidate_index), _RIGHT, solver_params)
-                        if x + 1 < selected.shape[1]:
-                            option_cost += _pair_penalty(model, int(candidate_index), int(selected[y, x + 1]), _RIGHT, solver_params)
-                        if y > 0:
-                            option_cost += _pair_penalty(model, int(selected[y - 1, x]), int(candidate_index), _DOWN, solver_params)
-                        if y + 1 < selected.shape[0]:
-                            option_cost += _pair_penalty(model, int(candidate_index), int(selected[y + 1, x]), _DOWN, solver_params)
-                        local_cost[option_index] = option_cost
-                    best = int(local_indices[int(np.argmin(local_cost))])
-                    if best != int(selected[y, x]):
-                        selected[y, x] = best
-                        changed += 1
-        loss_history.append(_assignment_score(selected, model, unary_cost, solver_params))
+            parity_mask_t = ((grid_y_t + grid_x_t) & 1) == parity
+            local_cost_t = unary_cost_t.clone()
+            if selected_t.shape[1] > 1:
+                local_cost_t[:, 1:, :] += _pair_penalty_option_right_torch(
+                    torch,
+                    selected_t[:, :-1],
+                    choice_rgba_t[:, 1:, :, :],
+                    choice_deltas_t[:, 1:, :, :, :],
+                    candidate_rgba_t,
+                    candidate_deltas_t,
+                    weight=solver_params.tile_graph_delta_weight,
+                )
+                local_cost_t[:, :-1, :] += _pair_penalty_option_left_torch(
+                    torch,
+                    choice_rgba_t[:, :-1, :, :],
+                    choice_deltas_t[:, :-1, :, :, :],
+                    selected_t[:, 1:],
+                    candidate_rgba_t,
+                    candidate_deltas_t,
+                    weight=solver_params.tile_graph_delta_weight,
+                )
+            if selected_t.shape[0] > 1:
+                local_cost_t[1:, :, :] += _pair_penalty_option_down_torch(
+                    torch,
+                    selected_t[:-1, :],
+                    choice_rgba_t[1:, :, :, :],
+                    choice_deltas_t[1:, :, :, :, :],
+                    candidate_rgba_t,
+                    candidate_deltas_t,
+                    weight=solver_params.tile_graph_delta_weight,
+                )
+                local_cost_t[:-1, :, :] += _pair_penalty_option_up_torch(
+                    torch,
+                    choice_rgba_t[:-1, :, :, :],
+                    choice_deltas_t[:-1, :, :, :, :],
+                    selected_t[1:, :],
+                    candidate_rgba_t,
+                    candidate_deltas_t,
+                    weight=solver_params.tile_graph_delta_weight,
+                )
+            best_choice_t = torch.argmin(local_cost_t, dim=2)
+            best_selected_t = torch.take_along_dim(choice_indices_t, best_choice_t[..., None], dim=2)[..., 0]
+            update_mask_t = parity_mask_t & (best_selected_t != selected_t)
+            changed += int(update_mask_t.sum().item())
+            selected_t = torch.where(parity_mask_t, best_selected_t, selected_t)
+        loss_history.append(
+            _assignment_score_torch(
+                torch,
+                selected_t,
+                unary_cost_t,
+                choice_indices_t,
+                candidate_rgba_t,
+                candidate_deltas_t,
+                solver_params,
+            )
+        )
         if changed == 0:
             break
 
+    initial_selected = initial_selected_t.detach().cpu().numpy().astype(np.int32)
+    selected = selected_t.detach().cpu().numpy().astype(np.int32)
     initial_rgba = _assignment_rgba(model, initial_selected).astype(np.float32)
     target_rgba = _assignment_rgba(model, selected).astype(np.float32)
     diagnostics = {
         "mode": "tile-graph",
+        "tile_graph_solver_device": resolved_device,
         "tile_graph_component_count": model.component_count,
         "tile_graph_candidate_count": int(model.candidate_rgba.shape[0]),
         "tile_graph_edge_density": model.edge_density,
