@@ -41,10 +41,18 @@ class SourceLatticeReference:
     mean_rgba: np.ndarray
     sharp_rgba: np.ndarray
     dispersion: float
+    lattice_indices: np.ndarray
     cell_dispersion: np.ndarray
     cell_counts: np.ndarray
     cell_support: np.ndarray
     cell_alpha_max: np.ndarray
+    sharp_x: np.ndarray
+    sharp_y: np.ndarray
+    edge_peak_x: np.ndarray
+    edge_peak_y: np.ndarray
+    edge_strength: np.ndarray
+    edge_grad_x: np.ndarray
+    edge_grad_y: np.ndarray
     delta_x: np.ndarray | None
     delta_y: np.ndarray | None
     delta_diag: np.ndarray | None

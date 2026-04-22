@@ -6,12 +6,17 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
+from repixelizer.analysis import analyze_source
 from repixelizer.continuous import (
+    _build_candidate_positions,
     _discrete_refine_output,
     _build_source_reliability,
+    _cluster_boundary_map,
+    _edge_gradient_maps,
     _make_patch_offsets,
     _make_regular_uv,
     _relax_candidate_selection,
+    _reference_match_energy,
     _representative_colors,
     _require_torch,
     _resolve_device,
@@ -92,6 +97,7 @@ def _build_focus_states(
     source = load_rgba(input_path)
     solver_params = SolverHyperParams()
     inference = infer_lattice(source, None, device=device)
+    analysis = analyze_source(source, seed=7)
 
     torch, F = _require_torch()
     resolved_device = _resolve_device(torch, device)
@@ -113,6 +119,8 @@ def _build_focus_states(
     offsets_t = torch.from_numpy(
         _make_patch_offsets(height=height, width=width, target_height=inference.target_height, target_width=inference.target_width)
     ).to(device=resolved_device, dtype=torch.float32)
+    edge = np.maximum(analysis.edge_map, _cluster_boundary_map(analysis.cluster_map))
+    edge_grad_x, edge_grad_y = _edge_gradient_maps(edge)
     source_lattice_reference = build_source_lattice_reference(
         source,
         target_width=inference.target_width,
@@ -120,6 +128,9 @@ def _build_focus_states(
         phase_x=inference.phase_x,
         phase_y=inference.phase_y,
         alpha_threshold=solver_params.alpha_transparent_threshold,
+        edge_hint=edge,
+        edge_grad_x_hint=edge_grad_x,
+        edge_grad_y_hint=edge_grad_y,
     )
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     representative_t, _ = _representative_colors(initial_patches, solver_params)
@@ -128,7 +139,7 @@ def _build_focus_states(
         device=resolved_device,
         dtype=torch.float32,
     )
-    source_reliability_t = torch.from_numpy(_build_source_reliability(source_lattice_reference)[None, ...]).to(
+    source_reliability_t = torch.from_numpy(_build_source_reliability(source_lattice_reference, solver_params)[None, ...]).to(
         device=resolved_device,
         dtype=torch.float32,
     )
@@ -160,6 +171,7 @@ def _build_focus_states(
         representative_t,
         source_reference_t,
         source_reliability_t,
+        source_lattice_reference,
         solver_params,
         cell_x=cell_x,
         cell_y=cell_y,
@@ -180,33 +192,34 @@ def _build_focus_states(
     if candidate_levels % 2 == 0:
         candidate_levels += 1
     candidate_extent = max(0.05, float(solver_params.refine_candidate_extent))
-    fractions = torch.tensor(
-        np.linspace(-candidate_extent, candidate_extent, candidate_levels, dtype=np.float32),
-        device=uv.device,
-        dtype=uv.dtype,
+    fraction_values = np.linspace(-candidate_extent, candidate_extent, candidate_levels, dtype=np.float32)
+    candidate_x, candidate_y, candidate_offset_x, candidate_offset_y = _build_candidate_positions(
+        torch,
+        uv,
+        source_lattice_reference,
+        solver_params,
+        width=width,
+        height=height,
+        cell_x=cell_x,
+        cell_y=cell_y,
+        base_fraction_values=fraction_values,
     )
-    offset_y, offset_x = torch.meshgrid(fractions, fractions, indexing="ij")
-    offset_x = (offset_x.reshape(-1) * cell_x).to(dtype=uv.dtype)
-    offset_y = (offset_y.reshape(-1) * cell_y).to(dtype=uv.dtype)
-
-    xs = (uv[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
-    ys = (uv[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
-    candidate_x = torch.round(xs[..., None] + offset_x).clamp(0, max(0, width - 1)).to(dtype=torch.long)
-    candidate_y = torch.round(ys[..., None] + offset_y).clamp(0, max(0, height - 1)).to(dtype=torch.long)
     candidate_colors = source_hw[candidate_y, candidate_x]
     anchor_energy = (candidate_colors - anchor[..., None, :]).abs().mean(dim=-1)
     rep_energy = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
     source_reference_energy = (candidate_colors - source_reference_t[0][..., None, :]).abs().mean(dim=-1)
     alpha_energy = (candidate_colors[..., 3] - anchor[..., None, 3]).abs()
-    distance_energy = ((offset_x / max(cell_x, 1e-4)) ** 2 + (offset_y / max(cell_y, 1e-4)) ** 2).reshape(1, 1, -1)
+    distance_energy = (candidate_offset_x / max(cell_x, 1e-4)).square() + (candidate_offset_y / max(cell_y, 1e-4)).square()
+    match_energy = _reference_match_energy(
+        rep_energy,
+        source_reference_energy,
+        source_reliability_t[0],
+        representative_weight=solver_params.refine_representative_match_weight,
+        source_weight=solver_params.refine_source_match_weight,
+    )
     relax_base_energy = (
         anchor_energy * solver_params.refine_anchor_weight * solver_params.relax_anchor_scale
-        + (
-            source_reference_energy * solver_params.refine_source_match_weight
-            + rep_energy * solver_params.refine_representative_match_weight
-        )
-        / max(solver_params.refine_source_match_weight + solver_params.refine_representative_match_weight, 1e-4)
-        * solver_params.refine_representative_weight
+        + match_energy * solver_params.refine_representative_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
@@ -248,6 +261,7 @@ def _build_focus_states(
         representative_t,
         source_reference_t,
         source_reliability_t,
+        source_lattice_reference,
         snap_t,
         source_delta_x_t,
         source_delta_y_t,
@@ -258,32 +272,34 @@ def _build_focus_states(
         cell_y=cell_y,
         iterations=steps,
     )
-    fidelity = {
-        "snap": source_lattice_consistency_breakdown(
-            source,
-            snap_rgba,
-            target_width=inference.target_width,
-            target_height=inference.target_height,
-            phase_x=inference.phase_x,
-            phase_y=inference.phase_y,
-        ),
-        "relaxed": source_lattice_consistency_breakdown(
-            source,
-            relaxed_rgba,
-            target_width=inference.target_width,
-            target_height=inference.target_height,
-            phase_x=inference.phase_x,
-            phase_y=inference.phase_y,
-        ),
-        "final": source_lattice_consistency_breakdown(
-            source,
-            final_rgba,
-            target_width=inference.target_width,
-            target_height=inference.target_height,
-            phase_x=inference.phase_x,
-            phase_y=inference.phase_y,
-        ),
-    }
+    fidelity = {}
+    fidelity["snap"] = source_lattice_consistency_breakdown(
+        source,
+        snap_rgba,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+    )
+    fidelity["relaxed"] = source_lattice_consistency_breakdown(
+        source,
+        relaxed_rgba,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+    )
+    fidelity["final"] = source_lattice_consistency_breakdown(
+        source,
+        final_rgba,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+    )
+    if fidelity["final"]["score"] > fidelity["snap"]["score"] + 1e-6:
+        final_rgba = snap_rgba
+        fidelity["final"] = fidelity["snap"]
     return source, snap_rgba, relaxed_rgba, final_rgba, (cell_x, cell_y), fidelity
 
 

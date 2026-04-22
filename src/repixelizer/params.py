@@ -6,6 +6,9 @@ from dataclasses import asdict, dataclass
 @dataclass(slots=True)
 class SolverHyperParams:
     representative_softmax_scale: float = 18.0
+    source_edge_reliability_gain: float = 1.6
+    source_edge_reliability_floor: float = 0.25
+    source_edge_alpha_floor: float = 0.45
     boundary_probe_scale: float = 0.22
     boundary_signed_weight: float = 0.55
     boundary_direction_weight: float = 0.30
@@ -31,6 +34,9 @@ class SolverHyperParams:
     refine_relaxed_mode_weight: float = 0.14
     refine_candidate_extent: float = 0.70
     refine_candidate_levels: int = 7
+    guided_candidate_edge_threshold: float = 0.06
+    guided_candidate_inner_scale: float = 0.32
+    guided_candidate_outer_scale: float = 0.60
     relax_iterations: int = 24
     relax_start_temperature: float = 0.95
     relax_end_temperature: float = 0.18
@@ -66,5 +72,5 @@ class SolverHyperParams:
     phase_rerank_max_size_delta_ratio: float = 0.40
     phase_rerank_margin: float = 0.004
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, float | int]:
         return asdict(self)

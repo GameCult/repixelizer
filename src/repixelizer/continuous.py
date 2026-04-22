@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .io import premultiply, unpremultiply
+from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
 from .source_reference import build_source_lattice_reference
 from .types import InferenceResult, SolverArtifacts, SourceAnalysis
@@ -51,6 +52,20 @@ def _cluster_boundary_map(cluster_map: np.ndarray) -> np.ndarray:
     boundary[:, 1:] = np.maximum(boundary[:, 1:], (cluster_map[:, 1:] != cluster_map[:, :-1]).astype(np.float32))
     boundary[1:, :] = np.maximum(boundary[1:, :], (cluster_map[1:, :] != cluster_map[:-1, :]).astype(np.float32))
     return boundary
+
+
+def _edge_gradient_maps(edge_map: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    grad_x = np.zeros_like(edge_map, dtype=np.float32)
+    grad_y = np.zeros_like(edge_map, dtype=np.float32)
+    if edge_map.shape[1] > 1:
+        grad_x[:, 1:-1] = (edge_map[:, 2:] - edge_map[:, :-2]) * 0.5
+        grad_x[:, 0] = edge_map[:, 1] - edge_map[:, 0]
+        grad_x[:, -1] = edge_map[:, -1] - edge_map[:, -2]
+    if edge_map.shape[0] > 1:
+        grad_y[1:-1, :] = (edge_map[2:, :] - edge_map[:-2, :]) * 0.5
+        grad_y[0, :] = edge_map[1, :] - edge_map[0, :]
+        grad_y[-1, :] = edge_map[-1, :] - edge_map[-2, :]
+    return grad_x.astype(np.float32), grad_y.astype(np.float32)
 
 
 def _make_patch_offsets(height: int, width: int, target_height: int, target_width: int) -> np.ndarray:
@@ -316,14 +331,95 @@ def _blend_reference_delta(primary_delta, secondary_delta, secondary_weight: flo
     return primary_delta * primary_weight + secondary_delta * secondary_weight
 
 
-def _build_source_reliability(reference) -> np.ndarray:
+def _build_source_reliability(reference, solver_params: SolverHyperParams) -> np.ndarray:
     baseline_dispersion = max(reference.dispersion, 1e-4)
     dispersion_scale = reference.cell_dispersion / baseline_dispersion
     dispersion_confidence = np.exp(-np.maximum(0.0, dispersion_scale - 1.0))
     support_confidence = np.clip(reference.cell_support, 0.0, 1.0)
     alpha_confidence = np.clip(np.maximum(reference.cell_alpha_max, reference.sharp_rgba[..., 3]), 0.0, 1.0)
+    edge_confidence = np.clip(reference.edge_strength * solver_params.source_edge_reliability_gain, 0.0, 1.0)
+    dispersion_confidence = np.maximum(dispersion_confidence, edge_confidence * 0.9)
     reliability = np.clip(0.2 + support_confidence * 0.5 + alpha_confidence * 0.3, 0.0, 1.0)
-    return (reliability * dispersion_confidence).astype(np.float32)
+    edge_override = np.clip(
+        solver_params.source_edge_reliability_floor + edge_confidence * (1.0 - solver_params.source_edge_reliability_floor),
+        0.0,
+        1.0,
+    ) * np.clip(
+        solver_params.source_edge_alpha_floor + alpha_confidence * (1.0 - solver_params.source_edge_alpha_floor),
+        0.0,
+        1.0,
+    )
+    return np.maximum(reliability * dispersion_confidence, edge_override).astype(np.float32)
+
+
+def _build_candidate_positions(
+    torch,
+    uv,
+    source_reference,
+    solver_params: SolverHyperParams,
+    *,
+    width: int,
+    height: int,
+    cell_x: float,
+    cell_y: float,
+    base_fraction_values: np.ndarray,
+):
+    xs = (uv[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
+    ys = (uv[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
+
+    candidates_x = []
+    candidates_y = []
+
+    fractions = torch.tensor(base_fraction_values, device=uv.device, dtype=uv.dtype)
+    offset_y, offset_x = torch.meshgrid(fractions, fractions, indexing="ij")
+    offset_x = (offset_x.reshape(1, 1, -1) * cell_x).to(dtype=uv.dtype)
+    offset_y = (offset_y.reshape(1, 1, -1) * cell_y).to(dtype=uv.dtype)
+    candidates_x.append(torch.round(xs[..., None] + offset_x))
+    candidates_y.append(torch.round(ys[..., None] + offset_y))
+
+    sharp_x = torch.from_numpy(source_reference.sharp_x).to(device=uv.device, dtype=uv.dtype)
+    sharp_y = torch.from_numpy(source_reference.sharp_y).to(device=uv.device, dtype=uv.dtype)
+    edge_peak_x = torch.from_numpy(source_reference.edge_peak_x).to(device=uv.device, dtype=uv.dtype)
+    edge_peak_y = torch.from_numpy(source_reference.edge_peak_y).to(device=uv.device, dtype=uv.dtype)
+    edge_strength = torch.from_numpy(source_reference.edge_strength).to(device=uv.device, dtype=uv.dtype)
+    edge_grad_x = torch.from_numpy(source_reference.edge_grad_x).to(device=uv.device, dtype=uv.dtype)
+    edge_grad_y = torch.from_numpy(source_reference.edge_grad_y).to(device=uv.device, dtype=uv.dtype)
+    grad_norm = (edge_grad_x.square() + edge_grad_y.square()).sqrt()
+    valid_grad = grad_norm > 1e-4
+    unit_grad_x = torch.where(valid_grad, edge_grad_x / grad_norm.clamp_min(1e-4), torch.zeros_like(edge_grad_x))
+    unit_grad_y = torch.where(valid_grad, edge_grad_y / grad_norm.clamp_min(1e-4), torch.zeros_like(edge_grad_y))
+
+    candidates_x.append(sharp_x[..., None])
+    candidates_y.append(sharp_y[..., None])
+    candidates_x.append(edge_peak_x[..., None])
+    candidates_y.append(edge_peak_y[..., None])
+
+    edge_gate = (edge_strength > solver_params.guided_candidate_edge_threshold) & valid_grad
+    guided_scales = (
+        -solver_params.guided_candidate_outer_scale,
+        -solver_params.guided_candidate_inner_scale,
+        solver_params.guided_candidate_inner_scale,
+        solver_params.guided_candidate_outer_scale,
+    )
+    for scale in guided_scales:
+        guided_x = torch.where(
+            edge_gate,
+            edge_peak_x + unit_grad_x * (cell_x * scale),
+            xs + unit_grad_x * (cell_x * scale * 0.5),
+        )
+        guided_y = torch.where(
+            edge_gate,
+            edge_peak_y + unit_grad_y * (cell_y * scale),
+            ys + unit_grad_y * (cell_y * scale * 0.5),
+        )
+        candidates_x.append(torch.round(guided_x)[..., None])
+        candidates_y.append(torch.round(guided_y)[..., None])
+
+    candidate_x = torch.cat(candidates_x, dim=2).clamp(0, max(0, width - 1)).to(dtype=torch.long)
+    candidate_y = torch.cat(candidates_y, dim=2).clamp(0, max(0, height - 1)).to(dtype=torch.long)
+    offset_from_uv_x = candidate_x.to(dtype=uv.dtype) - xs[..., None]
+    offset_from_uv_y = candidate_y.to(dtype=uv.dtype) - ys[..., None]
+    return candidate_x, candidate_y, offset_from_uv_x, offset_from_uv_y
 
 
 def _reference_match_energy(
@@ -746,6 +842,7 @@ def _snap_output_to_source_pixels(
     representative_t,
     source_reference_t,
     source_reliability_t,
+    source_reference_np,
     solver_params: SolverHyperParams,
     *,
     cell_x: float,
@@ -761,15 +858,17 @@ def _snap_output_to_source_pixels(
     output_height = representative.shape[0]
     output_width = representative.shape[1]
 
-    fractions = torch.tensor([-0.42, -0.21, 0.0, 0.21, 0.42], device=uv.device, dtype=uv.dtype)
-    offset_y, offset_x = torch.meshgrid(fractions, fractions, indexing="ij")
-    offset_x = (offset_x.reshape(-1) * cell_x).to(dtype=uv.dtype)
-    offset_y = (offset_y.reshape(-1) * cell_y).to(dtype=uv.dtype)
-
-    xs = (uv[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
-    ys = (uv[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
-    candidate_x = torch.round(xs[..., None] + offset_x).clamp(0, max(0, width - 1)).to(dtype=torch.long)
-    candidate_y = torch.round(ys[..., None] + offset_y).clamp(0, max(0, height - 1)).to(dtype=torch.long)
+    candidate_x, candidate_y, _, _ = _build_candidate_positions(
+        torch,
+        uv,
+        source_reference_np,
+        solver_params,
+        width=width,
+        height=height,
+        cell_x=cell_x,
+        cell_y=cell_y,
+        base_fraction_values=np.asarray([-0.42, -0.21, 0.0, 0.21, 0.42], dtype=np.float32),
+    )
     candidate_colors = source_hw[candidate_y, candidate_x]
 
     representative_match = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
@@ -1005,6 +1104,7 @@ def _discrete_refine_output(
     representative_t,
     source_reference_t,
     source_reliability_t,
+    source_reference_np,
     anchor_t,
     source_delta_x_t,
     source_delta_y_t,
@@ -1032,21 +1132,23 @@ def _discrete_refine_output(
         candidate_levels += 1
     candidate_extent = max(0.05, float(solver_params.refine_candidate_extent))
     fraction_values = np.linspace(-candidate_extent, candidate_extent, candidate_levels, dtype=np.float32)
-    fractions = torch.tensor(fraction_values, device=uv.device, dtype=uv.dtype)
-    offset_y, offset_x = torch.meshgrid(fractions, fractions, indexing="ij")
-    offset_x = (offset_x.reshape(-1) * cell_x).to(dtype=uv.dtype)
-    offset_y = (offset_y.reshape(-1) * cell_y).to(dtype=uv.dtype)
-
-    xs = (uv[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
-    ys = (uv[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
-    candidate_x = torch.round(xs[..., None] + offset_x).clamp(0, max(0, width - 1)).to(dtype=torch.long)
-    candidate_y = torch.round(ys[..., None] + offset_y).clamp(0, max(0, height - 1)).to(dtype=torch.long)
+    candidate_x, candidate_y, candidate_offset_x, candidate_offset_y = _build_candidate_positions(
+        torch,
+        uv,
+        source_reference_np,
+        solver_params,
+        width=width,
+        height=height,
+        cell_x=cell_x,
+        cell_y=cell_y,
+        base_fraction_values=fraction_values,
+    )
     candidate_colors = source_hw[candidate_y, candidate_x]
     anchor_energy = (candidate_colors - anchor[..., None, :]).abs().mean(dim=-1)
     rep_energy = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
     source_reference_energy = (candidate_colors - source_reference[..., None, :]).abs().mean(dim=-1)
     alpha_energy = (candidate_colors[..., 3] - anchor[..., None, 3]).abs()
-    distance_energy = ((offset_x / max(cell_x, 1e-4)) ** 2 + (offset_y / max(cell_y, 1e-4)) ** 2).reshape(1, 1, -1)
+    distance_energy = (candidate_offset_x / max(cell_x, 1e-4)).square() + (candidate_offset_y / max(cell_y, 1e-4)).square()
     match_energy = _reference_match_energy(
         rep_energy,
         source_reference_energy,
@@ -1268,6 +1370,7 @@ def optimize_uv_field(
     cell_y = height / max(1, inference.target_height)
     source_t = torch.from_numpy(source.transpose(2, 0, 1)[None, ...]).to(device=device, dtype=torch.float32)
     edge = np.maximum(analysis.edge_map, _cluster_boundary_map(analysis.cluster_map))
+    edge_grad_x, edge_grad_y = _edge_gradient_maps(edge)
     edge_t = torch.from_numpy(edge[None, None, ...]).to(device=device, dtype=torch.float32)
     uv0 = _make_regular_uv(
         height=height,
@@ -1289,6 +1392,9 @@ def optimize_uv_field(
         phase_x=inference.phase_x,
         phase_y=inference.phase_y,
         alpha_threshold=solver_params.alpha_transparent_threshold,
+        edge_hint=edge,
+        edge_grad_x_hint=edge_grad_x,
+        edge_grad_y_hint=edge_grad_y,
     )
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     initial_representative_t, _ = _representative_colors(initial_patches, solver_params)
@@ -1297,7 +1403,7 @@ def optimize_uv_field(
         device=device,
         dtype=torch.float32,
     )
-    source_reliability_t = torch.from_numpy(_build_source_reliability(source_lattice_reference)[None, ...]).to(
+    source_reliability_t = torch.from_numpy(_build_source_reliability(source_lattice_reference, solver_params)[None, ...]).to(
         device=device,
         dtype=torch.float32,
     )
@@ -1328,6 +1434,7 @@ def optimize_uv_field(
         initial_representative_t,
         initial_source_reference_t,
         source_reliability_t,
+        source_lattice_reference,
         solver_params,
         cell_x=cell_x,
         cell_y=cell_y,
@@ -1345,6 +1452,7 @@ def optimize_uv_field(
             initial_representative_t,
             initial_source_reference_t,
             source_reliability_t,
+            source_lattice_reference,
             snap_t,
             source_delta_x_t,
             source_delta_y_t,
@@ -1355,6 +1463,27 @@ def optimize_uv_field(
             cell_y=cell_y,
             iterations=steps,
         )
+        snap_score = source_lattice_consistency_breakdown(
+            rgba,
+            snap_rgba,
+            target_width=inference.target_width,
+            target_height=inference.target_height,
+            phase_x=inference.phase_x,
+            phase_y=inference.phase_y,
+            alpha_threshold=solver_params.alpha_transparent_threshold,
+        )["score"]
+        target_score = source_lattice_consistency_breakdown(
+            rgba,
+            target_rgba,
+            target_width=inference.target_width,
+            target_height=inference.target_height,
+            phase_x=inference.phase_x,
+            phase_y=inference.phase_y,
+            alpha_threshold=solver_params.alpha_transparent_threshold,
+        )["score"]
+        if target_score > snap_score + 1e-6:
+            target_rgba = snap_rgba
+            loss_history.append(float(snap_score))
         initial_rgba = snap_rgba
         uv_np = uv0_t.detach().cpu().numpy()[0]
         guidance = guide_small[0, 0].detach().cpu().numpy()

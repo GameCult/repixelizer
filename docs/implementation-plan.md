@@ -21,7 +21,7 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing
+- full test suite currently passing on the last completed pass
 - compare-mode smoke run against a real emblem image
 - focused real-fixture probe on `tests/fixtures/real/ai-badge-cleaned.png` now beats naive resize on source-lattice consistency under the selected lattice (`0.0832` final vs `0.1304` naive with the current `126x126` / `(0.0, -0.2)` pick)
 
@@ -38,7 +38,7 @@ What that fixed:
 - the solver no longer regresses relative to its own snap stage on the added thin-feature regression case
 
 What is still provisional:
-- the cleaned badge still lands on the conservative `126x126` lattice candidate, just with a much lower confidence than before; that means candidate selection and weight tuning are improved but not “done”
+- the cleaned badge still lands on the conservative `126x126` lattice candidate, just with a much lower confidence than before; that means candidate selection and weight tuning are improved but not "done"
 - tuning has not been rerun yet against the new source-first hyperparameters, so the benchmark/tuning baseline should be treated as stale until the next sweep
 - the baked-checkerboard version of the badge remains a separate background-suppression problem
 
@@ -48,11 +48,24 @@ The current implementation should be treated as a strong experimental baseline, 
 
 The most provisional areas are:
 - lattice inference on real, messy generated imagery
-- the exact loss weighting in the continuous stage
-- the strength and shape of discrete cleanup heuristics
+- edge-cell reliability and candidate coverage in the continuous stage
+- low-confidence reranking once multiple plausible lattice sizes survive the new soft penalty
 - compare-mode metrics as a proxy for actual visual quality
 
 ## Near-term priorities
+
+### Active pass
+
+This is the next solver-focused pass after the adjacency-first rewrite.
+
+In scope now:
+- make source reliability edge-aware instead of dispersion-only so high-contrast thin features are not downweighted just because they are locally messy
+- expand snap/refine candidate generation beyond fixed offset grids by injecting sharp per-cell exemplars, edge peaks, and gradient-guided offsets
+
+Next after that:
+- rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
+- rerun tuning after the edge-aware/source-guided behavior lands
+- evaluate coordinated local moves when single-cell refinement still breaks thin contours
 
 ## High-value regression cases
 
@@ -72,10 +85,10 @@ Current failure modes:
 - the right-hand guard wing loses short dark-light-dark adjacency motifs and collapses into a chunky gold slab
 - some guard closeups look nearly identical across `snap`, `relaxed`, and `final`, which suggests the wrong local motif is often chosen before later refinement even starts
 
-Current status after this pass:
+Current status after the adjacency-first pass:
 - on the cleaned fixture, `snap`, `relaxed`, and `final` now all preserve source-lattice structure substantially better than the old baseline, with `final` currently landing at `0.0832` source-fidelity score in the reproducible probe under `artifacts/badge-final-probe/`
 - that is a meaningful improvement over both the previous documented `0.1494` final score and the naive resize score under the same selected lattice
-- the remaining weakness is candidate choice confidence, not a collapse inside the snap/refine handoff
+- the remaining weakness is edge-cell trust and candidate coverage, not the old snap/refine handoff collapse
 
 Important note:
 - the checkerboard is baked into the source image, not transparency
@@ -84,21 +97,18 @@ Important note:
 - it is still a problem, because the background is treated as real source structure and can contaminate local scoring near the blade
 
 What future work should improve here:
-- better weighting of thin local outline/motif preservation relative to high-contrast cell transitions
+- edge-aware source reliability so high-dispersion but high-contrast cells keep trusting source evidence
+- richer candidate generation so snap/refine can reach sharp exemplars, cell edge peaks, and gradient-guided offsets instead of only a fixed local grid
+- short top-k refine probes for low-confidence lattice candidates before the final rerank decision
+- a retuning sweep after the edge-aware/source-guided changes land
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
 
 Current optimizer diagnosis:
-- a lot of the so-called `source_*` terms in the solver are still measured against the smoothed representative lattice, not raw source-side candidate evidence
-- that means the optimizer often "preserves" a softened, already-collapsed interpretation of the source instead of the sharper local adjacency patterns we actually care about
-- snap is still especially guilty here: its base match and neighbor deltas are dominated by the representative lattice, so the wrong local motif can be locked in before relaxation or hard refinement even starts
-- relaxation can often descend to a much lower expected energy basin, but the hardening/refine handoff then projects that soft solution back into a worse discrete assignment
-- diagonal structure is also underrepresented in the final structure score, which is a bad fit for curved one-pixel outlines and hooks
-
-Most likely next fixes:
-- rerun tuning so the new source-first weights are benchmarked against the corpus instead of being judged only by defaults
-- keep pressure on low-confidence badge-like cases where larger lattice candidates have better support but still lose on the combined rerank score
-- evaluate whether the compare-mode summary should surface per-stage source-fidelity directly, not only the final output metrics
+- the shared source-lattice reference, source-first snap/refine scoring, and relaxed-mode handoff are now in place, so the biggest remaining losses are no longer caused by the old representative-lattice collapse
+- the current weak spot is that difficult thin features often live in high-dispersion cells, which still makes the solver partially distrust the source exactly where the contrast is most informative
+- candidate search is also still too centered on the regular UV neighborhood; if the right edge pixel never enters the candidate set, the solver can preserve the wrong motif very consistently
+- low-confidence reranking is softer than before, but it still relies on cheap probes, so larger lattice candidates can remain underexplored even when they support thin contours better
 
 Repository fixtures:
 - `tests/fixtures/real/ai-badge-cleaned.png` is the manually cleaned transparent version of the same emblem
@@ -129,15 +139,15 @@ Next improvements should focus on:
 - stronger penalties against oversized candidate grids
 - confidence calibration that reflects ambiguity more honestly
 
-### 3. Strengthen the discrete cleanup stage
+### 3. Improve edge-cell reconstruction
 
-Current cleanup is local and generic.
+The next quality gap is no longer generic cleanup; it is preserving thin, high-contrast local structure.
 
 Next version should add:
-- stronger outline continuity rules
-- better preservation of highlight bands
-- better handling of metallic or gem-like materials
-- smarter alpha-edge cleanup for transparent icons
+- edge-aware source reliability overrides for thin outlines and hard transitions
+- source-guided candidate pools that are not limited to a uniform local offset lattice
+- richer diagnostics for which candidate families win on real fixtures
+- later, coordinated block or contour moves when single-cell greedy updates still break lines
 
 ### 4. Make compare mode more trustworthy
 
@@ -159,15 +169,15 @@ Next work should:
 
 ### Milestone 2: Solver tuning pass
 
-- tune continuous-stage loss weights against the benchmark corpus
-- test more robust anti-speckle and cluster-preservation behavior
-- reduce cases where the solver underperforms the naive baseline
+- tune continuous-stage loss weights against the benchmark corpus after the edge-aware/candidate-guided pass lands
+- test more robust thin-feature and contour preservation behavior
+- reduce cases where the solver still underperforms the naive baseline or settles on the wrong low-confidence lattice
 
-### Milestone 3: Better cleanup heuristics
+### Milestone 3: Coordinated contour moves
 
-- add contour-aware cleanup
-- add material-sensitive smoothing for highlights and trim
-- reduce the number of visually good-but-metric-weak outputs
+- add contour-aware multi-cell refinement moves
+- protect short dark-light-dark edge motifs during block updates
+- reduce cases where locally correct cells still fail to form a globally smooth outline
 
 ### Milestone 4: Human-in-the-loop v2 planning
 

@@ -35,3 +35,31 @@ def test_source_lattice_reference_recovers_stable_cell_colors_and_deltas() -> No
     assert np.allclose(reference.delta_x, expected_premul[:, 1:, :] - expected_premul[:, :-1, :], atol=1e-5)
     assert np.allclose(reference.delta_y, expected_premul[1:, :, :] - expected_premul[:-1, :, :], atol=1e-5)
     assert reference.dispersion >= 0.0
+
+
+def test_source_lattice_reference_tracks_edge_peaks_and_gradients() -> None:
+    source = np.zeros((6, 6, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    source[:, 2, :3] = 1.0
+
+    edge_hint = np.zeros((6, 6), dtype=np.float32)
+    edge_hint[:, 2] = 1.0
+    edge_grad_x = np.zeros((6, 6), dtype=np.float32)
+    edge_grad_x[:, 2] = 1.0
+    edge_grad_y = np.zeros((6, 6), dtype=np.float32)
+
+    reference = build_source_lattice_reference(
+        source,
+        target_width=2,
+        target_height=2,
+        phase_x=0.0,
+        phase_y=0.0,
+        edge_hint=edge_hint,
+        edge_grad_x_hint=edge_grad_x,
+        edge_grad_y_hint=edge_grad_y,
+    )
+
+    assert np.all(reference.edge_peak_x[:, 0] == 2)
+    assert np.all(reference.edge_strength[:, 0] == 1.0)
+    assert np.all(reference.edge_grad_x[:, 0] == 1.0)
+    assert np.all(reference.edge_grad_y[:, 0] == 0.0)

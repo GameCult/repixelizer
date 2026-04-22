@@ -42,10 +42,15 @@ def build_source_lattice_reference(
     phase_x: float,
     phase_y: float,
     alpha_threshold: float = 0.05,
+    edge_hint: np.ndarray | None = None,
+    edge_grad_x_hint: np.ndarray | None = None,
+    edge_grad_y_hint: np.ndarray | None = None,
 ) -> SourceLatticeReference:
+    height = source_rgba.shape[0]
+    width = source_rgba.shape[1]
     indices = lattice_indices(
-        height=source_rgba.shape[0],
-        width=source_rgba.shape[1],
+        height=height,
+        width=width,
         target_width=target_width,
         target_height=target_height,
         phase_x=phase_x,
@@ -79,6 +84,24 @@ def build_source_lattice_reference(
     else:
         dispersion = float(np.mean(pixel_diff)) if pixel_diff.size else 0.0
 
+    cell_x = width / max(1, target_width)
+    cell_y = height / max(1, target_height)
+    default_x = np.clip(
+        np.rint((np.arange(target_width, dtype=np.float32) + 0.5 + phase_x) * cell_x - 0.5),
+        0,
+        max(0, width - 1),
+    )
+    default_y = np.clip(
+        np.rint((np.arange(target_height, dtype=np.float32) + 0.5 + phase_y) * cell_y - 0.5),
+        0,
+        max(0, height - 1),
+    )
+    sharp_x_flat = np.tile(default_x[None, :], (target_height, 1)).reshape(-1).astype(np.int32)
+    sharp_y_flat = np.tile(default_y[:, None], (1, target_width)).reshape(-1).astype(np.int32)
+
+    pixel_y, pixel_x = np.indices((height, width), dtype=np.int32)
+    flat_x = pixel_x.reshape(-1)
+    flat_y = pixel_y.reshape(-1)
     exemplar_cost = pixel_diff + np.maximum(0.0, per_pixel_mean[:, 3] - flat_premul[:, 3]) * 1e-3
     order = np.lexsort((exemplar_cost.astype(np.float32), flat_idx.astype(np.int64)))
     sharp_premul_flat = mean_premul_flat.copy()
@@ -88,6 +111,8 @@ def build_source_lattice_reference(
         best_order = order[first_positions]
         best_cells = flat_idx[best_order]
         sharp_premul_flat[best_cells] = flat_premul[best_order]
+        sharp_x_flat[best_cells] = flat_x[best_order]
+        sharp_y_flat[best_cells] = flat_y[best_order]
     sharp_premul = sharp_premul_flat.reshape(target_height, target_width, premul.shape[-1])
     sharp_rgba = unpremultiply(sharp_premul)
 
@@ -95,16 +120,54 @@ def build_source_lattice_reference(
     np.maximum.at(cell_alpha_max, flat_idx, flat_alpha)
     expected_pixels_per_cell = float(source_rgba.shape[0] * source_rgba.shape[1]) / float(cell_count)
     cell_support = (counts / max(expected_pixels_per_cell, 1.0)).reshape(target_height, target_width)
+    edge_peak_x_flat = sharp_x_flat.copy()
+    edge_peak_y_flat = sharp_y_flat.copy()
+    edge_strength_flat = np.zeros(cell_count, dtype=np.float32)
+    edge_grad_x_flat = np.zeros(cell_count, dtype=np.float32)
+    edge_grad_y_flat = np.zeros(cell_count, dtype=np.float32)
+
+    if edge_hint is not None:
+        flat_edge = edge_hint.reshape(-1).astype(np.float32)
+        edge_score = flat_edge + flat_alpha.astype(np.float32) * 0.05
+        edge_order = np.lexsort((-edge_score.astype(np.float32), flat_idx.astype(np.int64)))
+        if edge_order.size > 0:
+            sorted_edge_cells = flat_idx[edge_order]
+            first_edge_positions = np.concatenate(([0], np.flatnonzero(np.diff(sorted_edge_cells)) + 1))
+            best_edge_order = edge_order[first_edge_positions]
+            best_edge_cells = flat_idx[best_edge_order]
+            edge_peak_x_flat[best_edge_cells] = flat_x[best_edge_order]
+            edge_peak_y_flat[best_edge_cells] = flat_y[best_edge_order]
+            edge_strength_flat[best_edge_cells] = flat_edge[best_edge_order]
+            if edge_grad_x_hint is not None:
+                edge_grad_x_flat[best_edge_cells] = edge_grad_x_hint.reshape(-1)[best_edge_order].astype(np.float32)
+            if edge_grad_y_hint is not None:
+                edge_grad_y_flat[best_edge_cells] = edge_grad_y_hint.reshape(-1)[best_edge_order].astype(np.float32)
+
+        np.maximum.at(edge_strength_flat, flat_idx, flat_edge)
+        if edge_grad_x_hint is not None or edge_grad_y_hint is not None:
+            edge_peak_index_flat = edge_peak_y_flat * width + edge_peak_x_flat
+            if edge_grad_x_hint is not None:
+                edge_grad_x_flat = edge_grad_x_hint.reshape(-1)[edge_peak_index_flat].astype(np.float32)
+            if edge_grad_y_hint is not None:
+                edge_grad_y_flat = edge_grad_y_hint.reshape(-1)[edge_peak_index_flat].astype(np.float32)
 
     delta_x, delta_y, delta_diag, delta_anti = _reference_deltas(sharp_premul)
     return SourceLatticeReference(
         mean_rgba=mean_rgba.astype(np.float32),
         sharp_rgba=sharp_rgba.astype(np.float32),
         dispersion=dispersion,
+        lattice_indices=indices.astype(np.int32),
         cell_dispersion=cell_dispersion.astype(np.float32),
         cell_counts=counts.reshape(target_height, target_width).astype(np.float32),
         cell_support=cell_support.astype(np.float32),
         cell_alpha_max=cell_alpha_max.reshape(target_height, target_width).astype(np.float32),
+        sharp_x=sharp_x_flat.reshape(target_height, target_width).astype(np.int32),
+        sharp_y=sharp_y_flat.reshape(target_height, target_width).astype(np.int32),
+        edge_peak_x=edge_peak_x_flat.reshape(target_height, target_width).astype(np.int32),
+        edge_peak_y=edge_peak_y_flat.reshape(target_height, target_width).astype(np.int32),
+        edge_strength=edge_strength_flat.reshape(target_height, target_width).astype(np.float32),
+        edge_grad_x=edge_grad_x_flat.reshape(target_height, target_width).astype(np.float32),
+        edge_grad_y=edge_grad_y_flat.reshape(target_height, target_width).astype(np.float32),
         delta_x=delta_x.astype(np.float32) if delta_x is not None else None,
         delta_y=delta_y.astype(np.float32) if delta_y is not None else None,
         delta_diag=delta_diag.astype(np.float32) if delta_diag is not None else None,
