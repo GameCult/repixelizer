@@ -340,6 +340,34 @@ def main() -> None:
         target_width=ai_result.inference.target_width,
         target_height=ai_result.inference.target_height,
     )
+    vector_guard_bbox = _cell_bbox_to_source_bbox(
+        tuple(args.guard_cell_bbox),
+        source_width=vector_source.shape[1],
+        source_height=vector_source.shape[0],
+        target_width=args.vector_target_size,
+        target_height=args.vector_target_size,
+    )
+    vector_lanczos_preview = nearest_resize(vector_lanczos, width=vector_source.shape[1], height=vector_source.shape[0])
+    vector_repixelized_preview = nearest_resize(
+        vector_result.output_rgba,
+        width=vector_source.shape[1],
+        height=vector_source.shape[0],
+    )
+    for panel in vector_panels:
+        _draw_source_bbox(
+            panel,
+            vector_guard_bbox,
+            source_width=vector_source.shape[1],
+            source_height=vector_source.shape[0],
+        )
+    vector_crops = [
+        _crop_rgba(vector_source, vector_guard_bbox),
+        _crop_rgba(vector_lanczos_preview, vector_guard_bbox),
+        _crop_rgba(vector_repixelized_preview, vector_guard_bbox),
+    ]
+    for panel, crop in zip(vector_panels, vector_crops, strict=True):
+        _add_pip_inset(panel, _build_pip_inset(crop))
+
     ai_lanczos_preview = nearest_resize(ai_lanczos, width=ai_source.shape[1], height=ai_source.shape[0])
     ai_repixelized_preview = nearest_resize(ai_result.output_rgba, width=ai_source.shape[1], height=ai_source.shape[0])
     for panel in ai_panels:
@@ -395,6 +423,7 @@ def main() -> None:
             "ai_inferred_width": ai_result.inference.target_width,
             "ai_inferred_height": ai_result.inference.target_height,
             "guard_cell_bbox": list(args.guard_cell_bbox),
+            "vector_guard_source_bbox": list(vector_guard_bbox),
             "guard_source_bbox": list(guard_bbox),
             "out_sheet": str(out_sheet),
             "out_guard_crop": str(out_guard_crop),
