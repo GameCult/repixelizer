@@ -123,7 +123,7 @@ def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) ->
         target_height=2,
         phase_x=candidate_a.phase_x,
         phase_y=candidate_a.phase_y,
-        confidence=0.0,
+        confidence=0.1,
         top_candidates=[candidate_a, candidate_b],
     )
     outputs = {
@@ -178,3 +178,51 @@ def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None
     selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
+
+
+def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
+    source = np.zeros((4, 4, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.2, phase_y=0.0, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.2, phase_y=0.0, score=0.909, breakdown={})
+    inference = InferenceResult(
+        target_width=2,
+        target_height=2,
+        phase_x=candidate_a.phase_x,
+        phase_y=candidate_a.phase_y,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class DummyArtifacts:
+        def __init__(self, rgba: np.ndarray) -> None:
+            self.target_rgba = rgba
+
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+        return {"score": 0.02}
+
+    def fake_edge_position(preview, source_rgba):
+        return 0.05
+
+    def fake_wobble(preview, source_rgba):
+        return 1.2 if np.mean(preview) < 0.01 else 0.8
+
+    def fake_concentration(rgba):
+        return 0.15 if np.mean(rgba) < 0.01 else 0.28
+
+    outputs = {
+        candidate_a.phase_x: np.zeros((2, 2, 4), dtype=np.float32),
+        candidate_b.phase_x: np.ones((2, 2, 4), dtype=np.float32),
+    }
+
+    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        return DummyArtifacts(outputs[inference.phase_x])
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
+    monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_position_error", fake_edge_position)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
+
+    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    assert selected.phase_x == candidate_b.phase_x
+    assert selected.phase_y == candidate_b.phase_y

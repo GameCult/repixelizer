@@ -33,6 +33,12 @@ class SolverHyperParams:
     alpha_representative_foreground_threshold: float = 0.60
     alpha_opaque_threshold: float = 0.95
     alpha_transparent_threshold: float = 0.05
+    phase_rerank_support_weight: float = 0.45
+    phase_rerank_edge_position_weight: float = 0.20
+    phase_rerank_wobble_weight: float = 0.20
+    phase_rerank_edge_concentration_weight: float = 0.10
+    phase_rerank_inference_penalty_weight: float = 0.05
+    phase_rerank_confidence_threshold: float = 0.12
     phase_rerank_margin: float = 0.004
 
     def to_dict(self) -> dict[str, float]:
