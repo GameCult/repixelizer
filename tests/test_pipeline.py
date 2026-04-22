@@ -147,12 +147,12 @@ def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) ->
 
 
 def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None:
-    source = np.zeros((4, 4, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=3, target_height=3, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={})
+    source = np.zeros((16, 16, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=18, target_height=18, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={})
     inference = InferenceResult(
-        target_width=2,
-        target_height=2,
+        target_width=16,
+        target_height=16,
         phase_x=0.0,
         phase_y=0.0,
         confidence=0.0,
@@ -168,7 +168,7 @@ def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None
         return DummyArtifacts(rgba)
 
     def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
-        if target_width == 2:
+        if target_width == 16:
             return {"score": 0.10}
         return {"score": 0.01}
 
@@ -178,6 +178,40 @@ def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None
     selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
+
+
+def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
+    source = np.zeros((16, 16, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=24, target_height=24, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={})
+    inference = InferenceResult(
+        target_width=16,
+        target_height=16,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class DummyArtifacts:
+        def __init__(self, rgba: np.ndarray) -> None:
+            self.target_rgba = rgba
+
+    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
+        return DummyArtifacts(rgba)
+
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+        if target_width == 16:
+            return {"score": 0.10}
+        return {"score": 0.01}
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
+    monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
+
+    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    assert selected.target_width == candidate_a.target_width
+    assert selected.target_height == candidate_a.target_height
 
 
 def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:

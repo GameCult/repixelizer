@@ -167,6 +167,7 @@ def _select_phase_candidate(
                 "stroke_wobble_error": foreground_stroke_wobble_error(preview, source),
                 "edge_concentration": foreground_edge_concentration(candidate_artifacts.target_rgba),
                 "inference_penalty": top_score - float(candidate.score),
+                "size_delta_ratio": _size_delta_ratio(inference, candidate_inference),
             }
         )
 
@@ -186,6 +187,13 @@ def _select_phase_candidate(
     best_rank = float("inf")
     best_candidate = inference
     for index, record in enumerate(candidate_records):
+        candidate_inference = record["inference"]
+        size_delta_ratio = float(record["size_delta_ratio"])
+        if (
+            candidate_inference.target_width != inference.target_width
+            or candidate_inference.target_height != inference.target_height
+        ) and size_delta_ratio > solver_params.phase_rerank_max_size_delta_ratio:
+            continue
         rank = (
             solver_params.phase_rerank_support_weight * support_penalty[index]
             + solver_params.phase_rerank_edge_position_weight * edge_position_penalty[index]
@@ -215,3 +223,9 @@ def _normalize_penalty(values, *, higher_is_better: bool = False) -> list[float]
     if higher_is_better:
         normalized = 1.0 - normalized
     return normalized.astype(np.float32).tolist()
+
+
+def _size_delta_ratio(a: InferenceResult, b: InferenceResult) -> float:
+    width_ratio = abs(b.target_width - a.target_width) / max(1.0, float(a.target_width))
+    height_ratio = abs(b.target_height - a.target_height) / max(1.0, float(a.target_height))
+    return max(width_ratio, height_ratio)

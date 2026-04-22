@@ -39,6 +39,7 @@ class SolverHyperParams:
     phase_rerank_edge_concentration_weight: float = 0.10
     phase_rerank_inference_penalty_weight: float = 0.05
     phase_rerank_confidence_threshold: float = 0.12
+    phase_rerank_max_size_delta_ratio: float = 0.15
     phase_rerank_margin: float = 0.004
 
     def to_dict(self) -> dict[str, float]:
