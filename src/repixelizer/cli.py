@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument(
             "--reconstruction-mode",
             default="continuous",
-            choices=("continuous", "tile-graph"),
+            choices=("continuous", "tile-graph", "hybrid"),
             help="Reconstruction engine to run after lattice estimation",
         )
         target.add_argument(

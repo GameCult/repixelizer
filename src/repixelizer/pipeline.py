@@ -53,7 +53,7 @@ def run_pipeline(
     if strip_background:
         source = strip_edge_background(source)
     inference = infer_lattice(source, target_size=target_size, device=device)
-    analysis = analyze_source(source, seed=seed, device=device if reconstruction_mode == "tile-graph" else None)
+    analysis = analyze_source(source, seed=seed, device=device if reconstruction_mode in {"tile-graph", "hybrid"} else None)
     inference = _select_phase_candidate(
         source,
         inference,
@@ -308,6 +308,43 @@ def _run_reconstruction(
             device=device,
             solver_params=solver_params,
         )
+    if reconstruction_mode == "hybrid":
+        geometry_solver = optimize_uv_field(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=0,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+        )
+        hybrid_solver, hybrid_diagnostics = optimize_tile_graph(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=steps,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+            geometry_reference_rgba=geometry_solver.target_rgba,
+            geometry_guidance_strength=geometry_solver.guidance_strength,
+        )
+        geometry_score = source_lattice_consistency_breakdown(
+            source,
+            geometry_solver.target_rgba,
+            target_width=inference.target_width,
+            target_height=inference.target_height,
+            phase_x=inference.phase_x,
+            phase_y=inference.phase_y,
+        )["score"]
+        diagnostics = dict(hybrid_diagnostics)
+        diagnostics["mode"] = "hybrid"
+        diagnostics["hybrid_geometry_prepass_mode"] = "continuous"
+        diagnostics["hybrid_geometry_prepass_steps"] = 0.0
+        diagnostics["hybrid_geometry_prepass_source_fidelity"] = float(geometry_score)
+        diagnostics["hybrid_geometry_match_weight"] = float(solver_params.hybrid_geometry_match_weight)
+        diagnostics["hybrid_geometry_edge_boost"] = float(solver_params.hybrid_geometry_edge_boost)
+        return hybrid_solver, diagnostics
     solver = optimize_uv_field(
         source,
         inference=inference,

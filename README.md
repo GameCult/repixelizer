@@ -35,6 +35,7 @@ Recent adjacency-focused status:
 - the snap-to-refine handoff is now source-first rather than dominated by the softened representative lattice
 - low-confidence phase reranking now uses a soft size penalty instead of a hard size-jump reject
 - an experimental `tile-graph` reconstruction mode now exists behind `--reconstruction-mode tile-graph`
+- an experimental `hybrid` reconstruction mode now exists behind `--reconstruction-mode hybrid`
 
 Current tile-graph status:
 
@@ -48,6 +49,8 @@ Current tile-graph status:
 - the remaining large-fixture bottleneck is the per-component one-cell window cutting pass, which still hops back to CPU after labeling
 - elongated source regions now get a stroke-aware slicing pass that follows their principal axis instead of only marching with cardinal queue steps, and the repo now has a shallow-stroke regression that checks for fan-out on that kind of component
 - that stroke-aware slicer is a real synthetic improvement but not a real-badge win yet: the latest badge probe under `artifacts/badge-tile-graph-stroke-v2-cuda/` still keeps the initial assignment and slightly regresses source-fidelity (`0.1832` vs `0.1800`)
+- the new low-risk hybrid mode keeps tile-graph's source-owned candidates but scores them against a continuous-optimizer geometry prepass; on the cleaned badge it improves tile-graph from `0.1832` to `0.1785` under `artifacts/badge-hybrid-v2-cuda/`
+- that hybrid gain is still modest and still far behind the stronger continuous badge result, but it is the first combined path that moves the real badge in the right direction without reintroducing smeared ownership
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
 - the older hard-edge-only candidate widening pass under `artifacts/full-emblem-tile-graph-hard-edge-v2-cuda/` remains a useful negative result: more edge choices alone sharpen some cells locally but still regress full-emblem source-fidelity (`0.0377`)
@@ -66,6 +69,7 @@ repixelize input.png --out output.png
 repixelize input.png --out output.png --diagnostics-dir diagnostics --device auto
 repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cpu
 repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cuda
+repixelize input.png --out output.png --reconstruction-mode hybrid --diagnostics-dir diagnostics --device cuda
 ```
 
 Run the optimizer plus baselines:

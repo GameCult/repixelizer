@@ -92,6 +92,8 @@ class SolverHyperParams:
     tile_graph_coverage_weight: float = 0.05
     tile_graph_delta_weight: float = 0.45
     tile_graph_iterations: int = 10
+    hybrid_geometry_match_weight: float = 0.35
+    hybrid_geometry_edge_boost: float = 0.55
 
     def to_dict(self) -> dict[str, float | int]:
         return asdict(self)

@@ -14,12 +14,13 @@ Implemented:
 - source-first snap/refine scoring with explicit source-vs-representative weights
 - low-confidence phase reranking with soft size penalties instead of hard size-jump rejection
 - an experimental `tile-graph` reconstruction path with coord-local literal source-pixel candidates
+- an experimental `hybrid` reconstruction path that combines a continuous geometry prepass with tile-graph ownership
 - stage-aware diagnostics writing, including per-stage source-fidelity and rerank traces
 - synthetic test fixtures and automated tests
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing (`56 passed`)
+- full test suite currently passing (`59 passed`)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
@@ -56,22 +57,25 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass tried the next geometry-focused experiment on tile-graph: cutting elongated source regions like strokes instead of treating them like generic blobs.
+This pass adds the first low-risk hybrid path between the continuous solver and tile-graph instead of treating them as completely separate experiments.
 
 What landed:
-- `tile_graph.py` now computes principal-axis stats for source-side atomic regions and gives elongated components a stroke-aware slicing path
-- stroke-like components are now seeded and cut along their fitted axis, and then thinned to one best candidate per dominant row or column band before they reach the per-cell candidate buckets
-- a new shallow-stroke regression in `tests/test_tile_graph.py` checks that connected slanted strokes do not fan out across too many output cells
-- tile-graph still keeps its initial assignment whenever the propagation loop would worsen source-lattice fidelity, because that safeguard is still doing real work on the badge
+- `pipeline.py` now supports `reconstruction_mode="hybrid"` and runs a zero-step continuous prepass before tile-graph
+- `tile_graph.py` now accepts an optional geometry reference image plus guidance map and adds a geometry-match term to the tile-graph unary cost
+- `cli.py` now exposes `--reconstruction-mode hybrid`
+- `tests/test_pipeline.py` now covers both the direct hybrid handoff seam and an actual end-to-end hybrid smoke run
 
 Current implementation note:
 - source-region labeling is still device-backed, but the one-cell window cutting pass remains CPU-side and still dominates large-fixture runtime
-- the stroke-aware slicer is a meaningful synthetic change, but it is not yet a real-badge quality win: the latest run under `artifacts/badge-tile-graph-stroke-v2-cuda/` lands at `0.1832`, slightly worse than the previous CCL-only tile-graph badge run at `0.1800`
-- the latest badge stroke-aware run still keeps its initial assignment, which reinforces that the current badge weakness is mostly in initial candidate ownership/selection rather than in the later propagation loop
+- the hybrid is intentionally conservative for this first pass: it only biases tile-graph's unary cost with the continuous prepass layout and does not yet replace the pairwise objective or the source-region builder
+- on the cleaned badge, that conservative hybrid still helps: the latest run under `artifacts/badge-hybrid-v2-cuda/` lands at `0.1785`, improving on the current tile-graph badge baseline at `0.1832`
+- the hybrid is still far behind the stronger continuous badge result (`0.0832`), so the seam looks promising but it is not yet enough to solve the real contour problem by itself
+- the runtime overhead is modest relative to the current stroke-aware tile-graph pass: about `460.7s` for the hybrid badge probe versus about `443.1s` for the current non-hybrid tile-graph badge probe on this machine
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
 
 Next after that:
+- decide whether the next hybrid pass should add geometry-aware pairwise terms before changing the source-region builder again
 - keep pushing the initial candidate builder toward true source-side stroke ownership instead of only better stroke slicing within the same builder
 - port the per-component window cutting pass back toward a fully device-friendly formulation instead of only accelerating the labeling step
 - decide whether the next stroke pass should use a real contour/skeleton trace instead of only a principal-axis approximation
@@ -103,6 +107,7 @@ Current status:
 - the remaining weakness on tile-graph is not candidate color purity anymore; it is candidate extraction cost plus deciding how aggressive the propagation step should be once the initial assignment is already strong
 - on the cleaned badge, the new CCL-backed tile-graph run under `artifacts/badge-tile-graph-ccl-cuda/` still lands at a weak `0.1800`, so the current CCL work should be treated as an infrastructure/performance step rather than a visual-quality fix
 - the new stroke-aware badge run under `artifacts/badge-tile-graph-stroke-v2-cuda/` still does not solve the guard-contour problem and slightly regresses to `0.1832`, so the next stroke pass should be judged on whether it changes the source-side path model more fundamentally
+- the first hybrid badge run under `artifacts/badge-hybrid-v2-cuda/` improves that tile-graph baseline to `0.1785`, which is modest but real progress in the combined direction
 
 Important note:
 - the checkerboard is baked into the source image, not transparency

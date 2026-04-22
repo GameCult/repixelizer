@@ -8,10 +8,11 @@ from repixelizer.analysis import analyze_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.continuous import optimize_uv_field
 from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error, source_lattice_consistency_breakdown
-from repixelizer.pipeline import _select_phase_candidate, run_pipeline
+from repixelizer.params import SolverHyperParams
+from repixelizer.pipeline import _run_reconstruction, _select_phase_candidate, run_pipeline
 from repixelizer.io import load_rgba, nearest_resize
 from repixelizer.synthetic import fake_pixelize, make_emblem, make_sprite
-from repixelizer.types import InferenceCandidate, InferenceResult
+from repixelizer.types import InferenceCandidate, InferenceResult, SolverArtifacts
 
 
 def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
@@ -219,6 +220,106 @@ def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
     selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
+
+
+def test_hybrid_reconstruction_passes_continuous_geometry_into_tile_graph(monkeypatch) -> None:
+    source = np.zeros((4, 4, 4), dtype=np.float32)
+    geometry_rgba = np.zeros((2, 2, 4), dtype=np.float32)
+    geometry_rgba[0, 0] = np.asarray([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    geometry_guidance = np.asarray([[0.8, 0.2], [0.1, 0.6]], dtype=np.float32)
+    inference = InferenceResult(
+        target_width=2,
+        target_height=2,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    geometry_solver = SolverArtifacts(
+        target_rgba=geometry_rgba,
+        uv_field=np.zeros((2, 2, 2), dtype=np.float32),
+        guidance_strength=geometry_guidance,
+        initial_rgba=geometry_rgba.copy(),
+        loss_history=[],
+    )
+
+    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        assert steps == 0
+        return geometry_solver
+
+    def fake_optimize_tile_graph(
+        source_rgba,
+        inference,
+        analysis,
+        steps,
+        seed,
+        device,
+        solver_params=None,
+        geometry_reference_rgba=None,
+        geometry_guidance_strength=None,
+    ):
+        assert np.allclose(geometry_reference_rgba, geometry_rgba)
+        assert np.allclose(geometry_guidance_strength, geometry_guidance)
+        return (
+            SolverArtifacts(
+                target_rgba=geometry_rgba.copy(),
+                uv_field=np.zeros((2, 2, 2), dtype=np.float32),
+                guidance_strength=np.zeros((2, 2), dtype=np.float32),
+                initial_rgba=geometry_rgba.copy(),
+                loss_history=[],
+            ),
+            {"mode": "tile-graph", "tile_graph_geometry_prior": True},
+        )
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
+    monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fake_optimize_tile_graph)
+
+    solver, diagnostics = _run_reconstruction(
+        source,
+        inference=inference,
+        analysis=object(),
+        steps=12,
+        seed=7,
+        device="cpu",
+        solver_params=SolverHyperParams(),
+        reconstruction_mode="hybrid",
+    )
+
+    assert np.allclose(solver.target_rgba, geometry_rgba)
+    assert diagnostics["mode"] == "hybrid"
+    assert diagnostics["hybrid_geometry_prepass_mode"] == "continuous"
+    assert diagnostics["tile_graph_geometry_prior"] is True
+
+
+def test_pipeline_hybrid_mode_writes_reconstruction_diagnostics(tmp_path: Path) -> None:
+    source = make_emblem(16, 16)
+    fake = fake_pixelize(source, upscale=8, phase_x=0.1, phase_y=-0.05, blur_radius=0.4, warp_strength=0.15, warp_detail=4)
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+    diagnostics_dir = tmp_path / "diagnostics"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, fake)
+    result = run_pipeline(
+        input_path,
+        output_path,
+        diagnostics_dir=diagnostics_dir,
+        reconstruction_mode="hybrid",
+        steps=0,
+        device="cpu",
+    )
+
+    import json
+
+    run_json = json.loads((diagnostics_dir / "run.json").read_text(encoding="utf-8"))
+    assert output_path.exists()
+    assert run_json["settings"]["reconstruction_mode"] == "hybrid"
+    assert run_json["reconstruction"]["mode"] == "hybrid"
+    assert run_json["reconstruction"]["tile_graph_geometry_prior"] is True
+    assert run_json["reconstruction"]["hybrid_geometry_prepass_mode"] == "continuous"
+    assert result.diagnostics["reconstruction"]["mode"] == "hybrid"
 
 
 def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
