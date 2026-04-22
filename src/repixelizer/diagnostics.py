@@ -9,7 +9,12 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .io import nearest_resize, save_rgba
-from .metrics import coherence_breakdown, foreground_reconstruction_error, reconstruction_error
+from .metrics import (
+    coherence_breakdown,
+    foreground_reconstruction_error,
+    reconstruction_error,
+    source_lattice_consistency_breakdown,
+)
 from .types import InferenceResult, RunResult
 
 
@@ -105,6 +110,48 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         width=result.source_rgba.shape[1],
         height=result.source_rgba.shape[0],
     )
+    source_fidelity = {
+        "snap_initial": source_lattice_consistency_breakdown(
+            result.source_rgba,
+            result.solver.initial_rgba,
+            target_width=result.inference.target_width,
+            target_height=result.inference.target_height,
+            phase_x=result.inference.phase_x,
+            phase_y=result.inference.phase_y,
+        ),
+        "solver_target": source_lattice_consistency_breakdown(
+            result.source_rgba,
+            result.solver.target_rgba,
+            target_width=result.inference.target_width,
+            target_height=result.inference.target_height,
+            phase_x=result.inference.phase_x,
+            phase_y=result.inference.phase_y,
+        ),
+        "final_output": source_lattice_consistency_breakdown(
+            result.source_rgba,
+            result.output_rgba,
+            target_width=result.inference.target_width,
+            target_height=result.inference.target_height,
+            phase_x=result.inference.phase_x,
+            phase_y=result.inference.phase_y,
+        ),
+    }
+    rerank_candidates = [
+        {
+            "target_width": candidate.target_width,
+            "target_height": candidate.target_height,
+            "phase_x": candidate.phase_x,
+            "phase_y": candidate.phase_y,
+            "score": candidate.score,
+            "phase_rerank_score": candidate.breakdown.get("phase_rerank_score"),
+            "phase_rerank_rank": candidate.breakdown.get("phase_rerank_rank"),
+            "phase_rerank_support_score": candidate.breakdown.get("phase_rerank_support_score"),
+            "phase_rerank_size_delta_ratio": candidate.breakdown.get("phase_rerank_size_delta_ratio"),
+            "phase_rerank_size_penalty": candidate.breakdown.get("phase_rerank_size_penalty"),
+        }
+        for candidate in result.inference.top_candidates
+        if "phase_rerank_score" in candidate.breakdown
+    ]
     return {
         "target_width": result.inference.target_width,
         "target_height": result.inference.target_height,
@@ -115,6 +162,8 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         "source_preview_reconstruction_error": reconstruction_error(source_preview, result.source_rgba),
         "source_preview_foreground_error": foreground_reconstruction_error(source_preview, result.source_rgba),
         "output_colors_from_source_ratio": _source_color_ratio(result.source_rgba, result.output_rgba),
+        "source_fidelity": source_fidelity,
+        "phase_rerank_candidates": rerank_candidates,
         "loss_history": result.solver.loss_history,
     }
 

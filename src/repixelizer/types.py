@@ -37,6 +37,21 @@ class SourceAnalysis:
 
 
 @dataclass(slots=True)
+class SourceLatticeReference:
+    mean_rgba: np.ndarray
+    sharp_rgba: np.ndarray
+    dispersion: float
+    cell_dispersion: np.ndarray
+    cell_counts: np.ndarray
+    cell_support: np.ndarray
+    cell_alpha_max: np.ndarray
+    delta_x: np.ndarray | None
+    delta_y: np.ndarray | None
+    delta_diag: np.ndarray | None
+    delta_anti: np.ndarray | None
+
+
+@dataclass(slots=True)
 class SolverArtifacts:
     target_rgba: np.ndarray
     uv_field: np.ndarray

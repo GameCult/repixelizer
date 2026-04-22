@@ -11,10 +11,16 @@ class SolverHyperParams:
     boundary_direction_weight: float = 0.30
     boundary_magnitude_weight: float = 0.15
     snap_base_match_weight: float = 0.65
+    snap_representative_match_weight: float = 0.15
+    snap_source_match_weight: float = 0.85
     snap_neighbor_weight: float = 0.35
     snap_diagonal_weight: float = 0.14
+    snap_representative_delta_weight: float = 0.20
+    snap_source_delta_weight: float = 0.80
     refine_anchor_weight: float = 0.60
     refine_representative_weight: float = 0.20
+    refine_representative_match_weight: float = 0.15
+    refine_source_match_weight: float = 0.85
     refine_alpha_weight: float = 0.10
     refine_distance_weight: float = 0.10
     refine_source_delta_weight: float = 0.25
@@ -22,6 +28,7 @@ class SolverHyperParams:
     refine_diagonal_weight: float = 0.08
     refine_motif_weight: float = 0.12
     refine_line_weight: float = 0.10
+    refine_relaxed_mode_weight: float = 0.14
     refine_candidate_extent: float = 0.70
     refine_candidate_levels: int = 7
     relax_iterations: int = 24
@@ -44,7 +51,7 @@ class SolverHyperParams:
     structure_source_adjacency_weight: float = 0.35
     structure_source_motif_weight: float = 0.40
     structure_source_line_weight: float = 0.20
-    structure_representative_weight: float = 0.05
+    structure_representative_weight: float = 0.02
     alpha_foreground_threshold: float = 0.50
     alpha_representative_foreground_threshold: float = 0.60
     alpha_opaque_threshold: float = 0.95
@@ -53,9 +60,10 @@ class SolverHyperParams:
     phase_rerank_edge_position_weight: float = 0.20
     phase_rerank_wobble_weight: float = 0.20
     phase_rerank_edge_concentration_weight: float = 0.10
+    phase_rerank_size_penalty_weight: float = 0.18
     phase_rerank_inference_penalty_weight: float = 0.05
     phase_rerank_confidence_threshold: float = 0.12
-    phase_rerank_max_size_delta_ratio: float = 0.15
+    phase_rerank_max_size_delta_ratio: float = 0.40
     phase_rerank_margin: float = 0.004
 
     def to_dict(self) -> dict[str, float]:

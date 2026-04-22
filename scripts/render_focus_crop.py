@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 from repixelizer.continuous import (
     _discrete_refine_output,
-    _exemplar_colors,
+    _build_source_reliability,
     _make_patch_offsets,
     _make_regular_uv,
     _relax_candidate_selection,
@@ -18,12 +18,13 @@ from repixelizer.continuous import (
     _sample_cell_patches,
     _select_colors,
     _snap_output_to_source_pixels,
-    _source_boundary_deltas,
     premultiply,
 )
 from repixelizer.inference import infer_lattice
 from repixelizer.io import load_rgba
+from repixelizer.metrics import source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
+from repixelizer.source_reference import build_source_lattice_reference
 
 
 def _parse_args() -> argparse.Namespace:
@@ -87,7 +88,7 @@ def _build_focus_states(
     *,
     steps: int,
     device: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, tuple[float, float]]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, tuple[float, float], dict[str, dict[str, float]]]:
     source = load_rgba(input_path)
     solver_params = SolverHyperParams()
     inference = infer_lattice(source, None, device=device)
@@ -112,15 +113,45 @@ def _build_focus_states(
     offsets_t = torch.from_numpy(
         _make_patch_offsets(height=height, width=width, target_height=inference.target_height, target_width=inference.target_width)
     ).to(device=resolved_device, dtype=torch.float32)
+    source_lattice_reference = build_source_lattice_reference(
+        source,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+        alpha_threshold=solver_params.alpha_transparent_threshold,
+    )
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     representative_t, _ = _representative_colors(initial_patches, solver_params)
     representative_t = representative_t.detach()
-    source_reference_t = _exemplar_colors(initial_patches).detach()
-
-    source_delta_x_t = _source_boundary_deltas(F, source_t, uv0_t, axis="x")
-    source_delta_y_t = _source_boundary_deltas(F, source_t, uv0_t, axis="y")
-    source_delta_diag_t = _source_boundary_deltas(F, source_t, uv0_t, axis="diag")
-    source_delta_anti_t = _source_boundary_deltas(F, source_t, uv0_t, axis="anti")
+    source_reference_t = torch.from_numpy(premultiply(source_lattice_reference.sharp_rgba)[None, ...]).to(
+        device=resolved_device,
+        dtype=torch.float32,
+    )
+    source_reliability_t = torch.from_numpy(_build_source_reliability(source_lattice_reference)[None, ...]).to(
+        device=resolved_device,
+        dtype=torch.float32,
+    )
+    source_delta_x_t = (
+        torch.from_numpy(source_lattice_reference.delta_x[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if source_lattice_reference.delta_x is not None
+        else None
+    )
+    source_delta_y_t = (
+        torch.from_numpy(source_lattice_reference.delta_y[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if source_lattice_reference.delta_y is not None
+        else None
+    )
+    source_delta_diag_t = (
+        torch.from_numpy(source_lattice_reference.delta_diag[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if source_lattice_reference.delta_diag is not None
+        else None
+    )
+    source_delta_anti_t = (
+        torch.from_numpy(source_lattice_reference.delta_anti[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if source_lattice_reference.delta_anti is not None
+        else None
+    )
 
     snap_rgba = _snap_output_to_source_pixels(
         torch,
@@ -128,6 +159,7 @@ def _build_focus_states(
         uv0_t,
         representative_t,
         source_reference_t,
+        source_reliability_t,
         solver_params,
         cell_x=cell_x,
         cell_y=cell_y,
@@ -169,7 +201,12 @@ def _build_focus_states(
     distance_energy = ((offset_x / max(cell_x, 1e-4)) ** 2 + (offset_y / max(cell_y, 1e-4)) ** 2).reshape(1, 1, -1)
     relax_base_energy = (
         anchor_energy * solver_params.refine_anchor_weight * solver_params.relax_anchor_scale
-        + (rep_energy * 0.45 + source_reference_energy * 0.55) * solver_params.refine_representative_weight
+        + (
+            source_reference_energy * solver_params.refine_source_match_weight
+            + rep_energy * solver_params.refine_representative_match_weight
+        )
+        / max(solver_params.refine_source_match_weight + solver_params.refine_representative_match_weight, 1e-4)
+        * solver_params.refine_representative_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
@@ -210,6 +247,7 @@ def _build_focus_states(
         uv0_t,
         representative_t,
         source_reference_t,
+        source_reliability_t,
         snap_t,
         source_delta_x_t,
         source_delta_y_t,
@@ -220,7 +258,33 @@ def _build_focus_states(
         cell_y=cell_y,
         iterations=steps,
     )
-    return source, snap_rgba, relaxed_rgba, final_rgba, (cell_x, cell_y)
+    fidelity = {
+        "snap": source_lattice_consistency_breakdown(
+            source,
+            snap_rgba,
+            target_width=inference.target_width,
+            target_height=inference.target_height,
+            phase_x=inference.phase_x,
+            phase_y=inference.phase_y,
+        ),
+        "relaxed": source_lattice_consistency_breakdown(
+            source,
+            relaxed_rgba,
+            target_width=inference.target_width,
+            target_height=inference.target_height,
+            phase_x=inference.phase_x,
+            phase_y=inference.phase_y,
+        ),
+        "final": source_lattice_consistency_breakdown(
+            source,
+            final_rgba,
+            target_width=inference.target_width,
+            target_height=inference.target_height,
+            phase_x=inference.phase_x,
+            phase_y=inference.phase_y,
+        ),
+    }
+    return source, snap_rgba, relaxed_rgba, final_rgba, (cell_x, cell_y), fidelity
 
 
 def main() -> None:
@@ -229,7 +293,7 @@ def main() -> None:
     if x1 <= x0 or y1 <= y0:
         raise SystemExit("Invalid --cell-bbox: expected X1 > X0 and Y1 > Y0.")
 
-    source, snap_rgba, relaxed_rgba, final_rgba, (cell_x, cell_y) = _build_focus_states(
+    source, snap_rgba, relaxed_rgba, final_rgba, (cell_x, cell_y), fidelity = _build_focus_states(
         args.input,
         steps=args.steps,
         device=args.device,
@@ -271,6 +335,7 @@ def main() -> None:
             "source_bbox": list(source_bbox),
             "panels": panel_names,
             "scale": args.scale,
+            "source_fidelity": fidelity,
         }
     )
 

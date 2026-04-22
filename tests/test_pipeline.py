@@ -4,10 +4,12 @@ from pathlib import Path
 
 import numpy as np
 
+from repixelizer.analysis import analyze_source
 from repixelizer.baselines import naive_resize_baseline
-from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error
+from repixelizer.continuous import optimize_uv_field
+from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error, source_lattice_consistency_breakdown
 from repixelizer.pipeline import _select_phase_candidate, run_pipeline
-from repixelizer.io import nearest_resize
+from repixelizer.io import load_rgba, nearest_resize
 from repixelizer.synthetic import fake_pixelize, make_emblem, make_sprite
 from repixelizer.types import InferenceCandidate, InferenceResult
 
@@ -26,6 +28,11 @@ def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
     assert output_path.exists()
     assert (diagnostics_dir / "run.json").exists()
     assert (diagnostics_dir / "output-preview.png").exists()
+    import json
+
+    run_json = json.loads((diagnostics_dir / "run.json").read_text(encoding="utf-8"))
+    assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
+    assert "phase_rerank_candidates" in run_json
     assert result.output_rgba.shape[0] == result.inference.target_height
     assert result.output_rgba.shape[1] == result.inference.target_width
 
@@ -214,6 +221,76 @@ def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
     assert selected.target_height == candidate_a.target_height
 
 
+def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
+    source = np.zeros((16, 16, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=21, target_height=21, phase_x=0.2, phase_y=-0.2, score=0.89, breakdown={})
+    inference = InferenceResult(
+        target_width=16,
+        target_height=16,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class DummyArtifacts:
+        def __init__(self, rgba: np.ndarray) -> None:
+            self.target_rgba = rgba
+
+    outputs = {
+        candidate_a.target_width: np.zeros((candidate_a.target_height, candidate_a.target_width, 4), dtype=np.float32),
+        candidate_b.target_width: np.ones((candidate_b.target_height, candidate_b.target_width, 4), dtype=np.float32),
+    }
+
+    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        return DummyArtifacts(outputs[inference.target_width])
+
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+        return {"score": 0.22 if target_width == 16 else 0.03}
+
+    def fake_edge_position(preview, source_rgba):
+        return 0.07 if np.mean(preview) < 0.1 else 0.02
+
+    def fake_wobble(preview, source_rgba):
+        return 1.25 if np.mean(preview) < 0.1 else 0.55
+
+    def fake_concentration(rgba):
+        return 0.18 if np.mean(rgba) < 0.1 else 0.31
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
+    monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_position_error", fake_edge_position)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
+
+    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    assert selected.target_width == candidate_b.target_width
+    assert selected.target_height == candidate_b.target_height
+
+
+def test_phase_rerank_keeps_high_confidence_candidate_without_probe(monkeypatch) -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
+    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
+    inference = InferenceResult(
+        target_width=8,
+        target_height=8,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.5,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("rerank probe should not run for high-confidence inference")
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fail)
+    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    assert selected.target_width == candidate_a.target_width
+    assert selected.target_height == candidate_a.target_height
+
+
 def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
     source = np.zeros((4, 4, 4), dtype=np.float32)
     candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.2, phase_y=0.0, score=0.91, breakdown={})
@@ -260,3 +337,44 @@ def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
     selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
     assert selected.phase_x == candidate_b.phase_x
     assert selected.phase_y == candidate_b.phase_y
+
+
+def test_badge_fixture_candidate_beats_previous_source_fidelity_baselines() -> None:
+    source = load_rgba("tests/fixtures/real/ai-badge-cleaned.png")
+    inference = InferenceResult(
+        target_width=170,
+        target_height=170,
+        phase_x=-0.2,
+        phase_y=0.2,
+        confidence=0.0,
+        top_candidates=[],
+    )
+    artifacts = optimize_uv_field(
+        source,
+        inference=inference,
+        analysis=analyze_source(source, seed=7),
+        steps=2,
+        seed=7,
+        device="cpu",
+    )
+
+    snap_consistency = source_lattice_consistency_breakdown(
+        source,
+        artifacts.initial_rgba,
+        target_width=170,
+        target_height=170,
+        phase_x=-0.2,
+        phase_y=0.2,
+    )["score"]
+    final_consistency = source_lattice_consistency_breakdown(
+        source,
+        artifacts.target_rgba,
+        target_width=170,
+        target_height=170,
+        phase_x=-0.2,
+        phase_y=0.2,
+    )["score"]
+
+    assert final_consistency <= 0.1494
+    assert final_consistency <= 0.1369
+    assert final_consistency <= snap_consistency + 1e-6

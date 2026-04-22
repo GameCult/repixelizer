@@ -181,32 +181,75 @@ def _select_phase_candidate(
         (record["edge_concentration"] for record in candidate_records),
         higher_is_better=True,
     )
+    size_penalty = [
+        min(1.0, float(record["size_delta_ratio"]) / max(solver_params.phase_rerank_max_size_delta_ratio, 1e-6))
+        for record in candidate_records
+    ]
     inference_penalty = _normalize_penalty(record["inference_penalty"] for record in candidate_records)
 
     baseline_rank: float | None = None
     best_rank = float("inf")
     best_candidate = inference
+    annotated_candidates = []
     for index, record in enumerate(candidate_records):
         candidate_inference = record["inference"]
-        size_delta_ratio = float(record["size_delta_ratio"])
-        if (
-            candidate_inference.target_width != inference.target_width
-            or candidate_inference.target_height != inference.target_height
-        ) and size_delta_ratio > solver_params.phase_rerank_max_size_delta_ratio:
+        if float(record["size_delta_ratio"]) > solver_params.phase_rerank_max_size_delta_ratio:
             continue
         rank = (
             solver_params.phase_rerank_support_weight * support_penalty[index]
             + solver_params.phase_rerank_edge_position_weight * edge_position_penalty[index]
             + solver_params.phase_rerank_wobble_weight * wobble_penalty[index]
             + solver_params.phase_rerank_edge_concentration_weight * edge_concentration_penalty[index]
+            + solver_params.phase_rerank_size_penalty_weight * size_penalty[index]
             + solver_params.phase_rerank_inference_penalty_weight * inference_penalty[index]
+        )
+        source_candidate = inference.top_candidates[index]
+        breakdown = dict(source_candidate.breakdown)
+        breakdown["phase_rerank_support_score"] = float(record["support_score"])
+        breakdown["phase_rerank_edge_position_error"] = float(record["edge_position_error"])
+        breakdown["phase_rerank_stroke_wobble_error"] = float(record["stroke_wobble_error"])
+        breakdown["phase_rerank_edge_concentration"] = float(record["edge_concentration"])
+        breakdown["phase_rerank_size_delta_ratio"] = float(record["size_delta_ratio"])
+        breakdown["phase_rerank_size_penalty"] = float(size_penalty[index])
+        breakdown["phase_rerank_inference_penalty"] = float(record["inference_penalty"])
+        breakdown["phase_rerank_score"] = float(rank)
+        annotated_candidates.append(
+            source_candidate.__class__(
+                target_width=source_candidate.target_width,
+                target_height=source_candidate.target_height,
+                phase_x=source_candidate.phase_x,
+                phase_y=source_candidate.phase_y,
+                score=source_candidate.score,
+                breakdown=breakdown,
+            )
         )
         if baseline_rank is None:
             baseline_rank = rank
         if rank < best_rank:
             best_rank = rank
             best_candidate = record["inference"]
+    annotated_candidates.sort(key=lambda candidate: float(candidate.breakdown.get("phase_rerank_score", float("inf"))))
+    for rank, candidate in enumerate(annotated_candidates, start=1):
+        candidate.breakdown["phase_rerank_rank"] = float(rank)
+    if annotated_candidates:
+        best_candidate = InferenceResult(
+            target_width=best_candidate.target_width,
+            target_height=best_candidate.target_height,
+            phase_x=best_candidate.phase_x,
+            phase_y=best_candidate.phase_y,
+            confidence=inference.confidence,
+            top_candidates=annotated_candidates,
+        )
     if baseline_rank is None or best_rank > baseline_rank - solver_params.phase_rerank_margin:
+        if annotated_candidates:
+            return InferenceResult(
+                target_width=inference.target_width,
+                target_height=inference.target_height,
+                phase_x=inference.phase_x,
+                phase_y=inference.phase_y,
+                confidence=inference.confidence,
+                top_candidates=annotated_candidates,
+            )
         return inference
     return best_candidate
 

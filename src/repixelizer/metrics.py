@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .io import premultiply
+from .source_reference import build_source_lattice_reference
 
 
 def luminance(rgba: np.ndarray) -> np.ndarray:
@@ -247,7 +248,7 @@ def source_lattice_consistency_breakdown(
     phase_y: float,
     alpha_threshold: float = 0.05,
 ) -> dict[str, float]:
-    lattice_source, dispersion = lattice_source_rgba(
+    reference = build_source_lattice_reference(
         source_rgba,
         target_width=target_width,
         target_height=target_height,
@@ -255,20 +256,20 @@ def source_lattice_consistency_breakdown(
         phase_y=phase_y,
         alpha_threshold=alpha_threshold,
     )
-    cell_error = foreground_reconstruction_error(output_rgba, lattice_source, alpha_threshold=alpha_threshold, halo=0)
-    adjacency_error = foreground_adjacency_error(output_rgba, lattice_source, alpha_threshold=alpha_threshold, halo=0)
-    motif_error = foreground_motif_error(output_rgba, lattice_source, alpha_threshold=alpha_threshold, halo=0)
+    cell_error = foreground_reconstruction_error(output_rgba, reference.mean_rgba, alpha_threshold=alpha_threshold, halo=0)
+    adjacency_error = foreground_adjacency_error(output_rgba, reference.sharp_rgba, alpha_threshold=alpha_threshold, halo=0)
+    motif_error = foreground_motif_error(output_rgba, reference.sharp_rgba, alpha_threshold=alpha_threshold, halo=0)
     score = (
         cell_error * 0.34
         + adjacency_error * 0.24
         + motif_error * 0.24
-        + dispersion * 0.18
+        + reference.dispersion * 0.18
     )
     return {
         "cell_error": cell_error,
         "adjacency_error": adjacency_error,
         "motif_error": motif_error,
-        "cell_dispersion": dispersion,
+        "cell_dispersion": reference.dispersion,
         "score": score,
     }
 
@@ -282,7 +283,7 @@ def source_lattice_evidence_breakdown(
     phase_y: float,
     alpha_threshold: float = 0.05,
 ) -> dict[str, float]:
-    lattice_source, dispersion = lattice_source_rgba(
+    reference = build_source_lattice_reference(
         source_rgba,
         target_width=target_width,
         target_height=target_height,
@@ -290,10 +291,10 @@ def source_lattice_evidence_breakdown(
         phase_y=phase_y,
         alpha_threshold=alpha_threshold,
     )
-    adjacency_strength = foreground_adjacency_strength(lattice_source, alpha_threshold=alpha_threshold)
-    evidence_score = adjacency_strength - dispersion * 0.8
+    adjacency_strength = foreground_adjacency_strength(reference.sharp_rgba, alpha_threshold=alpha_threshold)
+    evidence_score = adjacency_strength - reference.dispersion * 0.8
     return {
-        "cell_dispersion": dispersion,
+        "cell_dispersion": reference.dispersion,
         "adjacency_strength": adjacency_strength,
         "score": evidence_score,
     }
@@ -443,60 +444,12 @@ def lattice_source_rgba(
     phase_y: float,
     alpha_threshold: float = 0.05,
 ) -> tuple[np.ndarray, float]:
-    indices = _lattice_indices(
-        height=source_rgba.shape[0],
-        width=source_rgba.shape[1],
+    reference = build_source_lattice_reference(
+        source_rgba,
         target_width=target_width,
         target_height=target_height,
         phase_x=phase_x,
         phase_y=phase_y,
+        alpha_threshold=alpha_threshold,
     )
-    cell_count = max(1, target_width * target_height)
-    premul = premultiply(source_rgba)
-    flat_idx = indices.reshape(-1)
-    flat_premul = premul.reshape(-1, premul.shape[-1])
-    counts = np.bincount(flat_idx, minlength=cell_count).astype(np.float32)
-    safe_counts = np.maximum(counts, 1.0)
-    channel_sums = [
-        np.bincount(flat_idx, weights=flat_premul[:, channel], minlength=cell_count).astype(np.float32)
-        for channel in range(flat_premul.shape[-1])
-    ]
-    mean_premul = np.stack(channel_sums, axis=-1) / safe_counts[:, None]
-    mean_premul = mean_premul.reshape(target_height, target_width, premul.shape[-1])
-    mean_rgba = _unpremultiply_array(mean_premul)
-
-    per_pixel_mean = mean_premul.reshape(-1, premul.shape[-1])[flat_idx]
-    pixel_diff = np.mean(np.abs(flat_premul - per_pixel_mean), axis=-1)
-    source_alpha = source_rgba.reshape(-1, source_rgba.shape[-1])[:, 3]
-    lattice_alpha = mean_rgba.reshape(-1, mean_rgba.shape[-1])[flat_idx, 3]
-    support_mask = np.maximum(source_alpha, lattice_alpha) >= alpha_threshold
-    if np.any(support_mask):
-        dispersion = float(np.mean(pixel_diff[support_mask]))
-    else:
-        dispersion = float(np.mean(pixel_diff)) if pixel_diff.size else 0.0
-    return mean_rgba.astype(np.float32), dispersion
-
-
-def _lattice_indices(
-    *,
-    height: int,
-    width: int,
-    target_width: int,
-    target_height: int,
-    phase_x: float,
-    phase_y: float,
-) -> np.ndarray:
-    cell_x = width / max(1, target_width)
-    cell_y = height / max(1, target_height)
-    xs = (np.arange(width, dtype=np.float32) + 0.5) / cell_x - phase_x
-    ys = (np.arange(height, dtype=np.float32) + 0.5) / cell_y - phase_y
-    x_idx = np.clip(np.floor(xs).astype(np.int32), 0, max(0, target_width - 1))
-    y_idx = np.clip(np.floor(ys).astype(np.int32), 0, max(0, target_height - 1))
-    return y_idx[:, None] * target_width + x_idx[None, :]
-
-
-def _unpremultiply_array(premul: np.ndarray, eps: float = 1e-6) -> np.ndarray:
-    out = premul.copy()
-    alpha = np.maximum(out[..., 3:4], eps)
-    out[..., :3] = np.where(out[..., 3:4] > eps, out[..., :3] / alpha, 0.0)
-    return np.clip(out, 0.0, 1.0)
+    return reference.mean_rgba, reference.dispersion

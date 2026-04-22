@@ -21,12 +21,19 @@ That is the two-headed pitch in one image: force non-pixel art onto a coherent g
 This is already a serious experimental baseline, not a toy prototype:
 
 - CUDA-backed inference and solver paths are wired up
+- a shared source-lattice reference now drives solver, metrics, and reranking
 - round-trip corpus benchmarking is built in
 - soft and crisp corruption profiles are supported
-- diagnostics and baseline comparisons are written automatically
+- diagnostics and baseline comparisons are written automatically, including per-stage source-fidelity in `run.json`
 - a black-box tuning harness exists for longer offline parameter sweeps
 
 The current pipeline is especially strong on benchmarked sprite and emblem inputs where local fake-pixel texture is meaningful but the global grid is inconsistent.
+
+Recent adjacency-focused status:
+
+- the cleaned AI badge regression now beats naive resize on the repo's source-lattice consistency metric under the selected lattice
+- the snap-to-refine handoff is now source-first rather than dominated by the softened representative lattice
+- low-confidence phase reranking now uses a soft size penalty instead of a hard size-jump reject
 
 ## Quickstart
 

@@ -10,16 +10,37 @@ Implemented:
 - lattice/phase inference with coherence scoring plus source-period prior
 - source-image structural analysis
 - PyTorch-based continuous UV-field optimization
+- shared source-lattice reference built from actual inferred cell assignments
+- source-first snap/refine scoring with explicit source-vs-representative weights
+- low-confidence phase reranking with soft size penalties instead of hard size-jump rejection
 - discrete cleanup on the output grid
 - optional palette loading and quantization modes
 - compare mode with naive and diffusion baselines
-- diagnostics writing
+- stage-aware diagnostics writing, including per-stage source-fidelity and rerank traces
 - synthetic test fixtures and automated tests
 
 Verified:
 - local editable install in a dedicated venv
 - full test suite currently passing
 - compare-mode smoke run against a real emblem image
+- focused real-fixture probe on `tests/fixtures/real/ai-badge-cleaned.png` now beats naive resize on source-lattice consistency under the selected lattice (`0.0832` final vs `0.1304` naive with the current `126x126` / `(0.0, -0.2)` pick)
+
+## Status after adjacency-first pass
+
+What changed:
+- `src/repixelizer/source_reference.py` now owns the lattice-indexed source reference used by metrics, the solver, and phase reranking
+- snap and refine now prefer sharp per-cell source evidence and keep the relaxed-mode neighborhood in the final discrete choice
+- `run.json` now includes `source_fidelity` for `snap_initial`, `solver_target`, and `final_output`, plus `phase_rerank_candidates`
+- `scripts/render_focus_crop.py` now prints stage-level source-fidelity when generating the guard/tip crop sheet
+
+What that fixed:
+- the cleaned badge regression no longer loses badly to naive resize on adjacency and motif preservation once the solver starts from the selected lattice
+- the solver no longer regresses relative to its own snap stage on the added thin-feature regression case
+
+What is still provisional:
+- the cleaned badge still lands on the conservative `126x126` lattice candidate, just with a much lower confidence than before; that means candidate selection and weight tuning are improved but not “done”
+- tuning has not been rerun yet against the new source-first hyperparameters, so the benchmark/tuning baseline should be treated as stale until the next sweep
+- the baked-checkerboard version of the badge remains a separate background-suppression problem
 
 ## What is still provisional
 
@@ -51,6 +72,11 @@ Current failure modes:
 - the right-hand guard wing loses short dark-light-dark adjacency motifs and collapses into a chunky gold slab
 - some guard closeups look nearly identical across `snap`, `relaxed`, and `final`, which suggests the wrong local motif is often chosen before later refinement even starts
 
+Current status after this pass:
+- on the cleaned fixture, `snap`, `relaxed`, and `final` now all preserve source-lattice structure substantially better than the old baseline, with `final` currently landing at `0.0832` source-fidelity score in the reproducible probe under `artifacts/badge-final-probe/`
+- that is a meaningful improvement over both the previous documented `0.1494` final score and the naive resize score under the same selected lattice
+- the remaining weakness is candidate choice confidence, not a collapse inside the snap/refine handoff
+
 Important note:
 - the checkerboard is baked into the source image, not transparency
 - when projected onto a `122x122` output grid it aliases into a visible `2-3-2` cadence
@@ -70,10 +96,9 @@ Current optimizer diagnosis:
 - diagonal structure is also underrepresented in the final structure score, which is a bad fit for curved one-pixel outlines and hooks
 
 Most likely next fixes:
-- derive a sharper per-cell source reference from actual sampled source patches instead of using the soft representative as the only "source truth"
-- point snap, relaxation, and structure-scoring source terms at that sharper source reference
-- harden the relaxed solution more honestly by considering the relaxed mode assignment, not just a per-cell handoff argmin
-- include diagonal boundary agreement in the final structure score so oblique tiny features matter earlier
+- rerun tuning so the new source-first weights are benchmarked against the corpus instead of being judged only by defaults
+- keep pressure on low-confidence badge-like cases where larger lattice candidates have better support but still lose on the combined rerank score
+- evaluate whether the compare-mode summary should surface per-stage source-fidelity directly, not only the final output metrics
 
 Repository fixtures:
 - `tests/fixtures/real/ai-badge-cleaned.png` is the manually cleaned transparent version of the same emblem

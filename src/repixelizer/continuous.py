@@ -4,6 +4,7 @@ import numpy as np
 
 from .io import premultiply, unpremultiply
 from .params import SolverHyperParams
+from .source_reference import build_source_lattice_reference
 from .types import InferenceResult, SolverArtifacts, SourceAnalysis
 
 
@@ -313,6 +314,64 @@ def _blend_reference_delta(primary_delta, secondary_delta, secondary_weight: flo
     secondary_weight = float(np.clip(secondary_weight, 0.0, 1.0))
     primary_weight = 1.0 - secondary_weight
     return primary_delta * primary_weight + secondary_delta * secondary_weight
+
+
+def _build_source_reliability(reference) -> np.ndarray:
+    baseline_dispersion = max(reference.dispersion, 1e-4)
+    dispersion_scale = reference.cell_dispersion / baseline_dispersion
+    dispersion_confidence = np.exp(-np.maximum(0.0, dispersion_scale - 1.0))
+    support_confidence = np.clip(reference.cell_support, 0.0, 1.0)
+    alpha_confidence = np.clip(np.maximum(reference.cell_alpha_max, reference.sharp_rgba[..., 3]), 0.0, 1.0)
+    reliability = np.clip(0.2 + support_confidence * 0.5 + alpha_confidence * 0.3, 0.0, 1.0)
+    return (reliability * dispersion_confidence).astype(np.float32)
+
+
+def _reference_match_energy(
+    representative_energy,
+    source_energy,
+    source_reliability,
+    *,
+    representative_weight: float,
+    source_weight: float,
+):
+    source_mix = source_reliability[..., None] * source_weight
+    representative_mix = representative_weight + (1.0 - source_reliability[..., None]) * source_weight
+    normalization = (source_mix + representative_mix).clamp_min(1e-4)
+    return (representative_energy * representative_mix + source_energy * source_mix) / normalization
+
+
+def _edge_reliability(source_reliability, axis: str):
+    if axis == "x":
+        return (source_reliability[:, 1:] + source_reliability[:, :-1]) * 0.5
+    if axis == "y":
+        return (source_reliability[1:, :] + source_reliability[:-1, :]) * 0.5
+    if axis == "diag":
+        return (source_reliability[1:, 1:] + source_reliability[:-1, :-1]) * 0.5
+    if axis == "anti":
+        return (source_reliability[1:, :-1] + source_reliability[:-1, 1:]) * 0.5
+    raise ValueError(f"Unsupported edge axis: {axis}")
+
+
+def _blend_reference_delta_map(
+    representative_delta,
+    source_delta,
+    source_reliability,
+    *,
+    axis: str,
+    representative_weight: float,
+    source_weight: float,
+):
+    if representative_delta is None:
+        return source_delta
+    if source_delta is None:
+        return representative_delta
+    edge_reliability = _edge_reliability(source_reliability, axis=axis)
+    source_mix = edge_reliability * source_weight
+    representative_mix = representative_weight + (1.0 - edge_reliability) * source_weight
+    normalization = (source_mix + representative_mix).clamp_min(1e-4)
+    return (
+        representative_delta * representative_mix[..., None] + source_delta * source_mix[..., None]
+    ) / normalization[..., None]
 
 
 def _motif_candidate_energy(torch, candidate_colors, context_colors, anchor):
@@ -686,6 +745,7 @@ def _snap_output_to_source_pixels(
     uv_t,
     representative_t,
     source_reference_t,
+    source_reliability_t,
     solver_params: SolverHyperParams,
     *,
     cell_x: float,
@@ -697,6 +757,7 @@ def _snap_output_to_source_pixels(
     uv = uv_t[0]
     representative = representative_t[0]
     source_reference = source_reference_t[0]
+    source_reliability = source_reliability_t[0]
     output_height = representative.shape[0]
     output_width = representative.shape[1]
 
@@ -713,8 +774,12 @@ def _snap_output_to_source_pixels(
 
     representative_match = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
     source_match = (candidate_colors - source_reference[..., None, :]).abs().mean(dim=-1)
-    base_energy = (
-        representative_match * 0.45 + source_match * 0.55
+    base_energy = _reference_match_energy(
+        representative_match,
+        source_match,
+        source_reliability,
+        representative_weight=solver_params.snap_representative_match_weight,
+        source_weight=solver_params.snap_source_match_weight,
     ) * solver_params.snap_base_match_weight
     representative_delta_x = representative[:, 1:, :] - representative[:, :-1, :] if output_width > 1 else None
     representative_delta_y = representative[1:, :, :] - representative[:-1, :, :] if output_height > 1 else None
@@ -725,12 +790,41 @@ def _snap_output_to_source_pixels(
         representative[1:, :-1, :] - representative[:-1, 1:, :] if output_height > 1 and output_width > 1 else None
     )
     source_delta_x, source_delta_y, source_delta_diag, source_delta_anti = _reference_deltas(source_reference)
-    desired_delta_x = _blend_reference_delta(representative_delta_x, source_delta_x, 0.65)
-    desired_delta_y = _blend_reference_delta(representative_delta_y, source_delta_y, 0.65)
-    desired_delta_diag = _blend_reference_delta(representative_delta_diag, source_delta_diag, 0.65)
-    desired_delta_anti = _blend_reference_delta(representative_delta_anti, source_delta_anti, 0.65)
+    desired_delta_x = _blend_reference_delta_map(
+        representative_delta_x,
+        source_delta_x,
+        source_reliability,
+        axis="x",
+        representative_weight=solver_params.snap_representative_delta_weight,
+        source_weight=solver_params.snap_source_delta_weight,
+    )
+    desired_delta_y = _blend_reference_delta_map(
+        representative_delta_y,
+        source_delta_y,
+        source_reliability,
+        axis="y",
+        representative_weight=solver_params.snap_representative_delta_weight,
+        source_weight=solver_params.snap_source_delta_weight,
+    )
+    desired_delta_diag = _blend_reference_delta_map(
+        representative_delta_diag,
+        source_delta_diag,
+        source_reliability,
+        axis="diag",
+        representative_weight=solver_params.snap_representative_delta_weight,
+        source_weight=solver_params.snap_source_delta_weight,
+    )
+    desired_delta_anti = _blend_reference_delta_map(
+        representative_delta_anti,
+        source_delta_anti,
+        source_reliability,
+        axis="anti",
+        representative_weight=solver_params.snap_representative_delta_weight,
+        source_weight=solver_params.snap_source_delta_weight,
+    )
 
     selected = torch.argmin(base_energy, dim=-1)
+    ranking_energy = base_energy
     for _ in range(4):
         selected_colors = torch.gather(
             candidate_colors,
@@ -792,13 +886,14 @@ def _snap_output_to_source_pixels(
             anti_desired[1:, :-1, :] = desired_delta_anti
             anti_error = ((candidate_colors - anti_selected[..., None, :]) - anti_desired[..., None, :]).abs().mean(dim=-1)
             energy = energy + anti_error * anti_mask * solver_params.snap_diagonal_weight
+        ranking_energy = energy
         selected = torch.argmin(energy, dim=-1)
 
     hardened_selected, use_opaque, use_transparent = _harden_binary_alpha_selection(
         torch,
         candidate_colors,
         selected,
-        base_energy,
+        ranking_energy,
         representative[..., 3],
         solver_params=solver_params,
     )
@@ -909,6 +1004,7 @@ def _discrete_refine_output(
     uv_t,
     representative_t,
     source_reference_t,
+    source_reliability_t,
     anchor_t,
     source_delta_x_t,
     source_delta_y_t,
@@ -926,6 +1022,7 @@ def _discrete_refine_output(
     uv = uv_t[0]
     representative = representative_t[0]
     source_reference = source_reference_t[0]
+    source_reliability = source_reliability_t[0]
     anchor = anchor_t[0].permute(1, 2, 0)
     output_height = representative.shape[0]
     output_width = representative.shape[1]
@@ -950,15 +1047,22 @@ def _discrete_refine_output(
     source_reference_energy = (candidate_colors - source_reference[..., None, :]).abs().mean(dim=-1)
     alpha_energy = (candidate_colors[..., 3] - anchor[..., None, 3]).abs()
     distance_energy = ((offset_x / max(cell_x, 1e-4)) ** 2 + (offset_y / max(cell_y, 1e-4)) ** 2).reshape(1, 1, -1)
+    match_energy = _reference_match_energy(
+        rep_energy,
+        source_reference_energy,
+        source_reliability,
+        representative_weight=solver_params.refine_representative_match_weight,
+        source_weight=solver_params.refine_source_match_weight,
+    )
     base_energy = (
         anchor_energy * solver_params.refine_anchor_weight
-        + (rep_energy * 0.45 + source_reference_energy * 0.55) * solver_params.refine_representative_weight
+        + match_energy * solver_params.refine_representative_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
     relax_base_energy = (
         anchor_energy * solver_params.refine_anchor_weight * solver_params.relax_anchor_scale
-        + (rep_energy * 0.45 + source_reference_energy * 0.55) * solver_params.refine_representative_weight
+        + match_energy * solver_params.refine_representative_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
@@ -1002,15 +1106,59 @@ def _discrete_refine_output(
         solver_params,
         iterations=relax_iterations,
     )
+    relaxed_mode_colors = _select_colors(candidate_colors, relaxed_mode_selected)
     refine_base_energy = base_energy + (
         (candidate_colors - relaxed_context[..., None, :]).abs().mean(dim=-1) * solver_params.relax_handoff_weight
     )
+    if solver_params.refine_relaxed_mode_weight > 0.0:
+        refine_base_energy = refine_base_energy + (
+            (candidate_colors - relaxed_mode_colors[..., None, :]).abs().mean(dim=-1)
+            * solver_params.refine_relaxed_mode_weight
+        )
     start_candidates = [selected, relaxed_mode_selected]
     selected = selected.clone()
     best_selected = selected.clone()
     best_score = float("inf")
     loss_history: list[float] = list(relax_history)
     anchor_hw = anchor_t.permute(0, 2, 3, 1)
+
+    def candidate_energy(context_colors):
+        energy = refine_base_energy.clone()
+        energy = energy + _pairwise_candidate_energy(
+            candidate_colors,
+            context_colors,
+            desired_delta_x,
+            desired_delta_y,
+            desired_delta_diag,
+            desired_delta_anti,
+            orthogonal_weight=solver_params.refine_orthogonal_weight,
+            diagonal_weight=solver_params.refine_diagonal_weight,
+        )
+        if solver_params.refine_motif_weight > 0.0:
+            motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, anchor)
+            energy = energy + motif_energy * solver_params.refine_motif_weight
+        if solver_params.structure_source_motif_weight > 0.0:
+            source_motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, source_reference)
+            energy = energy + source_motif_energy * solver_params.structure_source_motif_weight
+        if solver_params.refine_line_weight > 0.0:
+            line_energy = _line_candidate_energy(torch, candidate_colors, context_colors, anchor)
+            energy = energy + line_energy * solver_params.refine_line_weight
+        if solver_params.structure_source_line_weight > 0.0:
+            source_line_energy = _line_candidate_energy(torch, candidate_colors, context_colors, source_reference)
+            energy = energy + source_line_energy * solver_params.structure_source_line_weight
+        if solver_params.structure_source_adjacency_weight > 0.0:
+            source_adjacency_energy = _pairwise_candidate_energy(
+                candidate_colors,
+                context_colors,
+                source_ref_dx,
+                source_ref_dy,
+                source_ref_diag,
+                source_ref_anti,
+                orthogonal_weight=solver_params.refine_orthogonal_weight,
+                diagonal_weight=solver_params.refine_diagonal_weight,
+            )
+            energy = energy + source_adjacency_energy * solver_params.structure_source_adjacency_weight
+        return energy
 
     for start_selected in start_candidates:
         start_colors = _select_colors(candidate_colors, start_selected)
@@ -1034,41 +1182,7 @@ def _discrete_refine_output(
 
     for step in range(passes + 1):
         selected_colors = _select_colors(candidate_colors, selected)
-        energy = refine_base_energy.clone()
-        energy = energy + _pairwise_candidate_energy(
-            candidate_colors,
-            selected_colors,
-            desired_delta_x,
-            desired_delta_y,
-            desired_delta_diag,
-            desired_delta_anti,
-            orthogonal_weight=solver_params.refine_orthogonal_weight,
-            diagonal_weight=solver_params.refine_diagonal_weight,
-        )
-        if solver_params.refine_motif_weight > 0.0:
-            motif_energy = _motif_candidate_energy(torch, candidate_colors, selected_colors, anchor)
-            energy = energy + motif_energy * solver_params.refine_motif_weight
-        if solver_params.structure_source_motif_weight > 0.0:
-            source_motif_energy = _motif_candidate_energy(torch, candidate_colors, selected_colors, source_reference)
-            energy = energy + source_motif_energy * solver_params.structure_source_motif_weight
-        if solver_params.refine_line_weight > 0.0:
-            line_energy = _line_candidate_energy(torch, candidate_colors, selected_colors, anchor)
-            energy = energy + line_energy * solver_params.refine_line_weight
-        if solver_params.structure_source_line_weight > 0.0:
-            source_line_energy = _line_candidate_energy(torch, candidate_colors, selected_colors, source_reference)
-            energy = energy + source_line_energy * solver_params.structure_source_line_weight
-        if solver_params.structure_source_adjacency_weight > 0.0:
-            source_adjacency_energy = _pairwise_candidate_energy(
-                candidate_colors,
-                selected_colors,
-                source_ref_dx,
-                source_ref_dy,
-                source_ref_diag,
-                source_ref_anti,
-                orthogonal_weight=solver_params.refine_orthogonal_weight,
-                diagonal_weight=solver_params.refine_diagonal_weight,
-            )
-            energy = energy + source_adjacency_energy * solver_params.structure_source_adjacency_weight
+        energy = candidate_energy(selected_colors)
 
         candidate_t = selected_colors[None, ...]
         score = float(
@@ -1097,11 +1211,35 @@ def _discrete_refine_output(
             break
         selected = next_selected
 
+    final_candidates = [best_selected, relaxed_mode_selected]
+    final_selected = best_selected
+    final_score = best_score
+    for candidate_selected in final_candidates:
+        candidate_colors_selected = _select_colors(candidate_colors, candidate_selected)
+        candidate_score = float(
+            _structure_score(
+                torch,
+                F,
+                source_t,
+                uv_t,
+                candidate_colors_selected[None, ...],
+                representative_t,
+                source_reference_t,
+                anchor_hw,
+                solver_params,
+            ).detach().cpu().item()
+        )
+        if candidate_score < final_score:
+            final_score = candidate_score
+            final_selected = candidate_selected.clone()
+
+    final_selected_colors = _select_colors(candidate_colors, final_selected)
+    final_ranking_energy = candidate_energy(final_selected_colors)
     hardened_selected, use_opaque, use_transparent = _harden_binary_alpha_selection(
         torch,
         candidate_colors,
-        best_selected,
-        refine_base_energy,
+        final_selected,
+        final_ranking_energy,
         representative[..., 3],
         solver_params=solver_params,
     )
@@ -1144,20 +1282,52 @@ def optimize_uv_field(
         _make_patch_offsets(height=height, width=width, target_height=inference.target_height, target_width=inference.target_width)
     ).to(device=device, dtype=torch.float32)
     guide_small = F.interpolate(edge_t, size=(inference.target_height, inference.target_width), mode="bilinear", align_corners=True)
+    source_lattice_reference = build_source_lattice_reference(
+        rgba,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+        alpha_threshold=solver_params.alpha_transparent_threshold,
+    )
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     initial_representative_t, _ = _representative_colors(initial_patches, solver_params)
     initial_representative_t = initial_representative_t.detach()
-    initial_source_reference_t = _exemplar_colors(initial_patches).detach()
-    source_delta_x_t = _source_boundary_deltas(F, source_t, uv0_t, axis="x")
-    source_delta_y_t = _source_boundary_deltas(F, source_t, uv0_t, axis="y")
-    source_delta_diag_t = _source_boundary_deltas(F, source_t, uv0_t, axis="diag")
-    source_delta_anti_t = _source_boundary_deltas(F, source_t, uv0_t, axis="anti")
+    initial_source_reference_t = torch.from_numpy(premultiply(source_lattice_reference.sharp_rgba)[None, ...]).to(
+        device=device,
+        dtype=torch.float32,
+    )
+    source_reliability_t = torch.from_numpy(_build_source_reliability(source_lattice_reference)[None, ...]).to(
+        device=device,
+        dtype=torch.float32,
+    )
+    source_delta_x_t = (
+        torch.from_numpy(source_lattice_reference.delta_x[None, ...]).to(device=device, dtype=torch.float32)
+        if source_lattice_reference.delta_x is not None
+        else None
+    )
+    source_delta_y_t = (
+        torch.from_numpy(source_lattice_reference.delta_y[None, ...]).to(device=device, dtype=torch.float32)
+        if source_lattice_reference.delta_y is not None
+        else None
+    )
+    source_delta_diag_t = (
+        torch.from_numpy(source_lattice_reference.delta_diag[None, ...]).to(device=device, dtype=torch.float32)
+        if source_lattice_reference.delta_diag is not None
+        else None
+    )
+    source_delta_anti_t = (
+        torch.from_numpy(source_lattice_reference.delta_anti[None, ...]).to(device=device, dtype=torch.float32)
+        if source_lattice_reference.delta_anti is not None
+        else None
+    )
     snap_rgba = _snap_output_to_source_pixels(
         torch,
         source_t,
         uv0_t,
         initial_representative_t,
         initial_source_reference_t,
+        source_reliability_t,
         solver_params,
         cell_x=cell_x,
         cell_y=cell_y,
@@ -1174,6 +1344,7 @@ def optimize_uv_field(
             uv0_t,
             initial_representative_t,
             initial_source_reference_t,
+            source_reliability_t,
             snap_t,
             source_delta_x_t,
             source_delta_y_t,
