@@ -105,6 +105,48 @@ def test_tile_graph_candidates_are_scoped_to_their_output_coord() -> None:
             assert np.all(coords[:, 1] == x)
 
 
+def test_tile_graph_projects_source_regions_instead_of_mixed_lattice_buckets() -> None:
+    source = np.zeros((6, 12, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    red = np.asarray([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    blue = np.asarray([0.0, 0.0, 1.0, 1.0], dtype=np.float32)
+    source[:, :6] = red
+    source[:, 6:] = blue
+    inference = InferenceResult(
+        target_width=2,
+        target_height=1,
+        phase_x=0.5,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    model = build_tile_graph_model(
+        source,
+        inference=inference,
+        analysis=analyze_source(source, seed=19),
+        device="cpu",
+    )
+
+    left_start = int(model.cell_candidate_offsets[0])
+    left_end = int(model.cell_candidate_offsets[1])
+    right_start = int(model.cell_candidate_offsets[1])
+    right_end = int(model.cell_candidate_offsets[2])
+    left_candidates = {
+        tuple(np.round(color, 4))
+        for color in model.candidate_rgba[model.cell_candidate_indices[left_start:left_end]]
+    }
+    right_candidates = {
+        tuple(np.round(color, 4))
+        for color in model.candidate_rgba[model.cell_candidate_indices[right_start:right_end]]
+    }
+
+    assert tuple(np.round(red, 4)) in left_candidates
+    assert tuple(np.round(blue, 4)) not in left_candidates
+    assert tuple(np.round(blue, 4)) in right_candidates
+    assert tuple(np.round(red, 4)) not in right_candidates
+
+
 def test_tile_graph_edge_cells_include_multiple_same_cell_contour_colors() -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
     source[..., 3] = 1.0

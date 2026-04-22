@@ -19,7 +19,7 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing (`55 passed`)
+- full test suite currently passing (`56 passed`)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
@@ -56,22 +56,24 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass moved tile-graph back toward the original "atomic source regions" idea without throwing away the parts of the older local solver that were actually helping.
+This pass replaced the custom Python source-region flood fill with a device-side connected-components pass, which is the right seam for the GPU labeling work the tile-graph path needed.
 
 What landed:
-- `tile_graph.py` now segments connected atomic color regions inside each inferred lattice cell and uses those regions to seed per-cell literal source-pixel candidates
-- atomic region candidates are layered together with the older sharp/edge anchors instead of replacing them outright
-- tile-graph now keeps its initial assignment whenever the propagation loop would worsen source-lattice fidelity
-- diagnostics now report the atomic proposal mode plus the initial/final tile-graph source-fidelity scores and whether the initial assignment was kept
+- `tile_graph.py` now labels source-side atomic regions through a Torch CCL pass instead of a Python BFS when the source-region extractor runs on a device-backed path
+- the region builder still projects those source regions onto output coords and layers them together with the older sharp/edge anchors
+- tile-graph still keeps its initial assignment whenever the propagation loop would worsen source-lattice fidelity
+- the focused CUDA-vs-CPU regression still matches after the CCL swap, and the full suite is green at `56 passed`
 
 Current implementation note:
-- the new atomic-component extraction is CPU-side, so although the solver and shared lattice analysis still honor `device`, candidate extraction is once again the dominant runtime cost on large real fixtures
+- source-region labeling is now device-backed, but the one-cell window cutting pass still runs as a CPU queue walk over the labeled members, so candidate extraction remains the dominant runtime cost on large real fixtures
+- on the cleaned badge, the current tile-graph model build now takes about `9.48s` on CPU versus `6.37s` on CUDA while producing the same `2499` source regions and `23223` candidates
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
+- the latest cleaned-badge tile-graph CUDA probe under `artifacts/badge-tile-graph-ccl-cuda/` completes end-to-end and keeps its initial assignment at `0.1800` source-fidelity, which is not a quality win but confirms the new CCL seam is stable on the real stress fixture
 
 Next after that:
-- move atomic candidate extraction closer to the user's original "consume one-cell regions and step through larger regions" design instead of only segmenting inside inferred lattice cells
-- make the atomic candidate builder GPU-friendly again, because the current CPU component walk is now the main scaling bottleneck
+- move the one-cell window cutting pass closer to the user's original "consume one-cell regions and step through larger regions" design now that the region ownership itself is source-side
+- port the per-component window cutting pass back toward a fully device-friendly formulation instead of only accelerating the labeling step
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
 - evaluate whether the tile-graph propagation loop should become more contour-aware or simply stay more conservative now that the initial assignment is stronger
 - rerun tuning after the tile-graph objective and candidate sets stabilize
@@ -98,6 +100,7 @@ Current status:
 - on the cleaned fixture, the continuous path now lands at `0.0832` source-fidelity in the reproducible probe under `artifacts/badge-final-probe/`, which is materially better than the older documented `0.1494` result and better than naive resize under the same lattice
 - on the full emblem, the tile-graph atomic path under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` now reaches `0.0224`, which is the best tile-graph full-emblem result so far in this repo
 - the remaining weakness on tile-graph is not candidate color purity anymore; it is candidate extraction cost plus deciding how aggressive the propagation step should be once the initial assignment is already strong
+- on the cleaned badge, the new CCL-backed tile-graph run under `artifacts/badge-tile-graph-ccl-cuda/` still lands at a weak `0.1800`, so the current CCL work should be treated as an infrastructure/performance step rather than a visual-quality fix
 
 Important note:
 - the checkerboard is baked into the source image, not transparency

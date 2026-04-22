@@ -78,7 +78,9 @@ class SolverHyperParams:
     tile_graph_edge_candidates_per_coord: int = 6
     tile_graph_component_color_threshold: float = 0.055
     tile_graph_component_alpha_threshold: float = 0.12
-    tile_graph_component_min_coverage: float = 0.02
+    tile_graph_source_region_stride: int = 0
+    tile_graph_source_region_min_area_ratio: float = 0.06
+    tile_graph_source_region_window_coverage: float = 0.12
     tile_graph_nonedge_sharp_weight: float = 0.85
     tile_graph_nonedge_mean_weight: float = 0.15
     tile_graph_edge_mean_weight: float = 0.03

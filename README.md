@@ -39,11 +39,13 @@ Recent adjacency-focused status:
 Current tile-graph status:
 
 - it now keeps candidates strictly local to each output coord and only uses literal source-pixel colors, so it no longer invents averaged patch colors or borrow labels from distant regions
-- candidate seeding now includes atomic connected color regions within each inferred lattice cell, layered together with the old sharp/edge anchors instead of replacing them outright
+- candidate seeding now starts from source-side atomic regions projected onto the output lattice, layered together with the old sharp/edge anchors instead of replacing them outright
 - the latest full-emblem probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the earlier full-CUDA tile-graph baseline at `0.0283`
 - tile-graph now falls back to its initial assignment when the propagation loop would make source-lattice fidelity worse, which is currently important for preserving sharp internal contour cells
 - it still beats naive resize on the repo's synthetic thin-feature regression and now does so without letting the final propagation step blur past the initial placement
-- the solver, source analysis, and shared lattice reference still honor `--device`, but the new atomic-component candidate extraction is CPU-side again and is now the main runtime bottleneck on large real fixtures
+- source-region connected-components now have a device-side Torch path, so the expensive labeling step no longer depends on Python flood fill
+- on the real cleaned badge, the current tile-graph model build now takes about `9.48s` on CPU versus `6.37s` on CUDA while producing the same `2499` source regions and `23223` candidates
+- the remaining large-fixture bottleneck is the per-component one-cell window cutting pass, which still hops back to CPU after labeling
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
 - the older hard-edge-only candidate widening pass under `artifacts/full-emblem-tile-graph-hard-edge-v2-cuda/` remains a useful negative result: more edge choices alone sharpen some cells locally but still regress full-emblem source-fidelity (`0.0377`)

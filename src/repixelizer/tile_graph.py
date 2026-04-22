@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,129 +87,417 @@ def _rgba_luminance(rgba: np.ndarray) -> np.ndarray:
     return rgba[..., 0] * 0.2126 + rgba[..., 1] * 0.7152 + rgba[..., 2] * 0.0722
 
 
-def _segment_atomic_components_in_cell(
+def _project_source_point_to_output_coord(
     *,
-    linear_indices: np.ndarray,
-    flat_y: np.ndarray,
-    flat_x: np.ndarray,
+    x: float,
+    y: float,
+    cell_w: float,
+    cell_h: float,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+) -> tuple[int, int, int]:
+    coord_x = int(np.clip(np.floor((x + 0.5) / max(cell_w, 1e-6) - phase_x), 0, max(0, target_width - 1)))
+    coord_y = int(np.clip(np.floor((y + 0.5) / max(cell_h, 1e-6) - phase_y), 0, max(0, target_height - 1)))
+    return coord_y, coord_x, coord_y * target_width + coord_x
+
+
+def _segment_atomic_source_regions_cpu(
+    *,
+    width: int,
+    height: int,
     flat_rgba: np.ndarray,
     flat_premul: np.ndarray,
     flat_edge: np.ndarray,
+    alpha_floor: float,
     color_threshold: float,
     alpha_threshold: float,
 ) -> list[dict[str, float | int | np.ndarray]]:
-    if linear_indices.size == 0:
-        return []
-    ys = flat_y[linear_indices]
-    xs = flat_x[linear_indices]
-    premul = flat_premul[linear_indices]
-    rgba = flat_rgba[linear_indices]
-    edges = flat_edge[linear_indices]
-    y0 = int(np.min(ys))
-    x0 = int(np.min(xs))
-    local_y = ys - y0
-    local_x = xs - x0
-    local_index = -np.ones((int(np.max(local_y)) + 1, int(np.max(local_x)) + 1), dtype=np.int32)
-    local_index[local_y, local_x] = np.arange(linear_indices.shape[0], dtype=np.int32)
-    visited = np.zeros(linear_indices.shape[0], dtype=bool)
+    alpha_map = flat_rgba[:, 3].reshape(height, width).astype(np.float32)
+    opaque = alpha_map >= alpha_floor
+    premul_map = flat_premul.reshape(height, width, flat_premul.shape[-1]).astype(np.float32)
+    join_right = np.zeros((height, max(0, width - 1)), dtype=bool)
+    join_down = np.zeros((max(0, height - 1), width), dtype=bool)
+    if width > 1:
+        right_color = np.mean(np.abs(premul_map[:, 1:, :] - premul_map[:, :-1, :]), axis=-1)
+        right_alpha = np.abs(alpha_map[:, 1:] - alpha_map[:, :-1])
+        join_right = opaque[:, 1:] & opaque[:, :-1] & (right_color <= color_threshold) & (right_alpha <= alpha_threshold)
+    if height > 1:
+        down_color = np.mean(np.abs(premul_map[1:, :, :] - premul_map[:-1, :, :]), axis=-1)
+        down_alpha = np.abs(alpha_map[1:, :] - alpha_map[:-1, :])
+        join_down = opaque[1:, :] & opaque[:-1, :] & (down_color <= color_threshold) & (down_alpha <= alpha_threshold)
+
+    pixel_count = width * height
+    visited = ~opaque.reshape(-1)
     components: list[dict[str, float | int | np.ndarray]] = []
 
-    for seed in range(linear_indices.shape[0]):
+    for seed in range(pixel_count):
         if visited[seed]:
             continue
         visited[seed] = True
         queue = [seed]
         members: list[int] = []
-        seed_premul = premul[seed]
-        seed_alpha = float(rgba[seed, 3])
         while queue:
             pos = queue.pop()
             members.append(pos)
-            cy = int(local_y[pos])
-            cx = int(local_x[pos])
-            for dy, dx in ((0, 1), (1, 0), (0, -1), (-1, 0)):
-                ny = cy + dy
-                nx = cx + dx
-                if ny < 0 or nx < 0 or ny >= local_index.shape[0] or nx >= local_index.shape[1]:
-                    continue
-                neighbor = int(local_index[ny, nx])
-                if neighbor < 0 or visited[neighbor]:
-                    continue
-                color_diff = float(np.mean(np.abs(premul[neighbor] - seed_premul)))
-                alpha_diff = abs(float(rgba[neighbor, 3]) - seed_alpha)
-                if color_diff > color_threshold or alpha_diff > alpha_threshold:
-                    continue
-                visited[neighbor] = True
-                queue.append(neighbor)
+            y = pos // width
+            x = pos % width
+            if x + 1 < width and join_right[y, x]:
+                neighbor = pos + 1
+                if not visited[neighbor]:
+                    visited[neighbor] = True
+                    queue.append(neighbor)
+            if x > 0 and join_right[y, x - 1]:
+                neighbor = pos - 1
+                if not visited[neighbor]:
+                    visited[neighbor] = True
+                    queue.append(neighbor)
+            if y + 1 < height and join_down[y, x]:
+                neighbor = pos + width
+                if not visited[neighbor]:
+                    visited[neighbor] = True
+                    queue.append(neighbor)
+            if y > 0 and join_down[y - 1, x]:
+                neighbor = pos - width
+                if not visited[neighbor]:
+                    visited[neighbor] = True
+                    queue.append(neighbor)
         member_array = np.asarray(members, dtype=np.int32)
-        member_linear = linear_indices[member_array]
-        member_y = ys[member_array].astype(np.float32)
-        member_x = xs[member_array].astype(np.float32)
+        member_y = (member_array // width).astype(np.float32)
+        member_x = (member_array % width).astype(np.float32)
         centroid_y = float(np.mean(member_y))
         centroid_x = float(np.mean(member_x))
         centroid_dist = (member_y - centroid_y) ** 2 + (member_x - centroid_x) ** 2
         centroid_pick = int(np.argmin(centroid_dist))
-        edge_pick = int(np.argmax(edges[member_array]))
-        edge_peak = float(np.max(edges[member_array]))
-        rep_slot = edge_pick if edge_peak > 0.0 else centroid_pick
-        rep_linear = int(member_linear[rep_slot])
-        rep_rgba = rgba[member_array][rep_slot].astype(np.float32)
-        rgba_mean = np.mean(rgba[member_array], axis=0).astype(np.float32)
+        edge_pick = int(np.argmax(flat_edge[member_array]))
+        edge_peak = float(np.max(flat_edge[member_array]))
         components.append(
             {
-                "rep_linear": rep_linear,
-                "rep_rgba": rep_rgba,
-                "coverage": float(member_array.size / max(1, linear_indices.size)),
+                "member_linear": member_array,
+                "edge_peak_linear": int(member_array[edge_pick]),
                 "edge_peak": edge_peak,
-                "alpha_mean": float(np.mean(rgba[member_array, 3])),
-                "luminance": float(_rgba_luminance(rgba_mean[None, :])[0]),
+                "centroid_linear": int(member_array[centroid_pick]),
+                "centroid_x": centroid_x,
+                "centroid_y": centroid_y,
                 "size": int(member_array.size),
             }
         )
     return components
 
 
-def _select_atomic_cell_candidates(
+def _segment_atomic_source_regions(
+    *,
+    source_rgba: np.ndarray,
+    edge_map: np.ndarray,
+    alpha_floor: float,
+    color_threshold: float,
+    alpha_threshold: float,
+    device: str,
+) -> list[dict[str, float | int | np.ndarray]]:
+    torch = _require_torch()
+    resolved_device = _resolve_device(torch, device)
+    height, width = source_rgba.shape[:2]
+    if height <= 0 or width <= 0:
+        return []
+
+    if resolved_device == "cpu" and (height * width) <= 4096:
+        flat_rgba = source_rgba.reshape(-1, source_rgba.shape[-1]).astype(np.float32)
+        flat_premul = flat_rgba.copy()
+        flat_premul[:, :3] *= flat_premul[:, 3:4]
+        return _segment_atomic_source_regions_cpu(
+            width=width,
+            height=height,
+            flat_rgba=flat_rgba,
+            flat_premul=flat_premul,
+            flat_edge=edge_map.reshape(-1).astype(np.float32),
+            alpha_floor=alpha_floor,
+            color_threshold=color_threshold,
+            alpha_threshold=alpha_threshold,
+        )
+
+    source_t = torch.from_numpy(source_rgba).to(device=resolved_device, dtype=torch.float32)
+    edge_t = torch.from_numpy(edge_map).to(device=resolved_device, dtype=torch.float32)
+    alpha_map = source_t[..., 3]
+    opaque = alpha_map >= alpha_floor
+    if not bool(opaque.any().item()):
+        return []
+
+    premul = source_t.clone()
+    premul[..., :3] *= premul[..., 3:4]
+    if width > 1:
+        right_color = torch.mean(torch.abs(premul[:, 1:, :] - premul[:, :-1, :]), dim=-1)
+        right_alpha = torch.abs(alpha_map[:, 1:] - alpha_map[:, :-1])
+        join_right = opaque[:, 1:] & opaque[:, :-1] & (right_color <= color_threshold) & (right_alpha <= alpha_threshold)
+    else:
+        join_right = torch.zeros((height, 0), device=resolved_device, dtype=torch.bool)
+    if height > 1:
+        down_color = torch.mean(torch.abs(premul[1:, :, :] - premul[:-1, :, :]), dim=-1)
+        down_alpha = torch.abs(alpha_map[1:, :] - alpha_map[:-1, :])
+        join_down = opaque[1:, :] & opaque[:-1, :] & (down_color <= color_threshold) & (down_alpha <= alpha_threshold)
+    else:
+        join_down = torch.zeros((0, width), device=resolved_device, dtype=torch.bool)
+
+    sentinel = height * width
+    labels = torch.arange(sentinel, device=resolved_device, dtype=torch.int64).reshape(height, width)
+    labels = torch.where(opaque, labels, torch.full_like(labels, sentinel))
+    max_iterations = max(4, height + width)
+    for _ in range(max_iterations):
+        previous = labels
+        best = previous.clone()
+        if width > 1:
+            pair_min = torch.minimum(previous[:, :-1], previous[:, 1:])
+            best[:, :-1] = torch.where(join_right, torch.minimum(best[:, :-1], pair_min), best[:, :-1])
+            best[:, 1:] = torch.where(join_right, torch.minimum(best[:, 1:], pair_min), best[:, 1:])
+        if height > 1:
+            pair_min = torch.minimum(previous[:-1, :], previous[1:, :])
+            best[:-1, :] = torch.where(join_down, torch.minimum(best[:-1, :], pair_min), best[:-1, :])
+            best[1:, :] = torch.where(join_down, torch.minimum(best[1:, :], pair_min), best[1:, :])
+
+        flat_best = best.reshape(-1)
+        valid = flat_best < sentinel
+        if bool(valid.any().item()):
+            compressed = flat_best.clone()
+            for _jump in range(16):
+                parents = compressed[valid]
+                grandparents = compressed[parents]
+                updated = torch.minimum(parents, grandparents)
+                if bool(torch.equal(updated, parents)):
+                    break
+                compressed[valid] = updated
+            best = compressed.reshape(height, width)
+
+        labels = best
+        if bool(torch.equal(labels, previous)):
+            break
+
+    valid_linear_t = torch.nonzero(labels.reshape(-1) < sentinel, as_tuple=False).flatten()
+    if valid_linear_t.numel() <= 0:
+        return []
+
+    component_labels_t = labels.reshape(-1)[valid_linear_t]
+    _, inverse_t = torch.unique(component_labels_t, sorted=True, return_inverse=True)
+    valid_linear = valid_linear_t.detach().cpu().numpy().astype(np.int32)
+    inverse = inverse_t.detach().cpu().numpy().astype(np.int32)
+    flat_edge = edge_t.reshape(-1).detach().cpu().numpy().astype(np.float32)
+
+    order = np.argsort(inverse, kind="stable")
+    sorted_linear = valid_linear[order]
+    sorted_inverse = inverse[order]
+    boundaries = np.flatnonzero(
+        np.concatenate((
+            np.asarray([True], dtype=bool),
+            sorted_inverse[1:] != sorted_inverse[:-1],
+        ))
+    )
+    ends = np.concatenate((boundaries[1:], np.asarray([sorted_inverse.shape[0]], dtype=np.int64)))
+
+    components: list[dict[str, float | int | np.ndarray]] = []
+    for start, end in zip(boundaries.tolist(), ends.tolist(), strict=False):
+        member_array = sorted_linear[start:end].astype(np.int32, copy=False)
+        member_y = (member_array // width).astype(np.float32)
+        member_x = (member_array % width).astype(np.float32)
+        centroid_y = float(np.mean(member_y))
+        centroid_x = float(np.mean(member_x))
+        centroid_dist = (member_y - centroid_y) ** 2 + (member_x - centroid_x) ** 2
+        centroid_pick = int(np.argmin(centroid_dist))
+        edge_pick = int(np.argmax(flat_edge[member_array]))
+        edge_peak = float(np.max(flat_edge[member_array]))
+        components.append(
+            {
+                "member_linear": member_array,
+                "edge_peak_linear": int(member_array[edge_pick]),
+                "edge_peak": edge_peak,
+                "centroid_linear": int(member_array[centroid_pick]),
+                "centroid_x": centroid_x,
+                "centroid_y": centroid_y,
+                "size": int(member_array.size),
+            }
+        )
+    return components
+
+
+def _extract_source_region_tiles(
     *,
     components: list[dict[str, float | int | np.ndarray]],
+    flat_rgba: np.ndarray,
+    flat_edge: np.ndarray,
+    flat_x: np.ndarray,
+    flat_y: np.ndarray,
+    cell_w: float,
+    cell_h: float,
+    sample_area: float,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+    min_region_area_ratio: float,
+    min_window_coverage: float,
+) -> list[list[dict[str, float | int | np.ndarray]]]:
+    output_area = max(1, target_width * target_height)
+    cell_area = max(cell_w * cell_h, 1e-6)
+    half_w = cell_w * 0.5
+    half_h = cell_h * 0.5
+    buckets: list[list[dict[str, float | int | np.ndarray]]] = [[] for _ in range(output_area)]
+    min_region_pixels = max(1, int(np.ceil(cell_area * min_region_area_ratio / max(sample_area, 1e-6))))
+    ordered_components = sorted(
+        components,
+        key=lambda comp: (abs(float(comp["size"]) - cell_area), -float(comp["edge_peak"])),
+    )
+
+    for component in ordered_components:
+        component_size = int(component["size"])
+        if component_size < min_region_pixels:
+            continue
+        member_linear = np.asarray(component["member_linear"], dtype=np.int32)
+        member_x = flat_x[member_linear].astype(np.float32)
+        member_y = flat_y[member_linear].astype(np.float32)
+        remaining = np.ones(member_linear.shape[0], dtype=bool)
+        seed_queue: deque[tuple[float, float]] = deque()
+        seen_seeds: set[tuple[int, int]] = set()
+        accepted_any = False
+
+        def enqueue(seed_y: float, seed_x: float) -> None:
+            key = (int(round(seed_y * 2.0)), int(round(seed_x * 2.0)))
+            if key in seen_seeds:
+                return
+            seen_seeds.add(key)
+            seed_queue.append((float(seed_y), float(seed_x)))
+
+        enqueue(float(component["centroid_y"]), float(component["centroid_x"]))
+        edge_peak_linear = int(component["edge_peak_linear"])
+        enqueue(float(flat_y[edge_peak_linear]), float(flat_x[edge_peak_linear]))
+
+        while seed_queue:
+            center_y, center_x = seed_queue.popleft()
+            in_window = remaining & (np.abs(member_x - center_x) <= half_w) & (np.abs(member_y - center_y) <= half_h)
+            footprint_count = int(np.count_nonzero(in_window))
+            if footprint_count <= 0:
+                continue
+            area_ratio = float((footprint_count * sample_area) / cell_area)
+            if area_ratio < min_window_coverage:
+                continue
+
+            accepted_any = True
+            window_linear = member_linear[in_window]
+            window_x = member_x[in_window]
+            window_y = member_y[in_window]
+            window_edge = flat_edge[window_linear]
+            accepted_center_x = float(np.mean(window_x))
+            accepted_center_y = float(np.mean(window_y))
+            edge_peak = float(np.max(window_edge)) if window_edge.size else 0.0
+            if edge_peak > 0.0:
+                rep_linear = int(window_linear[int(np.argmax(window_edge))])
+            else:
+                centroid_dist = (window_x - accepted_center_x) ** 2 + (window_y - accepted_center_y) ** 2
+                rep_linear = int(window_linear[int(np.argmin(centroid_dist))])
+
+            coord_y, coord_x, flat_index = _project_source_point_to_output_coord(
+                x=accepted_center_x,
+                y=accepted_center_y,
+                cell_w=cell_w,
+                cell_h=cell_h,
+                target_width=target_width,
+                target_height=target_height,
+                phase_x=phase_x,
+                phase_y=phase_y,
+            )
+            buckets[flat_index].append(
+                {
+                    "rep_linear": rep_linear,
+                    "rep_rgba": flat_rgba[rep_linear].astype(np.float32),
+                    "area_ratio": area_ratio,
+                    "coverage": float(np.clip(area_ratio, 0.0, 1.0)),
+                    "edge_peak": edge_peak,
+                    "source_center_x": accepted_center_x,
+                    "source_center_y": accepted_center_y,
+                    "coord_x": coord_x,
+                    "coord_y": coord_y,
+                }
+            )
+            remaining[in_window] = False
+            if int(np.count_nonzero(remaining)) < min_region_pixels:
+                break
+            for _, dy, dx in _DIRS:
+                enqueue(accepted_center_y + dy * cell_h, accepted_center_x + dx * cell_w)
+
+        if accepted_any:
+            continue
+
+        component_area_ratio = float((component_size * sample_area) / cell_area)
+        if component_area_ratio < min_window_coverage:
+            continue
+        centroid_linear = int(component["centroid_linear"])
+        center_x = float(component["centroid_x"])
+        center_y = float(component["centroid_y"])
+        coord_y, coord_x, flat_index = _project_source_point_to_output_coord(
+            x=center_x,
+            y=center_y,
+            cell_w=cell_w,
+            cell_h=cell_h,
+            target_width=target_width,
+            target_height=target_height,
+            phase_x=phase_x,
+            phase_y=phase_y,
+        )
+        buckets[flat_index].append(
+            {
+                "rep_linear": centroid_linear,
+                "rep_rgba": flat_rgba[centroid_linear].astype(np.float32),
+                "area_ratio": component_area_ratio,
+                "coverage": float(np.clip(component_area_ratio, 0.0, 1.0)),
+                "edge_peak": float(component["edge_peak"]),
+                "source_center_x": center_x,
+                "source_center_y": center_y,
+                "coord_x": coord_x,
+                "coord_y": coord_y,
+            }
+        )
+
+    return buckets
+
+
+def _select_source_region_candidates(
+    *,
+    candidates: list[dict[str, float | int | np.ndarray]],
     allowed_candidates: int,
-    min_component_coverage: float,
     reference_rgba: np.ndarray,
     edge_reference_rgba: np.ndarray,
     prefer_edge: bool,
 ) -> list[dict[str, float | int | np.ndarray]]:
-    if not components:
+    if not candidates or allowed_candidates <= 0:
         return []
     picked: list[dict[str, float | int | np.ndarray]] = []
     seen_linear: set[int] = set()
 
-    def add(component: dict[str, float | int | np.ndarray]) -> None:
-        rep_linear = int(component["rep_linear"])
+    def add(candidate: dict[str, float | int | np.ndarray]) -> None:
+        rep_linear = int(candidate["rep_linear"])
         if rep_linear in seen_linear:
             return
-        if float(component["coverage"]) < min_component_coverage and picked:
-            return
         seen_linear.add(rep_linear)
-        picked.append(component)
+        picked.append(candidate)
 
-    by_area = sorted(components, key=lambda comp: (-float(comp["coverage"]), -float(comp["edge_peak"])))
-    by_edge = sorted(components, key=lambda comp: (-float(comp["edge_peak"]), -float(comp["coverage"])))
+    by_area = sorted(
+        candidates,
+        key=lambda cand: (abs(float(cand["area_ratio"]) - 1.0), -float(cand["coverage"]), -float(cand["edge_peak"])),
+    )
     by_reference = sorted(
-        components,
-        key=lambda comp: float(np.mean(np.abs(np.asarray(comp["rep_rgba"], dtype=np.float32) - reference_rgba))),
+        candidates,
+        key=lambda cand: float(np.mean(np.abs(np.asarray(cand["rep_rgba"], dtype=np.float32) - reference_rgba))),
     )
     by_edge_reference = sorted(
-        components,
-        key=lambda comp: float(np.mean(np.abs(np.asarray(comp["rep_rgba"], dtype=np.float32) - edge_reference_rgba))),
+        candidates,
+        key=lambda cand: float(np.mean(np.abs(np.asarray(cand["rep_rgba"], dtype=np.float32) - edge_reference_rgba))),
     )
+    by_edge = sorted(candidates, key=lambda cand: (-float(cand["edge_peak"]), abs(float(cand["area_ratio"]) - 1.0)))
 
     add(by_area[0])
     add(by_reference[0])
     if prefer_edge:
         add(by_edge_reference[0])
         add(by_edge[0])
-    for component in by_area:
-        add(component)
+    for candidate in by_area:
+        add(candidate)
         if len(picked) >= allowed_candidates:
             break
     return picked[:allowed_candidates]
@@ -250,8 +539,6 @@ def build_tile_graph_model(
     )
     flat_y_t = pixel_y_t.reshape(-1)
     flat_x_t = pixel_x_t.reshape(-1)
-    lattice_indices_t = torch.from_numpy(source_reference.lattice_indices).to(device=resolved_device, dtype=torch.long).reshape(-1)
-    edge_strength_flat_t = torch.from_numpy(source_reference.edge_strength.reshape(-1)).to(device=resolved_device, dtype=torch.float32)
     sharp_x_flat_t = torch.from_numpy(source_reference.sharp_x.reshape(-1)).to(device=resolved_device, dtype=torch.long)
     sharp_y_flat_t = torch.from_numpy(source_reference.sharp_y.reshape(-1)).to(device=resolved_device, dtype=torch.long)
     edge_peak_x_flat_t = torch.from_numpy(source_reference.edge_peak_x.reshape(-1)).to(device=resolved_device, dtype=torch.long)
@@ -260,15 +547,24 @@ def build_tile_graph_model(
     edge_linear_t = edge_peak_y_flat_t * width + edge_peak_x_flat_t
 
     flat_rgba_np = source_rgba.reshape(-1, source_rgba.shape[-1]).astype(np.float32)
-    flat_premul_np = flat_rgba_np.copy()
-    flat_premul_np[:, :3] *= flat_premul_np[:, 3:4]
     flat_edge_np = analysis.edge_map.reshape(-1).astype(np.float32)
-    flat_idx_np = source_reference.lattice_indices.reshape(-1).astype(np.int32)
-    counts_np = np.bincount(flat_idx_np, minlength=output_area).astype(np.int32)
-    offsets_np = np.zeros(output_area + 1, dtype=np.int32)
-    offsets_np[1:] = np.cumsum(counts_np, dtype=np.int32)
-    order_np = np.argsort(flat_idx_np, kind="stable")
-    flat_y_np, flat_x_np = np.divmod(np.arange(flat_idx_np.size, dtype=np.int64), width)
+    source_region_stride = int(getattr(solver_params, "tile_graph_source_region_stride", 0))
+    if source_region_stride <= 0:
+        if max(height, width) <= 256 or output_area <= 1024:
+            source_region_stride = 1
+        else:
+            source_region_stride = max(1, int(np.floor(min(cell_w, cell_h) / 4.0)))
+    source_region_stride = max(1, min(source_region_stride, 3))
+    sampled_rgba = source_rgba[::source_region_stride, ::source_region_stride].astype(np.float32)
+    sampled_edge = analysis.edge_map[::source_region_stride, ::source_region_stride].astype(np.float32)
+    sampled_y_coords = np.arange(0, height, source_region_stride, dtype=np.int32)
+    sampled_x_coords = np.arange(0, width, source_region_stride, dtype=np.int32)
+    sampled_y_grid, sampled_x_grid = np.meshgrid(sampled_y_coords, sampled_x_coords, indexing="ij")
+    sampled_flat_rgba_np = sampled_rgba.reshape(-1, sampled_rgba.shape[-1]).astype(np.float32)
+    sampled_flat_edge_np = sampled_edge.reshape(-1).astype(np.float32)
+    sampled_flat_y_np = sampled_y_grid.reshape(-1).astype(np.int32)
+    sampled_flat_x_np = sampled_x_grid.reshape(-1).astype(np.int32)
+    flat_y_np, flat_x_np = np.divmod(np.arange(flat_rgba_np.shape[0], dtype=np.int64), width)
     flat_y_np = flat_y_np.astype(np.int32)
     flat_x_np = flat_x_np.astype(np.int32)
     sharp_linear_np = sharp_linear_t.detach().cpu().numpy().astype(np.int64)
@@ -276,13 +572,39 @@ def build_tile_graph_model(
     flat_alpha_np = flat_rgba_np[:, 3].astype(np.float32)
     edge_rgba_np = flat_rgba_np[edge_linear_np]
     edge_strength_np = source_reference.edge_strength.reshape(-1).astype(np.float32)
+    global_components = _segment_atomic_source_regions(
+        source_rgba=sampled_rgba,
+        edge_map=sampled_edge,
+        alpha_floor=solver_params.alpha_transparent_threshold,
+        color_threshold=float(getattr(solver_params, "tile_graph_component_color_threshold", 0.055)),
+        alpha_threshold=float(getattr(solver_params, "tile_graph_component_alpha_threshold", 0.12)),
+        device=resolved_device,
+    )
+    region_buckets = _extract_source_region_tiles(
+        components=global_components,
+        flat_rgba=sampled_flat_rgba_np,
+        flat_edge=sampled_flat_edge_np,
+        flat_x=sampled_flat_x_np,
+        flat_y=sampled_flat_y_np,
+        cell_w=cell_w,
+        cell_h=cell_h,
+        sample_area=float(source_region_stride * source_region_stride),
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+        min_region_area_ratio=float(getattr(solver_params, "tile_graph_source_region_min_area_ratio", 0.06)),
+        min_window_coverage=float(getattr(solver_params, "tile_graph_source_region_window_coverage", 0.12)),
+    )
 
     candidate_linear: list[int] = []
     candidate_coords: list[tuple[int, int]] = []
     candidate_area_ratio: list[float] = []
     candidate_coverage: list[float] = []
+    candidate_source_x: list[float] = []
+    candidate_source_y: list[float] = []
     choice_counts_list: list[int] = []
-    component_total = 0
+    component_total = len(global_components)
     edge_candidate_cap = max(max_candidates_per_coord, int(getattr(solver_params, "tile_graph_edge_candidates_per_coord", max_candidates_per_coord)))
     for flat_index in range(output_area):
         coord_y = flat_index // inference.target_width
@@ -292,49 +614,57 @@ def build_tile_graph_model(
         edge_cell = edge_strength_np[flat_index] >= solver_params.source_edge_detail_threshold
         allowed_candidates = edge_candidate_cap if edge_cell else max_candidates_per_coord
 
-        def add_candidate(pixel_index: int, coverage: float) -> None:
+        def add_candidate(pixel_index: int, *, area_ratio: float, coverage: float, source_x: float, source_y: float) -> None:
             if pixel_index in seen_pixels or len(seen_pixels) >= allowed_candidates:
                 return
             seen_pixels.add(pixel_index)
             candidate_linear.append(pixel_index)
             candidate_coords.append((coord_y, coord_x))
-            candidate_area_ratio.append(1.0)
+            candidate_area_ratio.append(float(max(area_ratio, 1e-3)))
             candidate_coverage.append(float(np.clip(coverage, 0.0, 1.0)))
+            candidate_source_x.append(float(source_x))
+            candidate_source_y.append(float(source_y))
 
-        linear_indices = order_np[offsets_np[flat_index] : offsets_np[flat_index + 1]]
-        components = _segment_atomic_components_in_cell(
-            linear_indices=linear_indices,
-            flat_y=flat_y_np,
-            flat_x=flat_x_np,
-            flat_rgba=flat_rgba_np,
-            flat_premul=flat_premul_np,
-            flat_edge=flat_edge_np,
-            color_threshold=float(getattr(solver_params, "tile_graph_component_color_threshold", 0.055)),
-            alpha_threshold=float(getattr(solver_params, "tile_graph_component_alpha_threshold", 0.12)),
-        )
-        component_total += len(components)
-        selected_components = _select_atomic_cell_candidates(
-            components=components,
+        selected_regions = _select_source_region_candidates(
+            candidates=region_buckets[flat_index],
             allowed_candidates=allowed_candidates,
-            min_component_coverage=float(getattr(solver_params, "tile_graph_component_min_coverage", 0.02)),
             reference_rgba=source_reference.sharp_rgba.reshape(-1, 4)[flat_index],
             edge_reference_rgba=edge_rgba_np[flat_index],
             prefer_edge=edge_cell,
         )
-        add_candidate(int(sharp_linear_np[flat_index]), max(0.05, float(flat_alpha_np[int(sharp_linear_np[flat_index])])))
-        if edge_cell:
-            add_candidate(int(edge_linear_np[flat_index]), max(0.05, float(flat_alpha_np[int(edge_linear_np[flat_index])])))
-        for component in selected_components:
-            pixel_index = int(component["rep_linear"])
-            add_candidate(pixel_index, float(component["coverage"]))
+        for region in selected_regions:
+            pixel_index = int(region["rep_linear"])
+            add_candidate(
+                pixel_index,
+                area_ratio=float(region["area_ratio"]),
+                coverage=float(region["coverage"]),
+                source_x=float(region["source_center_x"]),
+                source_y=float(region["source_center_y"]),
+            )
         if len(candidate_linear) == cell_start:
-            add_candidate(int(sharp_linear_np[flat_index]), max(0.05, float(flat_alpha_np[int(sharp_linear_np[flat_index])])))
+            sharp_pixel = int(sharp_linear_np[flat_index])
+            add_candidate(
+                sharp_pixel,
+                area_ratio=1.0,
+                coverage=max(0.05, float(flat_alpha_np[sharp_pixel])),
+                source_x=float(flat_x_np[sharp_pixel]),
+                source_y=float(flat_y_np[sharp_pixel]),
+            )
+            if edge_cell:
+                edge_pixel = int(edge_linear_np[flat_index])
+                add_candidate(
+                    edge_pixel,
+                    area_ratio=1.0,
+                    coverage=max(0.05, float(flat_alpha_np[edge_pixel])),
+                    source_x=float(flat_x_np[edge_pixel]),
+                    source_y=float(flat_y_np[edge_pixel]),
+                )
         choice_counts_list.append(len(candidate_linear) - cell_start)
 
     candidate_linear_t = torch.as_tensor(candidate_linear, device=resolved_device, dtype=torch.long)
     center_rgba_t = flat_rgba_t[candidate_linear_t]
-    center_y_t = flat_y_t[candidate_linear_t].to(dtype=torch.float32)
-    center_x_t = flat_x_t[candidate_linear_t].to(dtype=torch.float32)
+    center_y_t = torch.as_tensor(candidate_source_y, device=resolved_device, dtype=torch.float32)
+    center_x_t = torch.as_tensor(candidate_source_x, device=resolved_device, dtype=torch.float32)
     candidate_deltas_t = torch.zeros((candidate_linear_t.shape[0], 4, 4), device=resolved_device, dtype=torch.float32)
     for direction, dy, dx in _DIRS:
         sample_y_t = torch.round(center_y_t + dy * cell_h).clamp(0, max(0, height - 1)).to(dtype=torch.long)
