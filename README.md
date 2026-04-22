@@ -38,14 +38,15 @@ Recent adjacency-focused status:
 
 Current tile-graph status:
 
-- it now builds literal source-pixel candidates from connected source clusters plus lattice-aligned fallback coverage
+- it now builds literal source-pixel candidates from lattice-assigned per-cell proposals instead of walking connected components on the CPU
 - it now places candidates from a per-cell local candidate set instead of treating the whole image as one reusable global tile vocabulary
-- the local tile-graph solver now honors `--device` and runs through Torch, so its scoring/update loop can use CUDA instead of being hardwired to NumPy on the CPU
+- the full tile-graph path now honors `--device`: source analysis, source-lattice reference construction, proposal scoring, and the local solver all run through Torch
 - it no longer invents averaged patch colors during candidate extraction; the current regression suite now checks that tile-graph candidates stay on real source colors
-- accepted component candidates now consume a cell-sized source footprint, and each output cell only sees candidates attached to its own inferred lattice coord
+- each output cell now scores a small raw-pixel proposal pool built from its inferred lattice assignment, sharp exemplar, and edge peak instead of borrowing candidates from distant regions
 - it already beats naive resize on the repo's synthetic thin-feature regression
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
-- the remaining performance bottleneck is still candidate extraction/building on large real fixtures, so CUDA improves the solver stage but does not yet make badge-scale tile-graph runs fast end-to-end
+- on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
+- the current badge CUDA probe under `artifacts/tile-graph-cuda-pass/badge-cuda/` now completes end-to-end on the selected `126x126` lattice and lands at `0.0283` final source-fidelity
 
 ## Quickstart
 
@@ -60,6 +61,7 @@ Run the optimizer:
 repixelize input.png --out output.png
 repixelize input.png --out output.png --diagnostics-dir diagnostics --device auto
 repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cpu
+repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cuda
 ```
 
 Run the optimizer plus baselines:

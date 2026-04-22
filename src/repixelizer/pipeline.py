@@ -53,7 +53,7 @@ def run_pipeline(
     if strip_background:
         source = strip_edge_background(source)
     inference = infer_lattice(source, target_size=target_size, device=device)
-    analysis = analyze_source(source, seed=seed)
+    analysis = analyze_source(source, seed=seed, device=device if reconstruction_mode == "tile-graph" else None)
     inference = _select_phase_candidate(
         source,
         inference,

@@ -8,11 +8,12 @@ Implemented:
 - package metadata and editable install
 - CLI entrypoint with `run` and `compare` modes
 - lattice/phase inference with coherence scoring plus source-period prior
-- source-image structural analysis
+- source-image structural analysis, now with an optional Torch/CUDA path
 - PyTorch-based continuous UV-field optimization
-- shared source-lattice reference built from actual inferred cell assignments
+- shared source-lattice reference built from actual inferred cell assignments, now with an optional Torch/CUDA path
 - source-first snap/refine scoring with explicit source-vs-representative weights
 - low-confidence phase reranking with soft size penalties instead of hard size-jump rejection
+- GPU-friendly tile-graph proposal building from lattice-assigned raw source pixels plus per-cell edge/cluster scoring
 - discrete cleanup on the output grid
 - optional palette loading and quantization modes
 - compare mode with naive and diffusion baselines
@@ -21,9 +22,10 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing on the last completed pass
+- full test suite currently passing on the last completed pass (`54 passed`)
 - compare-mode smoke run against a real emblem image
 - focused real-fixture probe on `tests/fixtures/real/ai-badge-cleaned.png` now beats naive resize on source-lattice consistency under the selected lattice (`0.0832` final vs `0.1304` naive with the current `126x126` / `(0.0, -0.2)` pick)
+- end-to-end tile-graph CUDA smoke runs on both a `24x24` emblem case and the cleaned badge fixture; the small emblem case currently drops from about `2.57s` on CPU to `0.61s` on CUDA on this machine
 
 ## Status after adjacency-first pass
 
@@ -57,28 +59,30 @@ The most provisional areas are:
 
 ### Active pass
 
-This is the next solver-focused pass after the adjacency-first rewrite.
+This pass refactors the experimental tile-graph mode into a GPU-friendly codepath.
 
-In scope now:
-- make source reliability edge-aware instead of dispersion-only so high-contrast thin features are not downweighted just because they are locally messy
-- expand snap/refine candidate generation beyond fixed offset grids by injecting sharp per-cell exemplars, edge peaks, and gradient-guided offsets
+What landed:
+- `analysis.py` and `source_reference.py` now have Torch device paths, so the expensive per-pixel reductions can run on CPU or CUDA without changing the public CLI
+- `tile_graph.py` no longer walks connected components and destructively consumes windows during model building
+- instead, tile-graph now builds a small per-cell proposal pool from lattice-assigned raw source pixels, sharp exemplars, edge peaks, and cluster-aware proposal scoring
+- the full tile-graph path now honors `device`, not just the final solver loop, and diagnostics now record both the model-build device and the solver device
 
 Current implementation note:
-- raw image edges are the right signal for source-detail targeting; cluster boundaries were too broad and caused thin-feature washout when reused here
-- enriched edge candidates are currently gated to high-dispersion edge cells, and `snap` stays on the conservative local grid while `refine` gets the richer candidate pool
+- the destructive cluster walk was the main thing fighting CUDA; replacing it with lattice-assigned per-cell proposals keeps the “one cell, one local candidate set” design while turning extraction into top-k scoring and grouped reductions
+- the new proposal builder is intentionally local-first: it keeps candidates tied to the inferred output coord and uses edge/cluster signals only to rank raw source pixels already assigned to that lattice cell
 
 Experimental tile-graph note:
-- there is now a separate `tile-graph` reconstruction mode that extracts literal source-pixel candidates from connected source clusters, fills gaps with lattice-aligned fallback pixels, learns candidate adjacency, and places tiles with a soft propagation loop
+- there is now a separate `tile-graph` reconstruction mode that builds literal source-pixel candidates from lattice assignments instead of cell-averaged patches or globally reusable labels
 - the raw-pixel rewrite fixed an implementation mismatch where candidates had drifted into cell-averaged patch colors instead of actual source pixels
-- accepted component candidates now consume their cell-sized source footprint, and placement now uses per-cell local candidate sets instead of one reusable global candidate matrix
-- that fixes the core design mismatch behind the patchy repeated-color blocks and opaque-black background takeover: a candidate is now tied to its inferred output coord instead of being reusable across the whole raster
-- the local tile-graph solver now honors `device` and runs through Torch, so CUDA can accelerate the scoring/update loop
-- the remaining downside is performance in candidate extraction/building: large real-fixture runs are still noticeably slow because the tile-graph candidate pool scales with output area and is still assembled on the CPU
+- the later per-cell-local rewrite fixed the repeated-label and opaque-black-background failures by making candidates output-coord-scoped
+- the newest GPU-friendly rewrite keeps that local-candidate behavior but replaces the old component walk with per-cell top-k proposal scoring, which is fast enough to run end-to-end on CUDA
+- the current badge CUDA probe under `artifacts/tile-graph-cuda-pass/badge-cuda/` completes end-to-end at the selected `126x126` lattice with `24142` candidates and `0.0283` final source-fidelity
 
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
-- rerun tuning after the edge-aware/source-guided behavior lands
+- improve per-cell tile-graph proposal diversity so thin contours get more than “sharp vs edge-peak” in hard cells
 - evaluate coordinated local moves when single-cell refinement still breaks thin contours
+- rerun tuning now that the tile-graph proposal and device path have changed materially
 - decide whether the tile-graph path should stay a diagnostics-only experiment, become a refine-stage candidate generator, or mature into a full alternate solver
 
 ## High-value regression cases
@@ -117,8 +121,8 @@ What future work should improve here:
 - a retuning sweep after the edge-aware/source-guided changes land
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
-- for the experimental tile-graph path specifically, better local candidate coverage and stronger adjacency evidence are still needed even after switching candidates back to literal source pixels
-- for the experimental tile-graph path specifically, the next useful step is performance-aware extraction and propagation: keep the new per-cell candidate sets and CUDA-backed solver, but add pruning, caching, and cheaper component stepping so the badge-scale run is fast enough to iterate on
+- for the experimental tile-graph path specifically, better local proposal diversity and stronger adjacency evidence are still needed even after switching candidates back to literal source pixels
+- for the experimental tile-graph path specifically, the next useful step is pruning and richer proposal families rather than more component-walk optimization, because the old CPU walk is now gone
 
 Current optimizer diagnosis:
 - the shared source-lattice reference, source-first snap/refine scoring, and relaxed-mode handoff are now in place, so the biggest remaining losses are no longer caused by the old representative-lattice collapse

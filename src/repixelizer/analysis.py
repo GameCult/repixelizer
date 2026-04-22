@@ -6,6 +6,27 @@ from .metrics import luminance
 from .types import SourceAnalysis
 
 
+def _require_torch():
+    try:
+        import torch
+    except ImportError as exc:  # pragma: no cover - exercised only when torch missing
+        raise RuntimeError(
+            "PyTorch is required for GPU-accelerated source analysis. Install project dependencies first."
+        ) from exc
+    return torch
+
+
+def _resolve_device(torch, requested: str) -> str:
+    if requested == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA was requested for source analysis, but this PyTorch build does not have a usable CUDA device. "
+            "Install a CUDA-enabled PyTorch build or use --device cpu."
+        )
+    return requested
+
+
 def _compute_edge_map(rgba: np.ndarray) -> np.ndarray:
     lum = luminance(rgba)
     alpha = rgba[..., 3]
@@ -18,6 +39,20 @@ def _compute_edge_map(rgba: np.ndarray) -> np.ndarray:
     if max_edge > 0:
         edge /= max_edge
     return edge.astype(np.float32)
+
+
+def _compute_edge_map_torch(torch, rgba_t):
+    lum = rgba_t[..., 0] * 0.2126 + rgba_t[..., 1] * 0.7152 + rgba_t[..., 2] * 0.0722
+    alpha = rgba_t[..., 3]
+    dx = torch.zeros_like(lum, dtype=torch.float32)
+    dy = torch.zeros_like(lum, dtype=torch.float32)
+    dx[:, 1:] = (lum[:, 1:] - lum[:, :-1]).abs() + (alpha[:, 1:] - alpha[:, :-1]).abs()
+    dy[1:, :] = (lum[1:, :] - lum[:-1, :]).abs() + (alpha[1:, :] - alpha[:-1, :]).abs()
+    edge = torch.sqrt(dx * dx + dy * dy)
+    max_edge = torch.max(edge)
+    if float(max_edge.item()) > 0.0:
+        edge = edge / max_edge
+    return edge.to(dtype=torch.float32)
 
 
 def _kmeans(data: np.ndarray, k: int, seed: int, iterations: int = 12) -> tuple[np.ndarray, np.ndarray]:
@@ -44,6 +79,31 @@ def _kmeans(data: np.ndarray, k: int, seed: int, iterations: int = 12) -> tuple[
     return centers.astype(np.float32), labels.astype(np.int32)
 
 
+def _kmeans_torch(torch, data_t, k: int, seed: int, iterations: int = 12):
+    if data_t.shape[0] <= k:
+        centers_t = data_t.clone()
+        labels_t = torch.arange(data_t.shape[0], device=data_t.device, dtype=torch.long)
+        return centers_t, labels_t
+    generator = torch.Generator(device=data_t.device)
+    generator.manual_seed(seed)
+    picks = torch.randperm(data_t.shape[0], device=data_t.device, generator=generator)[:k]
+    centers_t = data_t[picks].clone()
+    for _ in range(iterations):
+        distances = torch.linalg.vector_norm(data_t[:, None, :] - centers_t[None, :, :], dim=-1)
+        labels_t = torch.argmin(distances, dim=1)
+        new_centers = []
+        for idx in range(k):
+            members = data_t[labels_t == idx]
+            if members.numel() == 0:
+                new_centers.append(centers_t[idx])
+            else:
+                new_centers.append(members.mean(dim=0))
+        centers_t = torch.stack(new_centers, dim=0).to(dtype=torch.float32)
+    distances = torch.linalg.vector_norm(data_t[:, None, :] - centers_t[None, :, :], dim=-1)
+    labels_t = torch.argmin(distances, dim=1)
+    return centers_t, labels_t
+
+
 def _colorize_clusters(cluster_map: np.ndarray, centers: np.ndarray) -> np.ndarray:
     if centers.size == 0:
         return np.zeros((*cluster_map.shape, 4), dtype=np.float32)
@@ -53,7 +113,33 @@ def _colorize_clusters(cluster_map: np.ndarray, centers: np.ndarray) -> np.ndarr
     return np.concatenate([preview, alpha], axis=-1)
 
 
-def analyze_source(rgba: np.ndarray, seed: int, cluster_count: int = 6) -> SourceAnalysis:
+def analyze_source(rgba: np.ndarray, seed: int, cluster_count: int = 6, device: str | None = None) -> SourceAnalysis:
+    if device is not None:
+        torch = _require_torch()
+        resolved_device = _resolve_device(torch, device)
+        rgba_t = torch.from_numpy(rgba).to(device=resolved_device, dtype=torch.float32)
+        edge_map_t = _compute_edge_map_torch(torch, rgba_t)
+        alpha_t = rgba_t[..., 3]
+        opaque_t = alpha_t > 0.05
+        cluster_map_t = torch.full(alpha_t.shape, -1, device=resolved_device, dtype=torch.long)
+        centers_t = torch.zeros((0, 4), device=resolved_device, dtype=torch.float32)
+        if bool(torch.any(opaque_t).item()):
+            samples_t = rgba_t[opaque_t]
+            k = min(cluster_count, max(2, int(np.sqrt(int(samples_t.shape[0]) // 64 + 1))))
+            centers_t, labels_t = _kmeans_torch(torch, samples_t, k=k, seed=seed)
+            cluster_map_t[opaque_t] = labels_t
+        preview_palette_t = centers_t[:, :3].clamp(0.0, 1.0) if centers_t.numel() else torch.zeros((1, 3), device=resolved_device, dtype=torch.float32)
+        preview_indices_t = torch.clamp(cluster_map_t, 0, max(0, preview_palette_t.shape[0] - 1))
+        preview_t = preview_palette_t[preview_indices_t]
+        preview_t = torch.cat([preview_t, alpha_t[..., None]], dim=-1)
+        return SourceAnalysis(
+            edge_map=edge_map_t.detach().cpu().numpy().astype(np.float32),
+            cluster_map=cluster_map_t.detach().cpu().numpy().astype(np.int32),
+            cluster_centers=centers_t.detach().cpu().numpy().astype(np.float32),
+            alpha_map=alpha_t.detach().cpu().numpy().astype(np.float32),
+            cluster_preview=preview_t.detach().cpu().numpy().astype(np.float32),
+        )
+
     edge_map = _compute_edge_map(rgba)
     alpha = rgba[..., 3]
     opaque = alpha > 0.05

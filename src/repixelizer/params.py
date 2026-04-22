@@ -78,6 +78,10 @@ class SolverHyperParams:
     tile_graph_component_min_area_ratio: float = 0.10
     tile_graph_large_component_ratio: float = 1.35
     tile_graph_window_coverage_threshold: float = 0.16
+    tile_graph_proposal_pool_size: int = 4
+    tile_graph_proposal_edge_weight: float = 0.40
+    tile_graph_proposal_distance_weight: float = 0.22
+    tile_graph_proposal_cluster_weight: float = 0.12
     tile_graph_area_weight: float = 0.03
     tile_graph_alpha_weight: float = 0.25
     tile_graph_coverage_weight: float = 0.05

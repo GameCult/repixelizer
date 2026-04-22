@@ -78,3 +78,31 @@ def test_source_lattice_reference_computes_default_edge_metadata() -> None:
 
     assert np.all(reference.edge_strength[:, 0] > 0.0)
     assert np.all(reference.edge_peak_x[:, 0] == 2)
+
+
+def test_source_lattice_reference_cpu_device_matches_default_path() -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    source[2:6, 4, :3] = np.asarray([1.0, 1.0, 1.0], dtype=np.float32)
+
+    default = build_source_lattice_reference(
+        source,
+        target_width=4,
+        target_height=4,
+        phase_x=0.0,
+        phase_y=0.0,
+    )
+    accelerated = build_source_lattice_reference(
+        source,
+        target_width=4,
+        target_height=4,
+        phase_x=0.0,
+        phase_y=0.0,
+        device="cpu",
+    )
+
+    assert np.allclose(accelerated.mean_rgba, default.mean_rgba, atol=1e-5)
+    assert np.allclose(accelerated.sharp_rgba, default.sharp_rgba, atol=1e-5)
+    assert np.allclose(accelerated.edge_strength, default.edge_strength, atol=1e-5)
+    assert np.array_equal(accelerated.sharp_x, default.sharp_x)
+    assert np.array_equal(accelerated.sharp_y, default.sharp_y)

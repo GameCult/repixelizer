@@ -16,7 +16,7 @@ from repixelizer.tile_graph import build_tile_graph_model, optimize_tile_graph
 from repixelizer.types import InferenceResult
 
 
-def test_tile_graph_model_extracts_candidates_and_adjacency_from_component_walk() -> None:
+def test_tile_graph_model_extracts_candidates_and_adjacency_from_lattice_proposals() -> None:
     lowres = np.zeros((4, 4, 4), dtype=np.float32)
     lowres[..., 3] = 1.0
     lowres[:, 1] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
@@ -30,11 +30,7 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_component_walk(
         top_candidates=[],
     )
 
-    model = build_tile_graph_model(
-        source,
-        inference=inference,
-        analysis=analyze_source(source, seed=7),
-    )
+    model = build_tile_graph_model(source, inference=inference, analysis=analyze_source(source, seed=7), device="cpu")
 
     assert model.candidate_rgba.shape[0] > 4
     choice_counts = np.diff(model.cell_candidate_offsets)
@@ -42,6 +38,7 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_component_walk(
     assert np.all(choice_counts >= 1)
     assert model.average_choices >= 1.0
     assert model.edge_density > 0.0
+    assert model.model_device == "cpu"
 
 
 def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
@@ -214,12 +211,13 @@ def test_tile_graph_cuda_matches_cpu_on_small_case() -> None:
         confidence=1.0,
         top_candidates=[],
     )
-    analysis = analyze_source(fake, seed=7)
+    cpu_analysis = analyze_source(fake, seed=7, device="cpu")
+    cuda_analysis = analyze_source(fake, seed=7, device="cuda")
 
     cpu_artifacts, cpu_diag = optimize_tile_graph(
         fake,
         inference=inference,
-        analysis=analysis,
+        analysis=cpu_analysis,
         steps=0,
         seed=7,
         device="cpu",
@@ -227,13 +225,15 @@ def test_tile_graph_cuda_matches_cpu_on_small_case() -> None:
     cuda_artifacts, cuda_diag = optimize_tile_graph(
         fake,
         inference=inference,
-        analysis=analysis,
+        analysis=cuda_analysis,
         steps=0,
         seed=7,
         device="cuda",
     )
 
+    assert cpu_diag["tile_graph_model_device"] == "cpu"
     assert cpu_diag["tile_graph_solver_device"] == "cpu"
+    assert cuda_diag["tile_graph_model_device"] == "cuda"
     assert cuda_diag["tile_graph_solver_device"] == "cuda"
     assert np.allclose(cpu_artifacts.target_rgba, cuda_artifacts.target_rgba, atol=1e-5)
 
@@ -252,6 +252,7 @@ def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Pa
         diagnostics_dir=diagnostics_dir,
         steps=24,
         reconstruction_mode="tile-graph",
+        device="cpu",
     )
 
     import json
@@ -260,6 +261,7 @@ def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Pa
     assert output_path.exists()
     assert run_json["settings"]["reconstruction_mode"] == "tile-graph"
     assert run_json["reconstruction"]["mode"] == "tile-graph"
+    assert run_json["reconstruction"]["tile_graph_model_device"] == "cpu"
     assert run_json["reconstruction"]["tile_graph_candidate_count"] > 0
     assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
     assert result.diagnostics["reconstruction"]["mode"] == "tile-graph"
