@@ -512,7 +512,8 @@ def _relax_candidate_selection(
     iterations: int,
 ):
     if iterations <= 0:
-        return torch.argmin(base_energy, dim=-1), []
+        selected = torch.argmin(base_energy, dim=-1)
+        return selected, _select_colors(candidate_colors, selected), []
 
     start_temp = max(1e-3, solver_params.relax_start_temperature)
     end_temp = max(1e-3, min(start_temp, solver_params.relax_end_temperature))
@@ -552,7 +553,12 @@ def _relax_candidate_selection(
             probs = updated_probs
         loss_history.append(float((final_energy * probs).sum(dim=2).mean().detach().cpu().item()))
 
-    return torch.argmax(probs, dim=2), loss_history
+    relaxed_context = (candidate_colors * probs[..., None]).sum(dim=2)
+    handoff_energy = final_energy + (
+        (candidate_colors - relaxed_context[..., None, :]).abs().mean(dim=-1) * solver_params.relax_handoff_weight
+    )
+    selected = torch.argmin(handoff_energy, dim=2)
+    return selected, relaxed_context.detach(), loss_history
 
 
 def _snap_output_to_source_pixels(
@@ -828,7 +834,7 @@ def _discrete_refine_output(
 
     passes = max(0, iterations)
     relax_iterations = min(max(0, solver_params.relax_iterations), passes) if passes > 0 else 0
-    selected, relax_history = _relax_candidate_selection(
+    selected, relaxed_context, relax_history = _relax_candidate_selection(
         torch,
         candidate_colors,
         base_energy,
@@ -840,6 +846,9 @@ def _discrete_refine_output(
         solver_params,
         iterations=relax_iterations,
     )
+    refine_base_energy = base_energy + (
+        (candidate_colors - relaxed_context[..., None, :]).abs().mean(dim=-1) * solver_params.relax_handoff_weight
+    )
     best_selected = selected.clone()
     best_score = float("inf")
     loss_history: list[float] = list(relax_history)
@@ -847,7 +856,7 @@ def _discrete_refine_output(
 
     for step in range(passes + 1):
         selected_colors = _select_colors(candidate_colors, selected)
-        energy = base_energy.clone()
+        energy = refine_base_energy.clone()
         energy = energy + _pairwise_candidate_energy(
             candidate_colors,
             selected_colors,
@@ -895,7 +904,7 @@ def _discrete_refine_output(
         torch,
         candidate_colors,
         best_selected,
-        base_energy,
+        refine_base_energy,
         representative[..., 3],
         solver_params=solver_params,
     )

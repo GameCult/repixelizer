@@ -30,6 +30,7 @@ class SolverHyperParams:
     relax_diagonal_weight: float = 0.12
     relax_motif_weight: float = 0.22
     relax_line_weight: float = 0.06
+    relax_handoff_weight: float = 0.18
     structure_boundary_weight: float = 0.60
     structure_anchor_adjacency_weight: float = 0.15
     structure_anchor_motif_weight: float = 0.20
