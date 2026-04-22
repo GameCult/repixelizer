@@ -532,15 +532,15 @@ def _relax_candidate_selection(
             desired_delta_y,
             desired_delta_diag,
             desired_delta_anti,
-            orthogonal_weight=solver_params.refine_orthogonal_weight,
-            diagonal_weight=solver_params.refine_diagonal_weight,
+            orthogonal_weight=solver_params.relax_orthogonal_weight,
+            diagonal_weight=solver_params.relax_diagonal_weight,
         )
-        if solver_params.refine_motif_weight > 0.0:
+        if solver_params.relax_motif_weight > 0.0:
             motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, anchor)
-            final_energy = final_energy + motif_energy * solver_params.refine_motif_weight
-        if solver_params.refine_line_weight > 0.0:
+            final_energy = final_energy + motif_energy * solver_params.relax_motif_weight
+        if solver_params.relax_line_weight > 0.0:
             line_energy = _line_candidate_energy(torch, candidate_colors, context_colors, anchor)
-            final_energy = final_energy + line_energy * solver_params.refine_line_weight
+            final_energy = final_energy + line_energy * solver_params.relax_line_weight
 
         alpha = 1.0 if iterations <= 1 else step / float(iterations - 1)
         temperature = start_temp + (end_temp - start_temp) * alpha
@@ -831,7 +831,7 @@ def _discrete_refine_output(
     selected, relax_history = _relax_candidate_selection(
         torch,
         candidate_colors,
-        anchor_energy + distance_energy * 0.05,
+        base_energy,
         anchor,
         desired_delta_x,
         desired_delta_y,
