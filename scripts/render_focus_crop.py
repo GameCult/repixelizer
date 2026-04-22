@@ -189,6 +189,7 @@ def _build_focus_states(
         candidate_colors,
         relax_base_energy,
         anchor,
+        representative,
         blend(anchor_delta_x, source_delta_x_t),
         blend(anchor_delta_y, source_delta_y_t),
         blend(anchor_delta_diag, source_delta_diag_t),

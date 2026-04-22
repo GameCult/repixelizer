@@ -279,6 +279,16 @@ def _pairwise_candidate_energy(
     return energy
 
 
+def _reference_deltas(reference):
+    height = reference.shape[0]
+    width = reference.shape[1]
+    delta_x = reference[:, 1:, :] - reference[:, :-1, :] if width > 1 else None
+    delta_y = reference[1:, :, :] - reference[:-1, :, :] if height > 1 else None
+    delta_diag = reference[1:, 1:, :] - reference[:-1, :-1, :] if height > 1 and width > 1 else None
+    delta_anti = reference[1:, :-1, :] - reference[:-1, 1:, :] if height > 1 and width > 1 else None
+    return delta_x, delta_y, delta_diag, delta_anti
+
+
 def _motif_candidate_energy(torch, candidate_colors, context_colors, anchor):
     if candidate_colors.shape[0] < 2 or candidate_colors.shape[1] < 2:
         return candidate_colors.new_zeros(candidate_colors.shape[:3])
@@ -515,6 +525,7 @@ def _relax_candidate_selection(
     candidate_colors,
     base_energy,
     anchor,
+    source_reference,
     desired_delta_x,
     desired_delta_y,
     desired_delta_diag,
@@ -534,6 +545,7 @@ def _relax_candidate_selection(
     probs = (-base_energy / start_temp).softmax(dim=2)
     loss_history: list[float] = []
     final_energy = base_energy
+    source_delta_x, source_delta_y, source_delta_diag, source_delta_anti = _reference_deltas(source_reference)
 
     for step in range(iterations):
         context_colors = (candidate_colors * probs[..., None]).sum(dim=2)
@@ -548,12 +560,30 @@ def _relax_candidate_selection(
             orthogonal_weight=solver_params.relax_orthogonal_weight,
             diagonal_weight=solver_params.relax_diagonal_weight,
         )
+        if solver_params.relax_source_adjacency_weight > 0.0:
+            source_energy = _pairwise_candidate_energy(
+                candidate_colors,
+                context_colors,
+                source_delta_x,
+                source_delta_y,
+                source_delta_diag,
+                source_delta_anti,
+                orthogonal_weight=solver_params.relax_orthogonal_weight,
+                diagonal_weight=solver_params.relax_diagonal_weight,
+            )
+            final_energy = final_energy + source_energy * solver_params.relax_source_adjacency_weight
         if solver_params.relax_motif_weight > 0.0:
             motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, anchor)
             final_energy = final_energy + motif_energy * solver_params.relax_motif_weight
+        if solver_params.relax_source_motif_weight > 0.0:
+            source_motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, source_reference)
+            final_energy = final_energy + source_motif_energy * solver_params.relax_source_motif_weight
         if solver_params.relax_line_weight > 0.0:
             line_energy = _line_candidate_energy(torch, candidate_colors, context_colors, anchor)
             final_energy = final_energy + line_energy * solver_params.relax_line_weight
+        if solver_params.relax_source_line_weight > 0.0:
+            source_line_energy = _line_candidate_energy(torch, candidate_colors, context_colors, source_reference)
+            final_energy = final_energy + source_line_energy * solver_params.relax_source_line_weight
 
         alpha = 1.0 if iterations <= 1 else step / float(iterations - 1)
         temperature = start_temp + (end_temp - start_temp) * alpha
@@ -579,6 +609,18 @@ def _relax_candidate_selection(
         orthogonal_weight=solver_params.relax_orthogonal_weight,
         diagonal_weight=solver_params.relax_diagonal_weight,
     )
+    if solver_params.relax_source_adjacency_weight > 0.0:
+        handoff_source_energy = _pairwise_candidate_energy(
+            candidate_colors,
+            relaxed_context,
+            source_delta_x,
+            source_delta_y,
+            source_delta_diag,
+            source_delta_anti,
+            orthogonal_weight=solver_params.relax_orthogonal_weight,
+            diagonal_weight=solver_params.relax_diagonal_weight,
+        )
+        handoff_energy = handoff_energy + handoff_source_energy * solver_params.relax_source_adjacency_weight
     if solver_params.relax_motif_weight > 0.0:
         handoff_energy = handoff_energy + _motif_candidate_energy(
             torch,
@@ -586,6 +628,13 @@ def _relax_candidate_selection(
             relaxed_context,
             relaxed_context,
         ) * solver_params.relax_motif_weight
+    if solver_params.relax_source_motif_weight > 0.0:
+        handoff_energy = handoff_energy + _motif_candidate_energy(
+            torch,
+            candidate_colors,
+            relaxed_context,
+            source_reference,
+        ) * solver_params.relax_source_motif_weight
     if solver_params.relax_line_weight > 0.0:
         handoff_energy = handoff_energy + _line_candidate_energy(
             torch,
@@ -593,6 +642,13 @@ def _relax_candidate_selection(
             relaxed_context,
             relaxed_context,
         ) * solver_params.relax_line_weight
+    if solver_params.relax_source_line_weight > 0.0:
+        handoff_energy = handoff_energy + _line_candidate_energy(
+            torch,
+            candidate_colors,
+            relaxed_context,
+            source_reference,
+        ) * solver_params.relax_source_line_weight
     selected = torch.argmin(handoff_energy, dim=2)
     return selected, relaxed_context.detach(), loss_history
 
@@ -792,12 +848,18 @@ def _structure_score(
     anchor_adj = _adjacency_pattern_loss(candidate_t, anchor_t)
     anchor_motif = _motif_pattern_loss(candidate_t, anchor_t)
     anchor_line = _line_pattern_loss(torch, candidate_t, anchor_t)
+    source_adj = _adjacency_pattern_loss(candidate_t, representative_t)
+    source_motif = _motif_pattern_loss(candidate_t, representative_t)
+    source_line = _line_pattern_loss(torch, candidate_t, representative_t)
     representative_match = (candidate_t - representative_t).abs().mean()
     return (
         boundary * solver_params.structure_boundary_weight
         + anchor_adj * solver_params.structure_anchor_adjacency_weight
         + anchor_motif * solver_params.structure_anchor_motif_weight
         + anchor_line * solver_params.structure_anchor_line_weight
+        + source_adj * solver_params.structure_source_adjacency_weight
+        + source_motif * solver_params.structure_source_motif_weight
+        + source_line * solver_params.structure_source_line_weight
         + representative_match * solver_params.structure_representative_weight
     )
 
@@ -868,6 +930,7 @@ def _discrete_refine_output(
     source_delta_y = source_delta_y_t[0] if source_delta_y_t is not None else None
     source_delta_diag = source_delta_diag_t[0] if source_delta_diag_t is not None else None
     source_delta_anti = source_delta_anti_t[0] if source_delta_anti_t is not None else None
+    source_ref_dx, source_ref_dy, source_ref_diag, source_ref_anti = _reference_deltas(representative)
 
     def desired_delta(anchor_delta, source_delta):
         if anchor_delta is None:
@@ -890,6 +953,7 @@ def _discrete_refine_output(
         candidate_colors,
         relax_base_energy,
         anchor,
+        representative,
         desired_delta_x,
         desired_delta_y,
         desired_delta_diag,
@@ -921,9 +985,27 @@ def _discrete_refine_output(
         if solver_params.refine_motif_weight > 0.0:
             motif_energy = _motif_candidate_energy(torch, candidate_colors, selected_colors, anchor)
             energy = energy + motif_energy * solver_params.refine_motif_weight
+        if solver_params.structure_source_motif_weight > 0.0:
+            source_motif_energy = _motif_candidate_energy(torch, candidate_colors, selected_colors, representative)
+            energy = energy + source_motif_energy * solver_params.structure_source_motif_weight
         if solver_params.refine_line_weight > 0.0:
             line_energy = _line_candidate_energy(torch, candidate_colors, selected_colors, anchor)
             energy = energy + line_energy * solver_params.refine_line_weight
+        if solver_params.structure_source_line_weight > 0.0:
+            source_line_energy = _line_candidate_energy(torch, candidate_colors, selected_colors, representative)
+            energy = energy + source_line_energy * solver_params.structure_source_line_weight
+        if solver_params.structure_source_adjacency_weight > 0.0:
+            source_adjacency_energy = _pairwise_candidate_energy(
+                candidate_colors,
+                selected_colors,
+                source_ref_dx,
+                source_ref_dy,
+                source_ref_diag,
+                source_ref_anti,
+                orthogonal_weight=solver_params.refine_orthogonal_weight,
+                diagonal_weight=solver_params.refine_diagonal_weight,
+            )
+            energy = energy + source_adjacency_energy * solver_params.structure_source_adjacency_weight
 
         candidate_t = selected_colors[None, ...]
         score = float(
