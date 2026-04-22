@@ -48,6 +48,8 @@ Current failure modes:
 - the right side of the sword tip develops a wobbling outline instead of a smooth taper
 - thin oblique outline features around the tip get collapsed into mushy transitions
 - local cell assignments near the tip look inconsistent even when the overall badge size feels right
+- the right-hand guard wing loses short dark-light-dark adjacency motifs and collapses into a chunky gold slab
+- some guard closeups look nearly identical across `snap`, `relaxed`, and `final`, which suggests the wrong local motif is often chosen before later refinement even starts
 
 Important note:
 - the checkerboard is baked into the source image, not transparency
@@ -64,6 +66,8 @@ Repository fixtures:
 - `tests/fixtures/real/ai-badge-cleaned.png` is the manually cleaned transparent version of the same emblem
 - `tests/fixtures/real/ai-badge-cleaned.json` records why it matters
 - use the cleaned fixture when isolating lattice and contour failures from background-removal failures
+- `scripts/render_focus_crop.py` generates reproducible docs/debug closeups from output-grid cell coordinates
+- the current docs-facing guard crop uses `--cell-bbox 73 20 107 44`
 
 ### 1. Build a real benchmark corpus
 

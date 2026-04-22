@@ -118,6 +118,25 @@ Run the focused test suite with:
 .venv\Scripts\python -m pytest -q
 ```
 
+## Diagnostic Closeups
+
+For docs or regression notes, you can generate reproducible source/output closeups from output-grid cell coordinates with:
+
+```powershell
+.venv\Scripts\python scripts\render_focus_crop.py --input tests\fixtures\real\ai-badge-cleaned.png --out docs\readme-assets\guard-right-crop-source-final.png --cell-bbox 73 20 107 44 --panels source,final --scale 16 --steps 48 --device cpu
+```
+
+If you want the full internal state sheet instead of the docs-facing comparison:
+
+```powershell
+.venv\Scripts\python scripts\render_focus_crop.py --input tests\fixtures\real\ai-badge-cleaned.png --out docs\readme-assets\guard-right-crop-states.png --cell-bbox 73 20 107 44 --panels source,snap,relaxed,final --scale 16 --steps 48 --device cpu
+```
+
+Notes:
+- `--cell-bbox` is in output-grid coordinates, not source-image pixels.
+- The script maps that region back to the matching source crop automatically.
+- `--device cpu` is the polite choice for docs generation if you do not want to stress the GPU for a tiny crop.
+
 ## Notes
 
 - The local corpus is optional; the codebase is still usable without it.
