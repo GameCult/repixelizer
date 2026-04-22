@@ -38,10 +38,11 @@ Recent adjacency-focused status:
 
 Current tile-graph status:
 
-- it builds source-driven cell candidates from connected source clusters plus lattice-aligned fallback coverage
+- it now builds literal source-pixel candidates from connected source clusters plus lattice-aligned fallback coverage
 - it learns directional adjacency preferences between candidates and places them with a soft discrete propagation loop
+- it no longer invents averaged patch colors during candidate extraction; the current regression suite now checks that tile-graph candidates stay on real source colors
 - it already beats naive resize on the repo's synthetic thin-feature regression
-- it is not yet good enough to replace the default continuous path on the cleaned AI badge stress case
+- it still is not good enough to replace the default continuous path on the cleaned AI badge stress case, though the raw-pixel rewrite materially improved that badge probe and stopped the mode from jumping to an oversized lattice candidate
 
 ## Quickstart
 

@@ -68,8 +68,9 @@ Current implementation note:
 - enriched edge candidates are currently gated to high-dispersion edge cells, and `snap` stays on the conservative local grid while `refine` gets the richer candidate pool
 
 Experimental tile-graph note:
-- there is now a separate `tile-graph` reconstruction mode that extracts cell candidates from connected source clusters, fills gaps with lattice-aligned fallback candidates, learns candidate adjacency, and places tiles with a soft propagation loop
-- that path is already promising on synthetic thin-feature cases, but it currently overcommits to larger lattice candidates and underperforms the default continuous path on the cleaned badge fixture
+- there is now a separate `tile-graph` reconstruction mode that extracts literal source-pixel candidates from connected source clusters, fills gaps with lattice-aligned fallback pixels, learns candidate adjacency, and places tiles with a soft propagation loop
+- the raw-pixel rewrite fixed an implementation mismatch where candidates had drifted into cell-averaged patch colors instead of actual source pixels
+- that path is still promising on synthetic thin-feature cases and now stays on the conservative `126x126` badge lattice instead of jumping to `154x154`, but it still underperforms the default continuous path on the cleaned badge fixture (`0.1676` source-fidelity score on the latest probe versus `0.0832` for the continuous path)
 
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
@@ -113,6 +114,7 @@ What future work should improve here:
 - a retuning sweep after the edge-aware/source-guided changes land
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
+- for the experimental tile-graph path specifically, better local candidate coverage and stronger adjacency evidence are still needed even after switching candidates back to literal source pixels
 
 Current optimizer diagnosis:
 - the shared source-lattice reference, source-first snap/refine scoring, and relaxed-mode handoff are now in place, so the biggest remaining losses are no longer caused by the old representative-lattice collapse

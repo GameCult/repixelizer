@@ -8,6 +8,7 @@ from repixelizer.analysis import analyze_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.io import save_rgba
 from repixelizer.metrics import source_lattice_consistency_breakdown
+from repixelizer.params import SolverHyperParams
 from repixelizer.pipeline import run_pipeline
 from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.tile_graph import build_tile_graph_model, optimize_tile_graph
@@ -37,6 +38,40 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_component_walk(
     assert model.candidate_rgba.shape[0] > 4
     assert model.pair_penalty.shape == (4, model.candidate_rgba.shape[0], model.candidate_rgba.shape[0])
     assert model.edge_density > 0.0
+
+
+def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    palette = (
+        np.asarray([1.0, 0.1, 0.1, 1.0], dtype=np.float32),
+        np.asarray([0.1, 1.0, 0.1, 1.0], dtype=np.float32),
+        np.asarray([0.1, 0.1, 1.0, 1.0], dtype=np.float32),
+        np.asarray([1.0, 1.0, 0.1, 1.0], dtype=np.float32),
+    )
+    for y in range(source.shape[0]):
+        for x in range(source.shape[1]):
+            source[y, x] = palette[(2 * (y % 2)) + (x % 2)]
+
+    inference = InferenceResult(
+        target_width=4,
+        target_height=4,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+    model = build_tile_graph_model(
+        source,
+        inference=inference,
+        analysis=analyze_source(source, seed=13),
+        solver_params=SolverHyperParams(tile_graph_max_candidates=32, tile_graph_max_candidates_per_coord=2),
+    )
+
+    source_colors = {tuple(np.round(color, 4)) for color in source.reshape(-1, 4)}
+    candidate_colors = {tuple(np.round(color, 4)) for color in model.candidate_rgba}
+
+    assert candidate_colors.issubset(source_colors | {tuple(np.zeros(4, dtype=np.float32))})
 
 
 def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> None:

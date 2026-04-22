@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-from .io import premultiply, unpremultiply
 from .params import SolverHyperParams
 from .source_reference import build_source_lattice_reference
 from .types import InferenceResult, SolverArtifacts, SourceAnalysis
@@ -108,12 +107,10 @@ def _source_to_cell_coord(
     return y_idx, x_idx
 
 
-def _window_mean_premul(source_premul: np.ndarray, center_y: float, center_x: float, cell_h: float, cell_w: float) -> np.ndarray:
-    y0, x0, y1, x1 = _window_bounds(center_y, center_x, cell_h, cell_w, source_premul.shape[0], source_premul.shape[1])
-    window = source_premul[y0:y1, x0:x1]
-    if window.size == 0:
-        return np.zeros(4, dtype=np.float32)
-    return window.reshape(-1, 4).mean(axis=0).astype(np.float32)
+def _sample_source_pixel(source_rgba: np.ndarray, center_y: float, center_x: float) -> np.ndarray:
+    y = int(np.clip(np.rint(center_y), 0, max(0, source_rgba.shape[0] - 1)))
+    x = int(np.clip(np.rint(center_x), 0, max(0, source_rgba.shape[1] - 1)))
+    return source_rgba[y, x].astype(np.float32)
 
 
 def _window_component_coverage(component: _Component, center_y: float, center_x: float, cell_h: float, cell_w: float) -> float:
@@ -156,6 +153,36 @@ def _best_stepped_center(
             if best is None or coverage > best[2]:
                 best = (probe_y, probe_x, coverage)
     return best
+
+
+def _directional_pixel(
+    source_rgba: np.ndarray,
+    component: _Component,
+    center_y: float,
+    center_x: float,
+    *,
+    dy: int,
+    dx: int,
+    step_y: float,
+    step_x: float,
+    cell_h: float,
+    cell_w: float,
+    coverage_threshold: float,
+) -> np.ndarray:
+    best = _best_stepped_center(
+        component,
+        center_y + dy * step_y,
+        center_x + dx * step_x,
+        step_y=step_y,
+        step_x=step_x,
+        cell_h=cell_h,
+        cell_w=cell_w,
+    )
+    if best is not None:
+        probe_y, probe_x, coverage = best
+        if coverage >= coverage_threshold:
+            return _sample_source_pixel(source_rgba, probe_y, probe_x)
+    return _sample_source_pixel(source_rgba, center_y + dy * step_y, center_x + dx * step_x)
 
 
 def _extract_components(cluster_map: np.ndarray, alpha_map: np.ndarray, alpha_threshold: float) -> list[_Component]:
@@ -229,8 +256,6 @@ def build_tile_graph_model(
         alpha_threshold=solver_params.alpha_transparent_threshold,
         edge_hint=analysis.edge_map,
     )
-    reference_premul = premultiply(source_reference.sharp_rgba)
-    source_premul = premultiply(source_rgba)
     height, width = source_rgba.shape[:2]
     cell_h = height / max(1, inference.target_height)
     cell_w = width / max(1, inference.target_width)
@@ -244,7 +269,7 @@ def build_tile_graph_model(
     candidate_coverage: list[float] = [1.0]
     candidate_deltas: list[np.ndarray] = [np.zeros((4, 4), dtype=np.float32)]
 
-    used_coords: set[tuple[int, int]] = set()
+    coord_counts: dict[tuple[int, int], int] = {}
     step_y = max(1.0, cell_h)
     step_x = max(1.0, cell_w)
     for component in components:
@@ -268,29 +293,37 @@ def build_tile_graph_model(
                 phase_y=inference.phase_y,
                 phase_x=inference.phase_x,
             )
-            if coord in local_seen or coord in used_coords:
+            if coord in local_seen:
+                continue
+            if coord_counts.get(coord, 0) >= solver_params.tile_graph_max_candidates_per_coord:
                 continue
             local_seen.add(coord)
             coverage = _window_component_coverage(component, center_y, center_x, cell_h, cell_w)
             if coverage < solver_params.tile_graph_window_coverage_threshold and added > 0:
                 continue
-            center_premul = _window_mean_premul(source_premul, center_y, center_x, cell_h, cell_w)
+            center_rgba = _sample_source_pixel(source_rgba, center_y, center_x)
             delta_features = np.zeros((4, 4), dtype=np.float32)
             for direction, dy, dx in _DIRS:
-                neighbor = _window_mean_premul(
-                    source_premul,
-                    center_y + dy * step_y,
-                    center_x + dx * step_x,
-                    cell_h,
-                    cell_w,
+                neighbor_rgba = _directional_pixel(
+                    source_rgba,
+                    component,
+                    center_y,
+                    center_x,
+                    dy=dy,
+                    dx=dx,
+                    step_y=step_y,
+                    step_x=step_x,
+                    cell_h=cell_h,
+                    cell_w=cell_w,
+                    coverage_threshold=solver_params.tile_graph_window_coverage_threshold,
                 )
-                delta_features[direction] = neighbor - center_premul
-            candidate_rgba.append(unpremultiply(center_premul[None, None, :])[0, 0].astype(np.float32))
+                delta_features[direction] = neighbor_rgba - center_rgba
+            candidate_rgba.append(center_rgba)
             candidate_coords.append(coord)
             candidate_area_ratio.append(area_ratio)
             candidate_coverage.append(coverage)
             candidate_deltas.append(delta_features)
-            used_coords.add(coord)
+            coord_counts[coord] = coord_counts.get(coord, 0) + 1
             added += 1
             if area_ratio < solver_params.tile_graph_large_component_ratio:
                 continue
@@ -319,26 +352,30 @@ def build_tile_graph_model(
                     phase_y=inference.phase_y,
                     phase_x=inference.phase_x,
                 )
-                if probe_coord not in local_seen and probe_coord not in used_coords:
+                if (
+                    probe_coord not in local_seen
+                    and coord_counts.get(probe_coord, 0) < solver_params.tile_graph_max_candidates_per_coord
+                ):
                     queue.append((probe_y, probe_x))
 
     def add_reference_candidate(coord_y: int, coord_x: int) -> None:
         if len(candidate_rgba) >= solver_params.tile_graph_max_candidates:
             return
-        if (coord_y, coord_x) in used_coords:
+        coord = (coord_y, coord_x)
+        if coord_counts.get(coord, 0) >= max(1, solver_params.tile_graph_max_candidates_per_coord):
             return
         delta_features = np.zeros((4, 4), dtype=np.float32)
-        center_premul = reference_premul[coord_y, coord_x]
+        center_rgba = source_reference.sharp_rgba[coord_y, coord_x].astype(np.float32)
         for direction, dy, dx in _DIRS:
             neighbor_y = min(max(coord_y + dy, 0), inference.target_height - 1)
             neighbor_x = min(max(coord_x + dx, 0), inference.target_width - 1)
-            delta_features[direction] = reference_premul[neighbor_y, neighbor_x] - center_premul
-        candidate_rgba.append(source_reference.sharp_rgba[coord_y, coord_x].astype(np.float32))
-        candidate_coords.append((coord_y, coord_x))
+            delta_features[direction] = source_reference.sharp_rgba[neighbor_y, neighbor_x] - center_rgba
+        candidate_rgba.append(center_rgba)
+        candidate_coords.append(coord)
         candidate_area_ratio.append(1.0)
         candidate_coverage.append(1.0)
         candidate_deltas.append(delta_features)
-        used_coords.add((coord_y, coord_x))
+        coord_counts[coord] = coord_counts.get(coord, 0) + 1
 
     if len(candidate_rgba) < solver_params.tile_graph_max_candidates:
         remaining = solver_params.tile_graph_max_candidates - len(candidate_rgba)
@@ -413,8 +450,8 @@ def build_tile_graph_model(
 def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperParams) -> np.ndarray:
     height, width = model.reference_sharp_rgba.shape[:2]
     color_error = (
-        np.mean(np.abs(model.reference_sharp_rgba[..., None, :] - model.candidate_rgba[None, None, :, :]), axis=-1) * 0.6
-        + np.mean(np.abs(model.reference_mean_rgba[..., None, :] - model.candidate_rgba[None, None, :, :]), axis=-1) * 0.4
+        np.mean(np.abs(model.reference_sharp_rgba[..., None, :] - model.candidate_rgba[None, None, :, :]), axis=-1) * 0.85
+        + np.mean(np.abs(model.reference_mean_rgba[..., None, :] - model.candidate_rgba[None, None, :, :]), axis=-1) * 0.15
     )
     grid_y, grid_x = np.indices((height, width), dtype=np.float32)
     coord_error = (
