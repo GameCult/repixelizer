@@ -22,10 +22,13 @@ class SolverHyperParams:
     refine_diagonal_weight: float = 0.08
     refine_motif_weight: float = 0.12
     refine_line_weight: float = 0.10
+    refine_candidate_extent: float = 0.70
+    refine_candidate_levels: int = 7
     relax_iterations: int = 24
     relax_start_temperature: float = 0.95
     relax_end_temperature: float = 0.18
     relax_damping: float = 0.10
+    relax_anchor_scale: float = 0.50
     relax_orthogonal_weight: float = 0.34
     relax_diagonal_weight: float = 0.12
     relax_motif_weight: float = 0.22

@@ -99,11 +99,23 @@ def _source_boundary_deltas(F, source_t, uv, axis: str, probe_scale: float = 0.2
             return None
         delta = uv[:, :, 1:, :] - uv[:, :, :-1, :]
         midpoint = (uv[:, :, 1:, :] + uv[:, :, :-1, :]) * 0.5
-    else:
+    elif axis == "y":
         if uv.shape[1] < 2:
             return None
         delta = uv[:, 1:, :, :] - uv[:, :-1, :, :]
         midpoint = (uv[:, 1:, :, :] + uv[:, :-1, :, :]) * 0.5
+    elif axis == "diag":
+        if uv.shape[1] < 2 or uv.shape[2] < 2:
+            return None
+        delta = uv[:, 1:, 1:, :] - uv[:, :-1, :-1, :]
+        midpoint = (uv[:, 1:, 1:, :] + uv[:, :-1, :-1, :]) * 0.5
+    elif axis == "anti":
+        if uv.shape[1] < 2 or uv.shape[2] < 2:
+            return None
+        delta = uv[:, 1:, :-1, :] - uv[:, :-1, 1:, :]
+        midpoint = (uv[:, 1:, :-1, :] + uv[:, :-1, 1:, :]) * 0.5
+    else:
+        raise ValueError(f"Unsupported boundary axis: {axis}")
     left = (midpoint - delta * probe_scale).clamp(-1.0, 1.0)
     right = (midpoint + delta * probe_scale).clamp(-1.0, 1.0)
     source_left = _sample_source(F, source_t, left, mode="bilinear")
@@ -557,6 +569,30 @@ def _relax_candidate_selection(
     handoff_energy = final_energy + (
         (candidate_colors - relaxed_context[..., None, :]).abs().mean(dim=-1) * solver_params.relax_handoff_weight
     )
+    handoff_energy = handoff_energy + _pairwise_candidate_energy(
+        candidate_colors,
+        relaxed_context,
+        desired_delta_x,
+        desired_delta_y,
+        desired_delta_diag,
+        desired_delta_anti,
+        orthogonal_weight=solver_params.relax_orthogonal_weight,
+        diagonal_weight=solver_params.relax_diagonal_weight,
+    )
+    if solver_params.relax_motif_weight > 0.0:
+        handoff_energy = handoff_energy + _motif_candidate_energy(
+            torch,
+            candidate_colors,
+            relaxed_context,
+            relaxed_context,
+        ) * solver_params.relax_motif_weight
+    if solver_params.relax_line_weight > 0.0:
+        handoff_energy = handoff_energy + _line_candidate_energy(
+            torch,
+            candidate_colors,
+            relaxed_context,
+            relaxed_context,
+        ) * solver_params.relax_line_weight
     selected = torch.argmin(handoff_energy, dim=2)
     return selected, relaxed_context.detach(), loss_history
 
@@ -775,6 +811,8 @@ def _discrete_refine_output(
     anchor_t,
     source_delta_x_t,
     source_delta_y_t,
+    source_delta_diag_t,
+    source_delta_anti_t,
     solver_params: SolverHyperParams,
     *,
     cell_x: float,
@@ -790,7 +828,12 @@ def _discrete_refine_output(
     output_height = representative.shape[0]
     output_width = representative.shape[1]
 
-    fractions = torch.tensor([-0.42, -0.21, 0.0, 0.21, 0.42], device=uv.device, dtype=uv.dtype)
+    candidate_levels = max(3, int(solver_params.refine_candidate_levels))
+    if candidate_levels % 2 == 0:
+        candidate_levels += 1
+    candidate_extent = max(0.05, float(solver_params.refine_candidate_extent))
+    fraction_values = np.linspace(-candidate_extent, candidate_extent, candidate_levels, dtype=np.float32)
+    fractions = torch.tensor(fraction_values, device=uv.device, dtype=uv.dtype)
     offset_y, offset_x = torch.meshgrid(fractions, fractions, indexing="ij")
     offset_x = (offset_x.reshape(-1) * cell_x).to(dtype=uv.dtype)
     offset_y = (offset_y.reshape(-1) * cell_y).to(dtype=uv.dtype)
@@ -810,6 +853,12 @@ def _discrete_refine_output(
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
+    relax_base_energy = (
+        anchor_energy * solver_params.refine_anchor_weight * solver_params.relax_anchor_scale
+        + rep_energy * solver_params.refine_representative_weight
+        + alpha_energy * solver_params.refine_alpha_weight
+        + distance_energy * solver_params.refine_distance_weight
+    )
 
     anchor_delta_x = anchor[:, 1:, :] - anchor[:, :-1, :] if output_width > 1 else None
     anchor_delta_y = anchor[1:, :, :] - anchor[:-1, :, :] if output_height > 1 else None
@@ -817,6 +866,8 @@ def _discrete_refine_output(
     anchor_delta_anti = anchor[1:, :-1, :] - anchor[:-1, 1:, :] if output_height > 1 and output_width > 1 else None
     source_delta_x = source_delta_x_t[0] if source_delta_x_t is not None else None
     source_delta_y = source_delta_y_t[0] if source_delta_y_t is not None else None
+    source_delta_diag = source_delta_diag_t[0] if source_delta_diag_t is not None else None
+    source_delta_anti = source_delta_anti_t[0] if source_delta_anti_t is not None else None
 
     def desired_delta(anchor_delta, source_delta):
         if anchor_delta is None:
@@ -829,15 +880,15 @@ def _discrete_refine_output(
 
     desired_delta_x = desired_delta(anchor_delta_x, source_delta_x)
     desired_delta_y = desired_delta(anchor_delta_y, source_delta_y)
-    desired_delta_diag = anchor_delta_diag
-    desired_delta_anti = anchor_delta_anti
+    desired_delta_diag = desired_delta(anchor_delta_diag, source_delta_diag)
+    desired_delta_anti = desired_delta(anchor_delta_anti, source_delta_anti)
 
     passes = max(0, iterations)
     relax_iterations = min(max(0, solver_params.relax_iterations), passes) if passes > 0 else 0
     selected, relaxed_context, relax_history = _relax_candidate_selection(
         torch,
         candidate_colors,
-        base_energy,
+        relax_base_energy,
         anchor,
         desired_delta_x,
         desired_delta_y,
@@ -952,6 +1003,8 @@ def optimize_uv_field(
     initial_representative_t = initial_representative_t.detach()
     source_delta_x_t = _source_boundary_deltas(F, source_t, uv0_t, axis="x")
     source_delta_y_t = _source_boundary_deltas(F, source_t, uv0_t, axis="y")
+    source_delta_diag_t = _source_boundary_deltas(F, source_t, uv0_t, axis="diag")
+    source_delta_anti_t = _source_boundary_deltas(F, source_t, uv0_t, axis="anti")
     snap_rgba = _snap_output_to_source_pixels(
         torch,
         source_t,
@@ -975,6 +1028,8 @@ def optimize_uv_field(
             snap_t,
             source_delta_x_t,
             source_delta_y_t,
+            source_delta_diag_t,
+            source_delta_anti_t,
             solver_params,
             cell_x=cell_x,
             cell_y=cell_y,
