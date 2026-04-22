@@ -70,8 +70,9 @@ Current implementation note:
 Experimental tile-graph note:
 - there is now a separate `tile-graph` reconstruction mode that extracts literal source-pixel candidates from connected source clusters, fills gaps with lattice-aligned fallback pixels, learns candidate adjacency, and places tiles with a soft propagation loop
 - the raw-pixel rewrite fixed an implementation mismatch where candidates had drifted into cell-averaged patch colors instead of actual source pixels
-- accepted component candidates now consume their cell-sized source footprint, and placement no longer allows one distant candidate to act as a globally reusable label everywhere on the raster
-- that localized pass fixed the glaring badge failure where one opaque black candidate could flood most of the canvas, but it still underperforms the default continuous path badly on the cleaned badge fixture and currently over-fragments local motifs even while background transparency is restored
+- accepted component candidates now consume their cell-sized source footprint, and placement now uses per-cell local candidate sets instead of one reusable global candidate matrix
+- that fixes the core design mismatch behind the patchy repeated-color blocks and opaque-black background takeover: a candidate is now tied to its inferred output coord instead of being reusable across the whole raster
+- the new downside is performance: large real-fixture runs are now noticeably slower because the tile-graph candidate pool scales with output area, so optimization and pruning are now required before this path is practical on stress cases like the badge
 
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
@@ -116,7 +117,7 @@ What future work should improve here:
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
 - for the experimental tile-graph path specifically, better local candidate coverage and stronger adjacency evidence are still needed even after switching candidates back to literal source pixels
-- for the experimental tile-graph path specifically, the next useful step is probably a true local candidate-set solver instead of a single global candidate matrix with coord-gating heuristics; the current architecture is still too eager to reuse a small vocabulary and too weak at preserving local motif identity
+- for the experimental tile-graph path specifically, the next useful step is performance-aware local propagation: keep the new per-cell candidate sets, but add pruning, caching, or banded neighborhoods so the badge-scale solve is fast enough to iterate on
 
 Current optimizer diagnosis:
 - the shared source-lattice reference, source-first snap/refine scoring, and relaxed-mode handoff are now in place, so the biggest remaining losses are no longer caused by the old representative-lattice collapse

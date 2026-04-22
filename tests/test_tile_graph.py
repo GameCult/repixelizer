@@ -36,7 +36,10 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_component_walk(
     )
 
     assert model.candidate_rgba.shape[0] > 4
-    assert model.pair_penalty.shape == (4, model.candidate_rgba.shape[0], model.candidate_rgba.shape[0])
+    choice_counts = np.diff(model.cell_candidate_offsets)
+    assert choice_counts.shape[0] == inference.target_width * inference.target_height
+    assert np.all(choice_counts >= 1)
+    assert model.average_choices >= 1.0
     assert model.edge_density > 0.0
 
 
@@ -72,6 +75,36 @@ def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
     candidate_colors = {tuple(np.round(color, 4)) for color in model.candidate_rgba}
 
     assert candidate_colors.issubset(source_colors | {tuple(np.zeros(4, dtype=np.float32))})
+
+
+def test_tile_graph_candidates_are_scoped_to_their_output_coord() -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    source[:, 2:4] = np.asarray([1.0, 0.9, 0.2, 1.0], dtype=np.float32)
+    source[2:6, 5:7] = np.asarray([0.2, 0.8, 1.0, 1.0], dtype=np.float32)
+    inference = InferenceResult(
+        target_width=4,
+        target_height=4,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    model = build_tile_graph_model(
+        source,
+        inference=inference,
+        analysis=analyze_source(source, seed=11),
+    )
+
+    for y in range(inference.target_height):
+        for x in range(inference.target_width):
+            flat = y * inference.target_width + x
+            start = int(model.cell_candidate_offsets[flat])
+            end = int(model.cell_candidate_offsets[flat + 1])
+            coords = model.candidate_coords[model.cell_candidate_indices[start:end]]
+            assert np.all(coords[:, 0] == y)
+            assert np.all(coords[:, 1] == x)
 
 
 def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> None:

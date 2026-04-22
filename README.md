@@ -39,12 +39,12 @@ Recent adjacency-focused status:
 Current tile-graph status:
 
 - it now builds literal source-pixel candidates from connected source clusters plus lattice-aligned fallback coverage
-- it learns directional adjacency preferences between candidates and places them with a soft discrete propagation loop
+- it now places candidates from a per-cell local candidate set instead of treating the whole image as one reusable global tile vocabulary
 - it no longer invents averaged patch colors during candidate extraction; the current regression suite now checks that tile-graph candidates stay on real source colors
-- accepted component candidates now consume a cell-sized source footprint, and far-away candidates are no longer globally admissible during placement
+- accepted component candidates now consume a cell-sized source footprint, and each output cell only sees candidates attached to its own inferred lattice coord
 - it already beats naive resize on the repo's synthetic thin-feature regression
-- it no longer fails by flooding the canvas with one opaque black tile on the cleaned AI badge stress case
-- it still is not good enough to replace the default continuous path on the cleaned AI badge stress case; the latest localized pass fixes the black-canvas failure but still produces poor motif structure and a much worse score than the continuous path
+- this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
+- the tradeoff is that large real-fixture runs are now slower because candidate count scales with the inferred output area, so performance tuning is now a first-class concern for this path
 
 ## Quickstart
 

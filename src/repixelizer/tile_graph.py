@@ -34,11 +34,14 @@ class TileGraphModel:
     candidate_coords: np.ndarray
     candidate_area_ratio: np.ndarray
     candidate_coverage: np.ndarray
-    pair_penalty: np.ndarray
+    candidate_deltas: np.ndarray
+    cell_candidate_offsets: np.ndarray
+    cell_candidate_indices: np.ndarray
     reference_mean_rgba: np.ndarray
     reference_sharp_rgba: np.ndarray
     component_count: int
     edge_density: float
+    average_choices: float
 
 
 @dataclass(slots=True)
@@ -295,16 +298,21 @@ def build_tile_graph_model(
     cell_h = height / max(1, inference.target_height)
     cell_w = width / max(1, inference.target_width)
     target_area = cell_h * cell_w
+    output_area = max(1, inference.target_height * inference.target_width)
+    extracted_candidate_limit = max(
+        int(solver_params.tile_graph_max_candidates),
+        output_area * max(1, int(solver_params.tile_graph_max_candidates_per_coord)),
+    )
     components = _extract_components(analysis.cluster_map, analysis.alpha_map, solver_params.alpha_transparent_threshold)
     components.sort(key=lambda component: (abs(component.area / max(target_area, 1e-4) - 1.0), -component.area))
 
-    candidate_rgba: list[np.ndarray] = [np.zeros(4, dtype=np.float32)]
-    candidate_coords: list[tuple[int, int]] = [(0, 0)]
-    candidate_area_ratio: list[float] = [0.0]
-    candidate_coverage: list[float] = [1.0]
-    candidate_deltas: list[np.ndarray] = [np.zeros((4, 4), dtype=np.float32)]
+    candidate_rgba: list[np.ndarray] = []
+    candidate_coords: list[tuple[int, int]] = []
+    candidate_area_ratio: list[float] = []
+    candidate_coverage: list[float] = []
+    candidate_deltas: list[np.ndarray] = []
 
-    coord_counts: dict[tuple[int, int], int] = {}
+    extracted_coord_counts: dict[tuple[int, int], int] = {}
     step_y = max(1.0, cell_h)
     step_x = max(1.0, cell_w)
     for component in components:
@@ -313,12 +321,12 @@ def build_tile_graph_model(
         area_ratio = float(component.area / max(target_area, 1e-4))
         if area_ratio < solver_params.tile_graph_component_min_area_ratio:
             continue
-        per_component_limit = max(1, min(24, int(np.ceil(max(1.0, area_ratio)))))
+        per_component_limit = max(1, int(np.ceil(max(1.0, area_ratio))))
         seed_y, seed_x = _nearest_component_pixel(component, component.centroid_y, component.centroid_x)
         queue = deque([(seed_y, seed_x)])
         local_seen: set[tuple[int, int]] = set()
         added = 0
-        while queue and added < per_component_limit and len(candidate_rgba) < solver_params.tile_graph_max_candidates:
+        while queue and added < per_component_limit and len(candidate_rgba) < extracted_candidate_limit:
             center_y, center_x = queue.popleft()
             coord = _source_to_cell_coord(
                 center_y,
@@ -332,7 +340,7 @@ def build_tile_graph_model(
             )
             if coord in local_seen:
                 continue
-            if coord_counts.get(coord, 0) >= solver_params.tile_graph_max_candidates_per_coord:
+            if extracted_coord_counts.get(coord, 0) >= solver_params.tile_graph_max_candidates_per_coord:
                 continue
             local_seen.add(coord)
             coverage = _window_component_coverage(component, center_y, center_x, cell_h, cell_w)
@@ -360,7 +368,7 @@ def build_tile_graph_model(
             candidate_area_ratio.append(area_ratio)
             candidate_coverage.append(coverage)
             candidate_deltas.append(delta_features)
-            coord_counts[coord] = coord_counts.get(coord, 0) + 1
+            extracted_coord_counts[coord] = extracted_coord_counts.get(coord, 0) + 1
             _consume_component_window(component, center_y, center_x, cell_h, cell_w)
             added += 1
             if area_ratio < solver_params.tile_graph_large_component_ratio:
@@ -392,16 +400,12 @@ def build_tile_graph_model(
                 )
                 if (
                     probe_coord not in local_seen
-                    and coord_counts.get(probe_coord, 0) < solver_params.tile_graph_max_candidates_per_coord
+                    and extracted_coord_counts.get(probe_coord, 0) < solver_params.tile_graph_max_candidates_per_coord
                 ):
                     queue.append((probe_y, probe_x))
 
     def add_reference_candidate(coord_y: int, coord_x: int) -> None:
-        if len(candidate_rgba) >= solver_params.tile_graph_max_candidates:
-            return
         coord = (coord_y, coord_x)
-        if coord_counts.get(coord, 0) >= max(1, solver_params.tile_graph_max_candidates_per_coord):
-            return
         delta_features = np.zeros((4, 4), dtype=np.float32)
         center_rgba = source_reference.sharp_rgba[coord_y, coord_x].astype(np.float32)
         for direction, dy, dx in _DIRS:
@@ -413,29 +417,10 @@ def build_tile_graph_model(
         candidate_area_ratio.append(1.0)
         candidate_coverage.append(1.0)
         candidate_deltas.append(delta_features)
-        coord_counts[coord] = coord_counts.get(coord, 0) + 1
 
-    if len(candidate_rgba) < solver_params.tile_graph_max_candidates:
-        remaining = solver_params.tile_graph_max_candidates - len(candidate_rgba)
-        stride = max(1, int(np.sqrt((inference.target_height * inference.target_width) / max(1, remaining))))
-        for coord_y in range(0, inference.target_height, stride):
-            for coord_x in range(0, inference.target_width, stride):
-                add_reference_candidate(coord_y, coord_x)
-                if len(candidate_rgba) >= solver_params.tile_graph_max_candidates:
-                    break
-            if len(candidate_rgba) >= solver_params.tile_graph_max_candidates:
-                break
-    if len(candidate_rgba) < solver_params.tile_graph_max_candidates:
-        priority = (
-            source_reference.edge_strength
-            + np.clip(source_reference.cell_dispersion / max(source_reference.dispersion, 1e-4), 0.0, 4.0) * 0.35
-        )
-        for flat_index in np.argsort(priority.reshape(-1))[::-1]:
-            coord_y = int(flat_index // inference.target_width)
-            coord_x = int(flat_index % inference.target_width)
+    for coord_y in range(inference.target_height):
+        for coord_x in range(inference.target_width):
             add_reference_candidate(coord_y, coord_x)
-            if len(candidate_rgba) >= solver_params.tile_graph_max_candidates:
-                break
 
     candidate_rgba_np = np.asarray(candidate_rgba, dtype=np.float32)
     candidate_coords_np = np.asarray(candidate_coords, dtype=np.int32)
@@ -443,84 +428,131 @@ def build_tile_graph_model(
     candidate_coverage_np = np.asarray(candidate_coverage, dtype=np.float32)
     candidate_deltas_np = np.asarray(candidate_deltas, dtype=np.float32)
 
-    candidate_count = candidate_rgba_np.shape[0]
-    adjacency_counts = np.zeros((4, candidate_count, candidate_count), dtype=np.float32)
     coord_to_indices: dict[tuple[int, int], list[int]] = {}
     for index, coord in enumerate(candidate_coords_np.tolist()):
         coord_to_indices.setdefault((int(coord[0]), int(coord[1])), []).append(index)
-    for index, (coord_y, coord_x) in enumerate(candidate_coords_np.tolist()):
-        for direction, dy, dx in _DIRS:
-            for neighbor_index in coord_to_indices.get((int(coord_y + dy), int(coord_x + dx)), []):
-                adjacency_counts[direction, index, neighbor_index] += 1.0
+    cell_candidate_offsets = np.zeros(output_area + 1, dtype=np.int32)
+    cell_candidate_indices: list[int] = []
+    for flat_index in range(output_area):
+        coord_y = flat_index // inference.target_width
+        coord_x = flat_index % inference.target_width
+        indices = coord_to_indices.get((coord_y, coord_x), [])
+        cell_candidate_indices.extend(indices)
+        cell_candidate_offsets[flat_index + 1] = len(cell_candidate_indices)
+    cell_candidate_indices_np = np.asarray(cell_candidate_indices, dtype=np.int32)
+    choice_counts = np.diff(cell_candidate_offsets)
+    average_choices = float(np.mean(choice_counts)) if choice_counts.size else 0.0
 
-    pair_penalty = np.zeros((4, candidate_count, candidate_count), dtype=np.float32)
-    observed_delta = candidate_rgba_np[None, :, :] - candidate_rgba_np[:, None, :]
-    for direction, _, _ in _DIRS:
-        row_sum = adjacency_counts[direction].sum(axis=1, keepdims=True)
-        probability = (adjacency_counts[direction] + 1.0) / (row_sum + float(candidate_count))
-        count_penalty = -np.log(probability)
-        count_penalty = count_penalty / max(float(np.max(count_penalty)), 1e-4)
-        expected = candidate_deltas_np[:, direction, :][:, None, :]
-        reverse = candidate_deltas_np[:, _OPPOSITE[direction], :][None, :, :]
-        delta_penalty = np.mean(np.abs(observed_delta - expected), axis=-1)
-        reverse_penalty = np.mean(np.abs(-observed_delta - reverse), axis=-1)
-        delta_penalty = (delta_penalty + reverse_penalty) * 0.5
-        delta_penalty = delta_penalty / max(float(np.max(delta_penalty)), 1e-4)
-        pair_penalty[direction] = (
-            count_penalty * solver_params.tile_graph_count_weight
-            + delta_penalty * solver_params.tile_graph_delta_weight
-        ).astype(np.float32)
+    extracted_choice_grid = np.maximum(choice_counts.reshape(inference.target_height, inference.target_width) - 1, 0)
+    edge_support = 0.0
+    edge_total = 0
+    if inference.target_width > 1:
+        edge_support += float(
+            np.mean(
+                (extracted_choice_grid[:, :-1] > 0).astype(np.float32)
+                * (extracted_choice_grid[:, 1:] > 0).astype(np.float32)
+            )
+        )
+        edge_total += 1
+    if inference.target_height > 1:
+        edge_support += float(
+            np.mean(
+                (extracted_choice_grid[:-1, :] > 0).astype(np.float32)
+                * (extracted_choice_grid[1:, :] > 0).astype(np.float32)
+            )
+        )
+        edge_total += 1
+    edge_density = edge_support / max(1, edge_total)
 
-    edge_density = float(np.mean(adjacency_counts > 0.0)) if candidate_count > 0 else 0.0
     return TileGraphModel(
         candidate_rgba=candidate_rgba_np,
         candidate_coords=candidate_coords_np,
         candidate_area_ratio=candidate_area_ratio_np,
         candidate_coverage=candidate_coverage_np,
-        pair_penalty=pair_penalty,
+        candidate_deltas=candidate_deltas_np,
+        cell_candidate_offsets=cell_candidate_offsets,
+        cell_candidate_indices=cell_candidate_indices_np,
         reference_mean_rgba=source_reference.mean_rgba.astype(np.float32),
         reference_sharp_rgba=source_reference.sharp_rgba.astype(np.float32),
         component_count=len(components),
         edge_density=edge_density,
+        average_choices=average_choices,
     )
+
+
+def _cell_candidate_span(model: TileGraphModel, y: int, x: int) -> tuple[int, int]:
+    width = model.reference_sharp_rgba.shape[1]
+    flat_index = y * width + x
+    return int(model.cell_candidate_offsets[flat_index]), int(model.cell_candidate_offsets[flat_index + 1])
 
 
 def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperParams) -> np.ndarray:
     height, width = model.reference_sharp_rgba.shape[:2]
-    color_error = (
-        np.mean(np.abs(model.reference_sharp_rgba[..., None, :] - model.candidate_rgba[None, None, :, :]), axis=-1) * 0.85
-        + np.mean(np.abs(model.reference_mean_rgba[..., None, :] - model.candidate_rgba[None, None, :, :]), axis=-1) * 0.15
-    )
-    grid_y, grid_x = np.indices((height, width), dtype=np.float32)
-    coord_error = (
-        np.abs(grid_y[..., None] - model.candidate_coords[None, None, :, 0].astype(np.float32))
-        + np.abs(grid_x[..., None] - model.candidate_coords[None, None, :, 1].astype(np.float32))
-    ) / max(1.0, float(height + width))
-    nearest_coord_error = np.min(coord_error, axis=2, keepdims=True)
-    coord_gate = coord_error <= nearest_coord_error + (
-        float(solver_params.tile_graph_coord_gate_slack) / max(1.0, float(height + width))
-    )
-    coord_gate[..., 0] = model.reference_mean_rgba[..., 3] <= 0.35
-    area_error = np.abs(np.log(np.clip(model.candidate_area_ratio, 1e-4, None) + 1e-4))[None, None, :]
-    return (
-        color_error
-        + coord_error * solver_params.tile_graph_coordinate_weight
-        + (~coord_gate).astype(np.float32) * solver_params.tile_graph_coord_gate_penalty
-        + area_error * solver_params.tile_graph_area_weight
-    ).astype(np.float32)
+    unary_cost = np.full(model.cell_candidate_indices.shape[0], np.inf, dtype=np.float32)
+    for y in range(height):
+        for x in range(width):
+            start, end = _cell_candidate_span(model, y, x)
+            if end <= start:
+                continue
+            indices = model.cell_candidate_indices[start:end]
+            reference_sharp = model.reference_sharp_rgba[y, x]
+            reference_mean = model.reference_mean_rgba[y, x]
+            candidates = model.candidate_rgba[indices]
+            color_error = (
+                np.mean(np.abs(reference_sharp[None, :] - candidates), axis=-1) * 0.85
+                + np.mean(np.abs(reference_mean[None, :] - candidates), axis=-1) * 0.15
+            )
+            area_error = np.abs(np.log(np.clip(model.candidate_area_ratio[indices], 1e-4, None) + 1e-4))
+            alpha_error = np.abs(candidates[:, 3] - reference_mean[3])
+            coverage_error = 1.0 - np.clip(model.candidate_coverage[indices], 0.0, 1.0)
+            unary_cost[start:end] = (
+                color_error
+                + area_error * solver_params.tile_graph_area_weight
+                + alpha_error * solver_params.tile_graph_alpha_weight
+                + coverage_error * solver_params.tile_graph_coverage_weight
+            ).astype(np.float32)
+    return unary_cost
 
 
 def _assignment_rgba(model: TileGraphModel, selected: np.ndarray) -> np.ndarray:
     return model.candidate_rgba[selected]
 
 
-def _assignment_score(selected: np.ndarray, unary_cost: np.ndarray, pair_penalty: np.ndarray) -> float:
-    gathered = np.take_along_axis(unary_cost, selected[..., None], axis=2)[..., 0]
+def _pair_penalty(model: TileGraphModel, left_idx: int, right_idx: int, direction: int, solver_params: SolverHyperParams) -> float:
+    observed_delta = model.candidate_rgba[right_idx] - model.candidate_rgba[left_idx]
+    expected = model.candidate_deltas[left_idx, direction]
+    reverse = model.candidate_deltas[right_idx, _OPPOSITE[direction]]
+    delta_penalty = np.mean(np.abs(observed_delta - expected))
+    reverse_penalty = np.mean(np.abs(-observed_delta - reverse))
+    return float((delta_penalty + reverse_penalty) * 0.5 * solver_params.tile_graph_delta_weight)
+
+
+def _assignment_score(selected: np.ndarray, model: TileGraphModel, unary_cost: np.ndarray, solver_params: SolverHyperParams) -> float:
+    height, width = selected.shape
+    gathered = np.zeros((height, width), dtype=np.float32)
+    for y in range(height):
+        for x in range(width):
+            start, end = _cell_candidate_span(model, y, x)
+            indices = model.cell_candidate_indices[start:end]
+            match = np.flatnonzero(indices == selected[y, x])
+            if match.size == 0:
+                continue
+            gathered[y, x] = unary_cost[start + int(match[0])]
     score = float(np.mean(gathered))
-    if selected.shape[1] > 1:
-        score += float(np.mean(pair_penalty[_RIGHT, selected[:, :-1], selected[:, 1:]]))
-    if selected.shape[0] > 1:
-        score += float(np.mean(pair_penalty[_DOWN, selected[:-1, :], selected[1:, :]]))
+    if width > 1:
+        penalties = []
+        for y in range(height):
+            for x in range(width - 1):
+                penalties.append(_pair_penalty(model, int(selected[y, x]), int(selected[y, x + 1]), _RIGHT, solver_params))
+        if penalties:
+            score += float(np.mean(np.asarray(penalties, dtype=np.float32)))
+    if height > 1:
+        penalties = []
+        for y in range(height - 1):
+            for x in range(width):
+                penalties.append(_pair_penalty(model, int(selected[y, x]), int(selected[y + 1, x]), _DOWN, solver_params))
+        if penalties:
+            score += float(np.mean(np.asarray(penalties, dtype=np.float32)))
     return score
 
 
@@ -542,28 +574,40 @@ def optimize_tile_graph(
         solver_params=solver_params,
     )
     unary_cost = _tile_graph_unary_cost(model, solver_params)
-    selected = np.argmin(unary_cost, axis=2).astype(np.int32)
+    selected = np.zeros((inference.target_height, inference.target_width), dtype=np.int32)
+    for y in range(inference.target_height):
+        for x in range(inference.target_width):
+            start, end = _cell_candidate_span(model, y, x)
+            assert end > start, "each output cell must have at least one local tile candidate"
+            local_cost = unary_cost[start:end]
+            local_indices = model.cell_candidate_indices[start:end]
+            selected[y, x] = int(local_indices[int(np.argmin(local_cost))])
     initial_selected = selected.copy()
-    loss_history = [_assignment_score(selected, unary_cost, model.pair_penalty)]
+    loss_history = [_assignment_score(selected, model, unary_cost, solver_params)]
     for _ in range(max(0, int(solver_params.tile_graph_iterations))):
         changed = 0
         for parity in (0, 1):
             for y in range(selected.shape[0]):
                 for x in range((y + parity) % 2, selected.shape[1], 2):
-                    cost = unary_cost[y, x].copy()
-                    if x > 0:
-                        cost += model.pair_penalty[_RIGHT, selected[y, x - 1], :]
-                    if x + 1 < selected.shape[1]:
-                        cost += model.pair_penalty[_RIGHT, :, selected[y, x + 1]]
-                    if y > 0:
-                        cost += model.pair_penalty[_DOWN, selected[y - 1, x], :]
-                    if y + 1 < selected.shape[0]:
-                        cost += model.pair_penalty[_DOWN, :, selected[y + 1, x]]
-                    best = int(np.argmin(cost))
+                    start, end = _cell_candidate_span(model, y, x)
+                    local_indices = model.cell_candidate_indices[start:end]
+                    local_cost = unary_cost[start:end].copy()
+                    for option_index, candidate_index in enumerate(local_indices.tolist()):
+                        option_cost = float(local_cost[option_index])
+                        if x > 0:
+                            option_cost += _pair_penalty(model, int(selected[y, x - 1]), int(candidate_index), _RIGHT, solver_params)
+                        if x + 1 < selected.shape[1]:
+                            option_cost += _pair_penalty(model, int(candidate_index), int(selected[y, x + 1]), _RIGHT, solver_params)
+                        if y > 0:
+                            option_cost += _pair_penalty(model, int(selected[y - 1, x]), int(candidate_index), _DOWN, solver_params)
+                        if y + 1 < selected.shape[0]:
+                            option_cost += _pair_penalty(model, int(candidate_index), int(selected[y + 1, x]), _DOWN, solver_params)
+                        local_cost[option_index] = option_cost
+                    best = int(local_indices[int(np.argmin(local_cost))])
                     if best != int(selected[y, x]):
                         selected[y, x] = best
                         changed += 1
-        loss_history.append(_assignment_score(selected, unary_cost, model.pair_penalty))
+        loss_history.append(_assignment_score(selected, model, unary_cost, solver_params))
         if changed == 0:
             break
 
@@ -574,6 +618,7 @@ def optimize_tile_graph(
         "tile_graph_component_count": model.component_count,
         "tile_graph_candidate_count": int(model.candidate_rgba.shape[0]),
         "tile_graph_edge_density": model.edge_density,
+        "tile_graph_average_choices": model.average_choices,
         "tile_graph_initial_score": float(loss_history[0]),
         "tile_graph_final_score": float(loss_history[-1]),
     }
