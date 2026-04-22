@@ -64,6 +64,7 @@ def run_compare(
     steps: int = 200,
     device: str = "auto",
     strip_background: bool = False,
+    reconstruction_mode: str = "continuous",
 ) -> dict[str, Any]:
     diagnostics_path = Path(diagnostics_dir) if diagnostics_dir else Path(output_path).with_suffix("")
     diagnostics_path.mkdir(parents=True, exist_ok=True)
@@ -78,6 +79,7 @@ def run_compare(
         steps=steps,
         device=device,
         strip_background=strip_background,
+        reconstruction_mode=reconstruction_mode,
     )
     source = result.source_rgba
     palette = load_palette(palette_path) if palette_path else None

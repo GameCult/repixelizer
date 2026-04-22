@@ -49,6 +49,7 @@ The current implementation should be treated as a strong experimental baseline, 
 The most provisional areas are:
 - lattice inference on real, messy generated imagery
 - edge-cell reliability and candidate coverage in the continuous stage
+- the new experimental tile-graph reconstruction path, especially on real noisy inputs
 - low-confidence reranking once multiple plausible lattice sizes survive the new soft penalty
 - compare-mode metrics as a proxy for actual visual quality
 
@@ -66,10 +67,15 @@ Current implementation note:
 - raw image edges are the right signal for source-detail targeting; cluster boundaries were too broad and caused thin-feature washout when reused here
 - enriched edge candidates are currently gated to high-dispersion edge cells, and `snap` stays on the conservative local grid while `refine` gets the richer candidate pool
 
+Experimental tile-graph note:
+- there is now a separate `tile-graph` reconstruction mode that extracts cell candidates from connected source clusters, fills gaps with lattice-aligned fallback candidates, learns candidate adjacency, and places tiles with a soft propagation loop
+- that path is already promising on synthetic thin-feature cases, but it currently overcommits to larger lattice candidates and underperforms the default continuous path on the cleaned badge fixture
+
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
 - rerun tuning after the edge-aware/source-guided behavior lands
 - evaluate coordinated local moves when single-cell refinement still breaks thin contours
+- decide whether the tile-graph path should stay a diagnostics-only experiment, become a refine-stage candidate generator, or mature into a full alternate solver
 
 ## High-value regression cases
 

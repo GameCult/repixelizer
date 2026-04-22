@@ -28,6 +28,7 @@ from .metrics import (
 from .params import SolverHyperParams
 from .palette import load_palette, quantize_rgba, save_palette_report
 from .preprocess import strip_edge_background
+from .tile_graph import optimize_tile_graph
 from .types import InferenceResult, RunResult
 
 
@@ -44,6 +45,7 @@ def run_pipeline(
     device: str = "auto",
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
+    reconstruction_mode: str = "continuous",
 ) -> RunResult:
     started = time.perf_counter()
     solver_params = solver_params or SolverHyperParams()
@@ -59,8 +61,9 @@ def run_pipeline(
         seed=seed,
         device=device,
         solver_params=solver_params,
+        reconstruction_mode=reconstruction_mode,
     )
-    solver = optimize_uv_field(
+    solver, reconstruction_diagnostics = _run_reconstruction(
         source,
         inference=inference,
         analysis=analysis,
@@ -68,14 +71,19 @@ def run_pipeline(
         seed=seed,
         device=device,
         solver_params=solver_params,
+        reconstruction_mode=reconstruction_mode,
     )
     cleanup = cleanup_pixels(solver.target_rgba, source_guidance=solver.guidance_strength)
     palette = load_palette(palette_path) if palette_path else None
     palette_result = quantize_rgba(cleanup.cleaned_rgba, mode=palette_mode, palette=palette)
     output_rgba = palette_result.rgba if palette_result else cleanup.cleaned_rgba
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     save_rgba(output_path, output_rgba)
 
-    diagnostics: dict[str, Any] = {"elapsed_seconds": time.perf_counter() - started}
+    diagnostics: dict[str, Any] = {
+        "elapsed_seconds": time.perf_counter() - started,
+        "reconstruction": reconstruction_diagnostics,
+    }
     result = RunResult(
         source_rgba=source,
         output_rgba=output_rgba,
@@ -109,8 +117,11 @@ def run_pipeline(
             "steps": steps,
             "device": device,
             "strip_background": strip_background,
+            "reconstruction_mode": reconstruction_mode,
             "solver_params": solver_params.to_dict(),
         }
+        if diagnostics.get("reconstruction"):
+            run_json["reconstruction"] = diagnostics["reconstruction"]
         write_json(diagnostics_path / "run.json", run_json)
         if palette_result is not None:
             save_palette_report(diagnostics_path / "palette-report.json", palette_result.palette)
@@ -125,6 +136,7 @@ def _select_phase_candidate(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
+    reconstruction_mode: str = "continuous",
 ) -> InferenceResult:
     solver_params = solver_params or SolverHyperParams()
     if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
@@ -141,7 +153,7 @@ def _select_phase_candidate(
             confidence=inference.confidence,
             top_candidates=inference.top_candidates,
         )
-        candidate_artifacts = optimize_uv_field(
+        candidate_artifacts, _ = _run_reconstruction(
             source,
             inference=candidate_inference,
             analysis=analysis,
@@ -149,6 +161,7 @@ def _select_phase_candidate(
             seed=seed,
             device=device,
             solver_params=solver_params,
+            reconstruction_mode=reconstruction_mode,
         )
         support = source_lattice_consistency_breakdown(
             source,
@@ -272,3 +285,36 @@ def _size_delta_ratio(a: InferenceResult, b: InferenceResult) -> float:
     width_ratio = abs(b.target_width - a.target_width) / max(1.0, float(a.target_width))
     height_ratio = abs(b.target_height - a.target_height) / max(1.0, float(a.target_height))
     return max(width_ratio, height_ratio)
+
+
+def _run_reconstruction(
+    source: np.ndarray,
+    *,
+    inference: InferenceResult,
+    analysis,
+    steps: int,
+    seed: int,
+    device: str,
+    solver_params: SolverHyperParams,
+    reconstruction_mode: str,
+):
+    if reconstruction_mode == "tile-graph":
+        return optimize_tile_graph(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=steps,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+        )
+    solver = optimize_uv_field(
+        source,
+        inference=inference,
+        analysis=analysis,
+        steps=steps,
+        seed=seed,
+        device=device,
+        solver_params=solver_params,
+    )
+    return solver, {"mode": "continuous"}

@@ -73,6 +73,15 @@ class SolverHyperParams:
     phase_rerank_confidence_threshold: float = 0.12
     phase_rerank_max_size_delta_ratio: float = 0.40
     phase_rerank_margin: float = 0.004
+    tile_graph_max_candidates: int = 160
+    tile_graph_component_min_area_ratio: float = 0.10
+    tile_graph_large_component_ratio: float = 1.35
+    tile_graph_window_coverage_threshold: float = 0.16
+    tile_graph_coordinate_weight: float = 0.08
+    tile_graph_area_weight: float = 0.03
+    tile_graph_count_weight: float = 0.55
+    tile_graph_delta_weight: float = 0.45
+    tile_graph_iterations: int = 10
 
     def to_dict(self) -> dict[str, float | int]:
         return asdict(self)

@@ -34,6 +34,14 @@ Recent adjacency-focused status:
 - the cleaned AI badge regression now beats naive resize on the repo's source-lattice consistency metric under the selected lattice
 - the snap-to-refine handoff is now source-first rather than dominated by the softened representative lattice
 - low-confidence phase reranking now uses a soft size penalty instead of a hard size-jump reject
+- an experimental `tile-graph` reconstruction mode now exists behind `--reconstruction-mode tile-graph`
+
+Current tile-graph status:
+
+- it builds source-driven cell candidates from connected source clusters plus lattice-aligned fallback coverage
+- it learns directional adjacency preferences between candidates and places them with a soft discrete propagation loop
+- it already beats naive resize on the repo's synthetic thin-feature regression
+- it is not yet good enough to replace the default continuous path on the cleaned AI badge stress case
 
 ## Quickstart
 
@@ -47,6 +55,7 @@ Run the optimizer:
 ```powershell
 repixelize input.png --out output.png
 repixelize input.png --out output.png --diagnostics-dir diagnostics --device auto
+repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cpu
 ```
 
 Run the optimizer plus baselines:
