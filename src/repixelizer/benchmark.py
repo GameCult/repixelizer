@@ -132,6 +132,8 @@ def run_roundtrip_benchmark(
                     "warp_strength": settings["warp_strength"],
                     "warp_detail": settings["warp_detail"],
                     "warp_sample_mode": settings["warp_sample_mode"],
+                    "artifact_density": settings["artifact_density"],
+                    "artifact_strength": settings["artifact_strength"],
                     "primary_metric": "foreground_premultiplied_mae",
                     "reference_foreground_coverage": foreground_coverage(original, original),
                     "target_size_locked": not infer_size,
@@ -217,6 +219,8 @@ def _variant_settings(seed: int, profile: str) -> dict[str, Any]:
             "warp_strength": float(rng.uniform(0.14, 0.46)),
             "warp_detail": int(rng.integers(5, 9)),
             "warp_sample_mode": "nearest",
+            "artifact_density": 0.0,
+            "artifact_strength": 0.0,
         }
     if profile == "soft":
         return {
@@ -227,6 +231,20 @@ def _variant_settings(seed: int, profile: str) -> dict[str, Any]:
             "warp_strength": float(rng.uniform(0.18, 0.55)),
             "warp_detail": int(rng.integers(4, 8)),
             "warp_sample_mode": "bilinear",
+            "artifact_density": 0.0,
+            "artifact_strength": 0.0,
+        }
+    if profile == "ai":
+        return {
+            "upscale": int(rng.integers(8, 15)),
+            "phase_x": float(rng.uniform(-0.48, 0.48)),
+            "phase_y": float(rng.uniform(-0.48, 0.48)),
+            "blur_radius": float(rng.uniform(0.18, 0.95)),
+            "warp_strength": float(rng.uniform(0.24, 0.68)),
+            "warp_detail": int(rng.integers(5, 10)),
+            "warp_sample_mode": "bilinear" if rng.random() < 0.7 else "nearest",
+            "artifact_density": float(rng.uniform(0.08, 0.24)),
+            "artifact_strength": float(rng.uniform(0.35, 0.95)),
         }
     raise ValueError(f"Unsupported benchmark profile: {profile}")
 

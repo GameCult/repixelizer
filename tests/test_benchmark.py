@@ -69,6 +69,30 @@ def test_roundtrip_benchmark_can_filter_cases(tmp_path: Path) -> None:
     assert payload["rows"][0]["profile"] == "crisp"
 
 
+def test_roundtrip_benchmark_supports_ai_profile(tmp_path: Path) -> None:
+    corpus_dir = tmp_path / "corpus"
+    originals_dir = corpus_dir / "originals"
+    originals_dir.mkdir(parents=True)
+    save_rgba(originals_dir / "crest.png", make_emblem(16, 16))
+
+    out_dir = tmp_path / "benchmark-out"
+    payload = run_roundtrip_benchmark(
+        corpus_dir,
+        out_dir,
+        variants=1,
+        profiles=["ai"],
+        steps=2,
+        seed=5,
+    )
+
+    assert payload["profiles"] == ["ai"]
+    assert payload["row_count"] == 1
+    row = payload["rows"][0]
+    assert row["profile"] == "ai"
+    assert row["artifact_density"] > 0.0
+    assert row["artifact_strength"] > 0.0
+
+
 def test_roundtrip_benchmark_clears_existing_output_dir_by_default(tmp_path: Path) -> None:
     corpus_dir = tmp_path / "corpus"
     originals_dir = corpus_dir / "originals"

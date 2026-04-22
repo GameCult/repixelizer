@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     benchmark_parser.add_argument(
         "--profile",
         action="append",
-        choices=("soft", "crisp"),
+        choices=("soft", "crisp", "ai"),
         default=None,
         help="Corruption profile to include; may be repeated. Defaults to both soft and crisp.",
     )
@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     tune_parser.add_argument(
         "--profile",
         action="append",
-        choices=("soft", "crisp"),
+        choices=("soft", "crisp", "ai"),
         default=None,
         help="Corruption profile to include; may be repeated. Defaults to soft only for tuning.",
     )
