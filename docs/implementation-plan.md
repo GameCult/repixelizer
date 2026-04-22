@@ -70,7 +70,8 @@ Current implementation note:
 Experimental tile-graph note:
 - there is now a separate `tile-graph` reconstruction mode that extracts literal source-pixel candidates from connected source clusters, fills gaps with lattice-aligned fallback pixels, learns candidate adjacency, and places tiles with a soft propagation loop
 - the raw-pixel rewrite fixed an implementation mismatch where candidates had drifted into cell-averaged patch colors instead of actual source pixels
-- that path is still promising on synthetic thin-feature cases and now stays on the conservative `126x126` badge lattice instead of jumping to `154x154`, but it still underperforms the default continuous path on the cleaned badge fixture (`0.1676` source-fidelity score on the latest probe versus `0.0832` for the continuous path)
+- accepted component candidates now consume their cell-sized source footprint, and placement no longer allows one distant candidate to act as a globally reusable label everywhere on the raster
+- that localized pass fixed the glaring badge failure where one opaque black candidate could flood most of the canvas, but it still underperforms the default continuous path badly on the cleaned badge fixture and currently over-fragments local motifs even while background transparency is restored
 
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
@@ -115,6 +116,7 @@ What future work should improve here:
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
 - for the experimental tile-graph path specifically, better local candidate coverage and stronger adjacency evidence are still needed even after switching candidates back to literal source pixels
+- for the experimental tile-graph path specifically, the next useful step is probably a true local candidate-set solver instead of a single global candidate matrix with coord-gating heuristics; the current architecture is still too eager to reuse a small vocabulary and too weak at preserving local motif identity
 
 Current optimizer diagnosis:
 - the shared source-lattice reference, source-first snap/refine scoring, and relaxed-mode handoff are now in place, so the biggest remaining losses are no longer caused by the old representative-lattice collapse

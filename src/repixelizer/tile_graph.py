@@ -47,7 +47,8 @@ class _Component:
     coords: np.ndarray
     bbox: tuple[int, int, int, int]
     mask: np.ndarray
-    integral: np.ndarray
+    available_mask: np.ndarray
+    available_integral: np.ndarray
     area: int
     centroid_y: float
     centroid_x: float
@@ -114,23 +115,56 @@ def _sample_source_pixel(source_rgba: np.ndarray, center_y: float, center_x: flo
 
 
 def _window_component_coverage(component: _Component, center_y: float, center_x: float, cell_h: float, cell_w: float) -> float:
-    y0, x0, y1, x1 = _window_bounds(center_y, center_x, cell_h, cell_w, component.mask.shape[0] + component.bbox[0], component.mask.shape[1] + component.bbox[1])
+    y0, x0, y1, x1 = _window_bounds(
+        center_y,
+        center_x,
+        cell_h,
+        cell_w,
+        component.available_mask.shape[0] + component.bbox[0],
+        component.available_mask.shape[1] + component.bbox[1],
+    )
     bbox_y0, bbox_x0, _, _ = component.bbox
     local_y0 = max(0, y0 - bbox_y0)
     local_x0 = max(0, x0 - bbox_x0)
-    local_y1 = min(component.mask.shape[0], y1 - bbox_y0)
-    local_x1 = min(component.mask.shape[1], x1 - bbox_x0)
+    local_y1 = min(component.available_mask.shape[0], y1 - bbox_y0)
+    local_x1 = min(component.available_mask.shape[1], x1 - bbox_x0)
     if local_y1 <= local_y0 or local_x1 <= local_x0:
         return 0.0
-    covered = _integral_sum(component.integral, local_y0, local_x0, local_y1, local_x1)
+    covered = _integral_sum(component.available_integral, local_y0, local_x0, local_y1, local_x1)
     total = max(1, (local_y1 - local_y0) * (local_x1 - local_x0))
     return float(covered / total)
 
 
 def _nearest_component_pixel(component: _Component, center_y: float, center_x: float) -> tuple[float, float]:
-    deltas = component.coords.astype(np.float32) - np.asarray([center_y, center_x], dtype=np.float32)[None, :]
+    bbox_y0, bbox_x0, _, _ = component.bbox
+    local = component.coords - np.asarray([bbox_y0, bbox_x0], dtype=np.int32)[None, :]
+    available = component.available_mask[local[:, 0], local[:, 1]]
+    coords = component.coords[available]
+    if coords.shape[0] == 0:
+        return float(center_y), float(center_x)
+    deltas = coords.astype(np.float32) - np.asarray([center_y, center_x], dtype=np.float32)[None, :]
     best = int(np.argmin(np.sum(deltas * deltas, axis=1)))
-    return float(component.coords[best, 0]), float(component.coords[best, 1])
+    return float(coords[best, 0]), float(coords[best, 1])
+
+
+def _consume_component_window(component: _Component, center_y: float, center_x: float, cell_h: float, cell_w: float) -> None:
+    y0, x0, y1, x1 = _window_bounds(
+        center_y,
+        center_x,
+        cell_h,
+        cell_w,
+        component.available_mask.shape[0] + component.bbox[0],
+        component.available_mask.shape[1] + component.bbox[1],
+    )
+    bbox_y0, bbox_x0, _, _ = component.bbox
+    local_y0 = max(0, y0 - bbox_y0)
+    local_x0 = max(0, x0 - bbox_x0)
+    local_y1 = min(component.available_mask.shape[0], y1 - bbox_y0)
+    local_x1 = min(component.available_mask.shape[1], x1 - bbox_x0)
+    if local_y1 <= local_y0 or local_x1 <= local_x0:
+        return
+    component.available_mask[local_y0:local_y1, local_x0:local_x1] = False
+    component.available_integral = _component_integral(component.available_mask)
 
 
 def _best_stepped_center(
@@ -230,7 +264,8 @@ def _extract_components(cluster_map: np.ndarray, alpha_map: np.ndarray, alpha_th
                     coords=coords_array,
                     bbox=(min_y, min_x, max_y + 1, max_x + 1),
                     mask=mask,
-                    integral=_component_integral(mask),
+                    available_mask=mask.copy(),
+                    available_integral=_component_integral(mask),
                     area=int(coords_array.shape[0]),
                     centroid_y=float(np.mean(coords_array[:, 0])),
                     centroid_x=float(np.mean(coords_array[:, 1])),
@@ -273,6 +308,8 @@ def build_tile_graph_model(
     step_y = max(1.0, cell_h)
     step_x = max(1.0, cell_w)
     for component in components:
+        if not np.any(component.available_mask):
+            continue
         area_ratio = float(component.area / max(target_area, 1e-4))
         if area_ratio < solver_params.tile_graph_component_min_area_ratio:
             continue
@@ -324,6 +361,7 @@ def build_tile_graph_model(
             candidate_coverage.append(coverage)
             candidate_deltas.append(delta_features)
             coord_counts[coord] = coord_counts.get(coord, 0) + 1
+            _consume_component_window(component, center_y, center_x, cell_h, cell_w)
             added += 1
             if area_ratio < solver_params.tile_graph_large_component_ratio:
                 continue
@@ -458,10 +496,16 @@ def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperPara
         np.abs(grid_y[..., None] - model.candidate_coords[None, None, :, 0].astype(np.float32))
         + np.abs(grid_x[..., None] - model.candidate_coords[None, None, :, 1].astype(np.float32))
     ) / max(1.0, float(height + width))
+    nearest_coord_error = np.min(coord_error, axis=2, keepdims=True)
+    coord_gate = coord_error <= nearest_coord_error + (
+        float(solver_params.tile_graph_coord_gate_slack) / max(1.0, float(height + width))
+    )
+    coord_gate[..., 0] = model.reference_mean_rgba[..., 3] <= 0.35
     area_error = np.abs(np.log(np.clip(model.candidate_area_ratio, 1e-4, None) + 1e-4))[None, None, :]
     return (
         color_error
         + coord_error * solver_params.tile_graph_coordinate_weight
+        + (~coord_gate).astype(np.float32) * solver_params.tile_graph_coord_gate_penalty
         + area_error * solver_params.tile_graph_area_weight
     ).astype(np.float32)
 

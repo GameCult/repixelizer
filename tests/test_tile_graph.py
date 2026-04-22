@@ -130,6 +130,41 @@ def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> N
     assert tile_score <= naive_score
 
 
+def test_tile_graph_preserves_transparent_background_on_sparse_detail() -> None:
+    source = np.zeros((12, 12, 4), dtype=np.float32)
+    source[5:7, 5:7] = np.asarray([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+
+    fake = fake_pixelize(
+        source,
+        upscale=8,
+        phase_x=0.12,
+        phase_y=-0.08,
+        blur_radius=0.35,
+        warp_strength=0.1,
+        warp_detail=4,
+        seed=5,
+    )
+    artifacts, _ = optimize_tile_graph(
+        fake,
+        inference=InferenceResult(
+            target_width=12,
+            target_height=12,
+            phase_x=0.12,
+            phase_y=-0.08,
+            confidence=1.0,
+            top_candidates=[],
+        ),
+        analysis=analyze_source(fake, seed=7),
+        steps=0,
+        seed=7,
+        device="cpu",
+    )
+
+    alpha_zero_ratio = float((artifacts.target_rgba[..., 3] <= 0.05).mean())
+
+    assert alpha_zero_ratio >= 0.75
+
+
 def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Path) -> None:
     source = make_emblem(24, 24)
     fake = fake_pixelize(source, upscale=10, phase_x=0.15, phase_y=0.2, blur_radius=0.6, warp_strength=0.2, warp_detail=5)
