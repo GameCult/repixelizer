@@ -229,6 +229,20 @@ def _crop_rgba(rgba: np.ndarray, bbox: tuple[int, int, int, int]) -> np.ndarray:
     return rgba[y0:y1, x0:x1]
 
 
+def _shrink_bbox_bottom_right(
+    bbox: tuple[int, int, int, int],
+    *,
+    scale_x: float,
+    scale_y: float,
+) -> tuple[int, int, int, int]:
+    x0, y0, x1, y1 = bbox
+    width = max(1, x1 - x0)
+    height = max(1, y1 - y0)
+    new_width = max(1, int(round(width * scale_x)))
+    new_height = max(1, int(round(height * scale_y)))
+    return (x1 - new_width, y1 - new_height, x1, y1)
+
+
 def _save_summary(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -347,6 +361,7 @@ def main() -> None:
         target_width=args.vector_target_size,
         target_height=args.vector_target_size,
     )
+    vector_guard_inset_bbox = _shrink_bbox_bottom_right(vector_guard_bbox, scale_x=0.5, scale_y=0.5)
     vector_lanczos_preview = nearest_resize(vector_lanczos, width=vector_source.shape[1], height=vector_source.shape[0])
     vector_repixelized_preview = nearest_resize(
         vector_result.output_rgba,
@@ -356,24 +371,25 @@ def main() -> None:
     for panel in vector_panels:
         _draw_source_bbox(
             panel,
-            vector_guard_bbox,
+            vector_guard_inset_bbox,
             source_width=vector_source.shape[1],
             source_height=vector_source.shape[0],
         )
     vector_crops = [
-        _crop_rgba(vector_source, vector_guard_bbox),
-        _crop_rgba(vector_lanczos_preview, vector_guard_bbox),
-        _crop_rgba(vector_repixelized_preview, vector_guard_bbox),
+        _crop_rgba(vector_source, vector_guard_inset_bbox),
+        _crop_rgba(vector_lanczos_preview, vector_guard_inset_bbox),
+        _crop_rgba(vector_repixelized_preview, vector_guard_inset_bbox),
     ]
     for panel, crop in zip(vector_panels, vector_crops, strict=True):
-        _add_pip_inset(panel, _build_pip_inset(crop))
+        _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
     ai_lanczos_preview = nearest_resize(ai_lanczos, width=ai_source.shape[1], height=ai_source.shape[0])
     ai_repixelized_preview = nearest_resize(ai_result.output_rgba, width=ai_source.shape[1], height=ai_source.shape[0])
+    ai_guard_inset_bbox = _shrink_bbox_bottom_right(guard_bbox, scale_x=0.5, scale_y=0.5)
     for panel in ai_panels:
         _draw_source_bbox(
             panel,
-            guard_bbox,
+            ai_guard_inset_bbox,
             source_width=ai_source.shape[1],
             source_height=ai_source.shape[0],
         )
@@ -386,12 +402,12 @@ def main() -> None:
     )
     guard_strip.save(out_guard_crop)
     ai_crops = [
-        _crop_rgba(ai_source, guard_bbox),
-        _crop_rgba(ai_lanczos_preview, guard_bbox),
-        _crop_rgba(ai_repixelized_preview, guard_bbox),
+        _crop_rgba(ai_source, ai_guard_inset_bbox),
+        _crop_rgba(ai_lanczos_preview, ai_guard_inset_bbox),
+        _crop_rgba(ai_repixelized_preview, ai_guard_inset_bbox),
     ]
     for panel, crop in zip(ai_panels, ai_crops, strict=True):
-        _add_pip_inset(panel, _build_pip_inset(crop))
+        _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
     width = margin * 2 + panel_width * 3 + col_gap * 2
     height = margin * 2 + row_title_height * 2 + panel_height * 2 + row_gap
@@ -424,7 +440,9 @@ def main() -> None:
             "ai_inferred_height": ai_result.inference.target_height,
             "guard_cell_bbox": list(args.guard_cell_bbox),
             "vector_guard_source_bbox": list(vector_guard_bbox),
+            "vector_guard_inset_source_bbox": list(vector_guard_inset_bbox),
             "guard_source_bbox": list(guard_bbox),
+            "ai_guard_inset_source_bbox": list(ai_guard_inset_bbox),
             "out_sheet": str(out_sheet),
             "out_guard_crop": str(out_guard_crop),
             "scratch_dir": str(scratch_dir),
