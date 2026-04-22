@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 
 from repixelizer.continuous import (
     _discrete_refine_output,
+    _exemplar_colors,
     _make_patch_offsets,
     _make_regular_uv,
     _relax_candidate_selection,
@@ -114,6 +115,7 @@ def _build_focus_states(
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     representative_t, _ = _representative_colors(initial_patches, solver_params)
     representative_t = representative_t.detach()
+    source_reference_t = _exemplar_colors(initial_patches).detach()
 
     source_delta_x_t = _source_boundary_deltas(F, source_t, uv0_t, axis="x")
     source_delta_y_t = _source_boundary_deltas(F, source_t, uv0_t, axis="y")
@@ -125,6 +127,7 @@ def _build_focus_states(
         source_t,
         uv0_t,
         representative_t,
+        source_reference_t,
         solver_params,
         cell_x=cell_x,
         cell_y=cell_y,
@@ -161,11 +164,12 @@ def _build_focus_states(
     candidate_colors = source_hw[candidate_y, candidate_x]
     anchor_energy = (candidate_colors - anchor[..., None, :]).abs().mean(dim=-1)
     rep_energy = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
+    source_reference_energy = (candidate_colors - source_reference_t[0][..., None, :]).abs().mean(dim=-1)
     alpha_energy = (candidate_colors[..., 3] - anchor[..., None, 3]).abs()
     distance_energy = ((offset_x / max(cell_x, 1e-4)) ** 2 + (offset_y / max(cell_y, 1e-4)) ** 2).reshape(1, 1, -1)
     relax_base_energy = (
         anchor_energy * solver_params.refine_anchor_weight * solver_params.relax_anchor_scale
-        + rep_energy * solver_params.refine_representative_weight
+        + (rep_energy * 0.45 + source_reference_energy * 0.55) * solver_params.refine_representative_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
@@ -184,12 +188,12 @@ def _build_focus_states(
             return anchor_delta
         return anchor_delta * anchor_weight + source_delta_t[0] * source_weight
 
-    selected, _, _ = _relax_candidate_selection(
+    selected, _, _, _ = _relax_candidate_selection(
         torch,
         candidate_colors,
         relax_base_energy,
         anchor,
-        representative,
+        source_reference_t[0],
         blend(anchor_delta_x, source_delta_x_t),
         blend(anchor_delta_y, source_delta_y_t),
         blend(anchor_delta_diag, source_delta_diag_t),
@@ -205,6 +209,7 @@ def _build_focus_states(
         source_t,
         uv0_t,
         representative_t,
+        source_reference_t,
         snap_t,
         source_delta_x_t,
         source_delta_y_t,

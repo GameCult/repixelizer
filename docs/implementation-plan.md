@@ -62,6 +62,19 @@ What future work should improve here:
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 - optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
 
+Current optimizer diagnosis:
+- a lot of the so-called `source_*` terms in the solver are still measured against the smoothed representative lattice, not raw source-side candidate evidence
+- that means the optimizer often "preserves" a softened, already-collapsed interpretation of the source instead of the sharper local adjacency patterns we actually care about
+- snap is still especially guilty here: its base match and neighbor deltas are dominated by the representative lattice, so the wrong local motif can be locked in before relaxation or hard refinement even starts
+- relaxation can often descend to a much lower expected energy basin, but the hardening/refine handoff then projects that soft solution back into a worse discrete assignment
+- diagonal structure is also underrepresented in the final structure score, which is a bad fit for curved one-pixel outlines and hooks
+
+Most likely next fixes:
+- derive a sharper per-cell source reference from actual sampled source patches instead of using the soft representative as the only "source truth"
+- point snap, relaxation, and structure-scoring source terms at that sharper source reference
+- harden the relaxed solution more honestly by considering the relaxed mode assignment, not just a per-cell handoff argmin
+- include diagonal boundary agreement in the final structure score so oblique tiny features matter earlier
+
 Repository fixtures:
 - `tests/fixtures/real/ai-badge-cleaned.png` is the manually cleaned transparent version of the same emblem
 - `tests/fixtures/real/ai-badge-cleaned.json` records why it matters
