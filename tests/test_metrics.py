@@ -5,6 +5,8 @@ import numpy as np
 from repixelizer.metrics import (
     exact_match_ratio,
     foreground_adjacency_error,
+    foreground_edge_concentration,
+    foreground_edge_position_error,
     foreground_exact_match_ratio,
     foreground_motif_error,
     foreground_reconstruction_error,
@@ -64,6 +66,35 @@ def test_texture_metrics_track_adjacency_and_local_motifs() -> None:
     assert foreground_motif_error(original, original) == 0.0
     assert foreground_adjacency_error(original, same_colors_wrong_structure) > 0.0
     assert foreground_motif_error(original, same_colors_wrong_structure) > 0.0
+
+
+def test_edge_position_metric_prefers_crisp_shift_to_blurry_smear() -> None:
+    original = np.zeros((7, 7, 4), dtype=np.float32)
+    original[1:6, 3] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    shifted = np.zeros_like(original)
+    shifted[1:6, 4] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    blurred = np.zeros_like(original)
+    blurred[1:6, 2] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
+    blurred[1:6, 3] = np.asarray([0.7, 0.7, 0.7, 1.0], dtype=np.float32)
+    blurred[1:6, 4] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
+
+    assert foreground_edge_position_error(original, original) == 0.0
+    assert foreground_edge_position_error(original, shifted) > 0.0
+    assert foreground_edge_position_error(original, blurred) > foreground_edge_position_error(original, shifted)
+
+
+def test_edge_concentration_prefers_crisp_edges_to_blurry_smear() -> None:
+    shifted = np.zeros((7, 7, 4), dtype=np.float32)
+    shifted[1:6, 4] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    blurred = np.zeros_like(shifted)
+    blurred[1:6, 2] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
+    blurred[1:6, 3] = np.asarray([0.7, 0.7, 0.7, 1.0], dtype=np.float32)
+    blurred[1:6, 4] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
+
+    assert foreground_edge_concentration(shifted) > foreground_edge_concentration(blurred)
 
 
 def test_source_lattice_consistency_prefers_matching_cell_structure() -> None:

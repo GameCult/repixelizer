@@ -33,6 +33,38 @@ The most provisional areas are:
 
 ## Near-term priorities
 
+## High-value regression cases
+
+### AI badge emblem with baked checkerboard background
+
+This locally generated AI badge has become a useful stress case because it fails in a very specific, repeatable way.
+
+Why it is useful:
+- the global target size is broadly plausible, so the failure is not just "picked the wrong lattice"
+- the lower sword-tip region contains sharp single-pixel and near-single-pixel features at multiple orientations
+- those features are exactly the kind of local adjacency pattern Repixelizer is supposed to preserve
+
+Current failure modes:
+- the right side of the sword tip develops a wobbling outline instead of a smooth taper
+- thin oblique outline features around the tip get collapsed into mushy transitions
+- local cell assignments near the tip look inconsistent even when the overall badge size feels right
+
+Important note:
+- the checkerboard is baked into the source image, not transparency
+- when projected onto a `122x122` output grid it aliases into a visible `2-3-2` cadence
+- that `2-3-2` background rhythm is expected from resampling the background pattern and should not be mistaken for proof that the inferred lattice itself is varying in size
+- it is still a problem, because the background is treated as real source structure and can contaminate local scoring near the blade
+
+What future work should improve here:
+- better weighting of thin local outline/motif preservation relative to high-contrast cell transitions
+- some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
+- optional background suppression or de-weighting when a baked checkerboard is clearly not semantic content
+
+Repository fixtures:
+- `tests/fixtures/real/ai-badge-cleaned.png` is the manually cleaned transparent version of the same emblem
+- `tests/fixtures/real/ai-badge-cleaned.json` records why it matters
+- use the cleaned fixture when isolating lattice and contour failures from background-removal failures
+
 ### 1. Build a real benchmark corpus
 
 Add curated real-world cases, not just synthetic ones:

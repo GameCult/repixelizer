@@ -1,0 +1,14 @@
+{
+  "id": "ai-badge-cleaned",
+  "kind": "real-ai-generated-emblem",
+  "description": "Manually cleaned transparent version of the AI badge emblem used as a real-image regression fixture.",
+  "source_image": "C:\\Users\\Meta\\.codex\\generated_images\\019db22f-5487-7a31-8a67-45f0c801dd7c\\ig_0b9862296469b4740169e7fbc657ac81919d4d2267673f6bae.png",
+  "revision": 3,
+  "notes": [
+    "Use this version when evaluating lattice inference and thin-feature preservation without the baked checkerboard background contaminating results.",
+    "Primary failure region is the sword tip and nearby outline taper, plus other sharp single-pixel and near-single-pixel features at mixed orientations.",
+    "Keep the raw checkerboard-background version around separately when testing the automatic background stripper.",
+    "Revision 2 reapplies transparency as a raster mask and thresholds that mask to suppress subtle dark-background glow left by the earlier cleanup.",
+    "Revision 3 binarizes the repo fixture copy to strict 0/255 alpha so the regression asset stays unambiguous."
+  ]
+}

@@ -74,6 +74,30 @@ def test_pipeline_preserves_transparency_for_sprite(tmp_path: Path) -> None:
     assert partial.size == 0
 
 
+def test_pipeline_can_strip_checkerboard_background(tmp_path: Path) -> None:
+    source = make_sprite(24, 24)
+    checker = np.ones_like(source)
+    checker[..., 3] = 1.0
+    for y in range(checker.shape[0]):
+        for x in range(checker.shape[1]):
+            tile = 0.97 if ((x // 4) + (y // 4)) % 2 == 0 else 0.91
+            checker[y, x, :3] = tile
+    alpha = source[..., 3:4]
+    opaque_input = checker.copy()
+    opaque_input[..., :3] = source[..., :3] * alpha + checker[..., :3] * (1.0 - alpha)
+
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, opaque_input)
+    result = run_pipeline(input_path, output_path, target_size=24, steps=0, strip_background=True)
+    assert result.source_rgba[..., 3].min() < 0.05
+    assert result.output_rgba[..., 3].min() < 0.05
+    assert result.output_rgba[..., 3].max() > 0.9
+
+
 def test_pipeline_can_emit_initialized_output_without_optimizer_steps(tmp_path: Path) -> None:
     source = make_emblem(24, 24)
     fake = fake_pixelize(source, upscale=10, phase_x=0.15, phase_y=0.2, blur_radius=0.6, warp_strength=0.2, warp_detail=5)

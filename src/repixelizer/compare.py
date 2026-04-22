@@ -8,10 +8,12 @@ from PIL import Image, ImageDraw
 
 from .baselines import error_diffusion_baseline, naive_resize_baseline
 from .diagnostics import write_compare_csv, write_json
-from .io import load_rgba, nearest_resize, save_rgba
+from .io import nearest_resize, save_rgba
 from .metrics import (
     coherence_breakdown,
     foreground_adjacency_error,
+    foreground_edge_concentration,
+    foreground_edge_position_error,
     foreground_motif_error,
     foreground_reconstruction_error,
     reconstruction_error,
@@ -58,6 +60,7 @@ def run_compare(
     seed: int = 7,
     steps: int = 200,
     device: str = "auto",
+    strip_background: bool = False,
 ) -> dict[str, Any]:
     diagnostics_path = Path(diagnostics_dir) if diagnostics_dir else Path(output_path).with_suffix("")
     diagnostics_path.mkdir(parents=True, exist_ok=True)
@@ -71,8 +74,9 @@ def run_compare(
         seed=seed,
         steps=steps,
         device=device,
+        strip_background=strip_background,
     )
-    source = load_rgba(input_path)
+    source = result.source_rgba
     palette = load_palette(palette_path) if palette_path else None
     naive = naive_resize_baseline(source, width=result.inference.target_width, height=result.inference.target_height)
     diffusion = error_diffusion_baseline(
@@ -101,6 +105,8 @@ def run_compare(
                 "color_chatter": coherence["color_chatter"],
                 "reconstruction_error": reconstruction_error(preview, source),
                 "foreground_reconstruction_error": foreground_reconstruction_error(preview, source),
+                "foreground_edge_concentration": foreground_edge_concentration(image),
+                "foreground_edge_position_error": foreground_edge_position_error(preview, source),
                 "foreground_adjacency_error": foreground_adjacency_error(preview, source),
                 "foreground_motif_error": foreground_motif_error(preview, source),
             }

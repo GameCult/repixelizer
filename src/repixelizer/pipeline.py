@@ -22,6 +22,7 @@ from .io import load_rgba, nearest_resize, save_rgba
 from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
 from .palette import load_palette, quantize_rgba, save_palette_report
+from .preprocess import strip_edge_background
 from .types import InferenceResult, RunResult
 
 
@@ -37,10 +38,13 @@ def run_pipeline(
     steps: int = 200,
     device: str = "auto",
     solver_params: SolverHyperParams | None = None,
+    strip_background: bool = False,
 ) -> RunResult:
     started = time.perf_counter()
     solver_params = solver_params or SolverHyperParams()
     source = load_rgba(input_path)
+    if strip_background:
+        source = strip_edge_background(source)
     inference = infer_lattice(source, target_size=target_size, device=device)
     analysis = analyze_source(source, seed=seed)
     inference = _select_phase_candidate(
@@ -80,6 +84,8 @@ def run_pipeline(
     if diagnostics_dir:
         diagnostics_path = Path(diagnostics_dir)
         diagnostics_path.mkdir(parents=True, exist_ok=True)
+        if strip_background:
+            save_rgba(diagnostics_path / "preprocessed-source.png", source)
         write_lattice_overlay(diagnostics_path / "lattice-overlay.png", source, inference)
         write_comparison(diagnostics_path / "comparison.png", source, output_rgba)
         save_rgba(
@@ -97,6 +103,7 @@ def run_pipeline(
             "seed": seed,
             "steps": steps,
             "device": device,
+            "strip_background": strip_background,
             "solver_params": solver_params.to_dict(),
         }
         write_json(diagnostics_path / "run.json", run_json)

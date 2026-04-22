@@ -20,6 +20,11 @@ class SolverHyperParams:
     refine_source_delta_weight: float = 0.25
     refine_orthogonal_weight: float = 0.24
     refine_diagonal_weight: float = 0.08
+    refine_motif_weight: float = 0.12
+    relax_iterations: int = 8
+    relax_start_temperature: float = 0.55
+    relax_end_temperature: float = 0.10
+    relax_damping: float = 0.35
     structure_boundary_weight: float = 0.60
     structure_anchor_adjacency_weight: float = 0.15
     structure_anchor_motif_weight: float = 0.20

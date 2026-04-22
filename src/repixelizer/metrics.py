@@ -169,6 +169,50 @@ def foreground_motif_error(
     return float(np.mean(diff[block_mask]))
 
 
+def foreground_edge_position_error(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+    radius: int = 1,
+    distance_penalty: float = 0.35,
+    edge_threshold: float = 0.02,
+) -> float:
+    edge_a = _edge_strength_map(a)
+    edge_b = _edge_strength_map(b)
+    mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)
+    support_mask = mask & ((edge_a >= edge_threshold) | (edge_b >= edge_threshold))
+    if not np.any(support_mask):
+        return 0.0
+
+    support_from_b = _best_local_edge_support(edge_b, radius=radius, distance_penalty=distance_penalty)
+    support_from_a = _best_local_edge_support(edge_a, radius=radius, distance_penalty=distance_penalty)
+    deficit_a = np.maximum(0.0, edge_a - support_from_b)
+    deficit_b = np.maximum(0.0, edge_b - support_from_a)
+    return float(np.mean((deficit_a[support_mask] + deficit_b[support_mask]) * 0.5))
+
+
+def foreground_edge_concentration(
+    rgba: np.ndarray,
+    alpha_threshold: float = 0.05,
+) -> float:
+    premul = premultiply(rgba)
+    alpha = rgba[..., 3]
+
+    delta_x = np.mean(np.abs(premul[:, 1:, :] - premul[:, :-1, :]), axis=-1)
+    delta_y = np.mean(np.abs(premul[1:, :, :] - premul[:-1, :, :]), axis=-1)
+    mask_x = (alpha[:, 1:] >= alpha_threshold) | (alpha[:, :-1] >= alpha_threshold)
+    mask_y = (alpha[1:, :] >= alpha_threshold) | (alpha[:-1, :] >= alpha_threshold)
+
+    values = np.concatenate([delta_x[mask_x], delta_y[mask_y]], axis=0)
+    if values.size == 0:
+        return 1.0
+    total = float(np.sum(values))
+    if total <= 1e-6:
+        return 0.0
+    return float(np.sum(values * values) / total)
+
+
 def source_lattice_consistency_breakdown(
     source_rgba: np.ndarray,
     output_rgba: np.ndarray,
@@ -279,6 +323,45 @@ def _dilate_mask(mask: np.ndarray, radius: int) -> np.ndarray:
         for dx in range(radius * 2 + 1):
             windows.append(padded[dy : dy + height, dx : dx + width])
     return np.any(np.stack(windows, axis=0), axis=0)
+
+
+def _edge_strength_map(rgba: np.ndarray) -> np.ndarray:
+    premul = premultiply(rgba)
+    right = np.zeros(rgba.shape[:2], dtype=np.float32)
+    down = np.zeros(rgba.shape[:2], dtype=np.float32)
+    right[:, :-1] = np.mean(np.abs(premul[:, 1:, :] - premul[:, :-1, :]), axis=-1)
+    down[:-1, :] = np.mean(np.abs(premul[1:, :, :] - premul[:-1, :, :]), axis=-1)
+    edge = np.maximum.reduce(
+        [
+            right,
+            np.pad(right[:, :-1], ((0, 0), (1, 0))),
+            down,
+            np.pad(down[:-1, :], ((1, 0), (0, 0))),
+        ]
+    )
+    return edge.astype(np.float32)
+
+
+def _best_local_edge_support(edge: np.ndarray, *, radius: int, distance_penalty: float) -> np.ndarray:
+    if radius <= 0:
+        return edge
+    height, width = edge.shape
+    best = np.zeros_like(edge, dtype=np.float32)
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            weight = 1.0 / (1.0 + np.hypot(dx, dy) * distance_penalty)
+            shifted = np.zeros_like(edge, dtype=np.float32)
+            src_y0 = max(0, -dy)
+            src_y1 = min(height, height - dy)
+            src_x0 = max(0, -dx)
+            src_x1 = min(width, width - dx)
+            dst_y0 = max(0, dy)
+            dst_y1 = dst_y0 + (src_y1 - src_y0)
+            dst_x0 = max(0, dx)
+            dst_x1 = dst_x0 + (src_x1 - src_x0)
+            shifted[dst_y0:dst_y1, dst_x0:dst_x1] = edge[src_y0:src_y1, src_x0:src_x1] * weight
+            best = np.maximum(best, shifted)
+    return best
 
 
 def _motif_blocks(premul: np.ndarray) -> np.ndarray:

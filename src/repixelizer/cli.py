@@ -29,6 +29,11 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--seed", type=int, default=7, help="Random seed")
         target.add_argument("--steps", type=int, default=200, help="Number of optimizer steps")
         target.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"), help="Torch device")
+        target.add_argument(
+            "--strip-background",
+            action="store_true",
+            help="Remove light neutral edge-connected backgrounds such as fake transparency checkerboards",
+        )
 
     run_parser = subparsers.add_parser("run", help="Run the optimizer.")
     add_shared_arguments(run_parser)
@@ -120,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             steps=args.steps,
             device=args.device,
+            strip_background=args.strip_background,
         )
         return 0
     if command == "benchmark":
@@ -166,5 +172,6 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         steps=args.steps,
         device=args.device,
+        strip_background=args.strip_background,
     )
     return 0

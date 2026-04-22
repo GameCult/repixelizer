@@ -180,6 +180,244 @@ def _motif_pattern_loss(representative, reference):
     return (motif_blocks(representative) - motif_blocks(reference)).abs().mean()
 
 
+def _normalized_motif_blocks(torch, blocks):
+    centered = blocks - blocks.mean(dim=-2, keepdim=True)
+    scale = centered.abs().mean(dim=(-2, -1), keepdim=True).clamp_min(1e-4)
+    return centered / scale
+
+
+def _pairwise_candidate_energy(
+    candidate_colors,
+    context_colors,
+    desired_delta_x,
+    desired_delta_y,
+    desired_delta_diag,
+    desired_delta_anti,
+    *,
+    orthogonal_weight: float,
+    diagonal_weight: float,
+):
+    output_height = context_colors.shape[0]
+    output_width = context_colors.shape[1]
+    energy = candidate_colors.new_zeros(candidate_colors.shape[:3])
+
+    if output_width > 1:
+        left_context = context_colors.new_zeros(context_colors.shape)
+        left_context[:, 1:, :] = context_colors[:, :-1, :]
+        left_mask = context_colors.new_zeros((output_height, output_width, 1))
+        left_mask[:, 1:, :] = 1.0
+        left_desired = context_colors.new_zeros(context_colors.shape)
+        left_desired[:, 1:, :] = desired_delta_x
+        left_error = ((candidate_colors - left_context[..., None, :]) - left_desired[..., None, :]).abs().mean(dim=-1)
+        energy = energy + left_error * left_mask * orthogonal_weight
+
+        right_context = context_colors.new_zeros(context_colors.shape)
+        right_context[:, :-1, :] = context_colors[:, 1:, :]
+        right_mask = context_colors.new_zeros((output_height, output_width, 1))
+        right_mask[:, :-1, :] = 1.0
+        right_desired = context_colors.new_zeros(context_colors.shape)
+        right_desired[:, :-1, :] = desired_delta_x
+        right_error = ((right_context[..., None, :] - candidate_colors) - right_desired[..., None, :]).abs().mean(dim=-1)
+        energy = energy + right_error * right_mask * orthogonal_weight
+
+    if output_height > 1:
+        up_context = context_colors.new_zeros(context_colors.shape)
+        up_context[1:, :, :] = context_colors[:-1, :, :]
+        up_mask = context_colors.new_zeros((output_height, output_width, 1))
+        up_mask[1:, :, :] = 1.0
+        up_desired = context_colors.new_zeros(context_colors.shape)
+        up_desired[1:, :, :] = desired_delta_y
+        up_error = ((candidate_colors - up_context[..., None, :]) - up_desired[..., None, :]).abs().mean(dim=-1)
+        energy = energy + up_error * up_mask * orthogonal_weight
+
+        down_context = context_colors.new_zeros(context_colors.shape)
+        down_context[:-1, :, :] = context_colors[1:, :, :]
+        down_mask = context_colors.new_zeros((output_height, output_width, 1))
+        down_mask[:-1, :, :] = 1.0
+        down_desired = context_colors.new_zeros(context_colors.shape)
+        down_desired[:-1, :, :] = desired_delta_y
+        down_error = ((down_context[..., None, :] - candidate_colors) - down_desired[..., None, :]).abs().mean(dim=-1)
+        energy = energy + down_error * down_mask * orthogonal_weight
+
+    if output_height > 1 and output_width > 1:
+        diag_context = context_colors.new_zeros(context_colors.shape)
+        diag_context[1:, 1:, :] = context_colors[:-1, :-1, :]
+        diag_mask = context_colors.new_zeros((output_height, output_width, 1))
+        diag_mask[1:, 1:, :] = 1.0
+        diag_desired = context_colors.new_zeros(context_colors.shape)
+        diag_desired[1:, 1:, :] = desired_delta_diag
+        diag_error = ((candidate_colors - diag_context[..., None, :]) - diag_desired[..., None, :]).abs().mean(dim=-1)
+        energy = energy + diag_error * diag_mask * diagonal_weight
+
+        anti_context = context_colors.new_zeros(context_colors.shape)
+        anti_context[1:, :-1, :] = context_colors[:-1, 1:, :]
+        anti_mask = context_colors.new_zeros((output_height, output_width, 1))
+        anti_mask[1:, :-1, :] = 1.0
+        anti_desired = context_colors.new_zeros(context_colors.shape)
+        anti_desired[1:, :-1, :] = desired_delta_anti
+        anti_error = ((candidate_colors - anti_context[..., None, :]) - anti_desired[..., None, :]).abs().mean(dim=-1)
+        energy = energy + anti_error * anti_mask * diagonal_weight
+
+    return energy
+
+
+def _motif_candidate_energy(torch, candidate_colors, context_colors, anchor):
+    if candidate_colors.shape[0] < 2 or candidate_colors.shape[1] < 2:
+        return candidate_colors.new_zeros(candidate_colors.shape[:3])
+
+    energy = candidate_colors.new_zeros(candidate_colors.shape[:3])
+    contributions = candidate_colors.new_zeros(candidate_colors.shape[:3])
+
+    def add_block_error(
+        y_slice,
+        x_slice,
+        top_left,
+        top_right,
+        bottom_left,
+        bottom_right,
+        anchor_top_left,
+        anchor_top_right,
+        anchor_bottom_left,
+        anchor_bottom_right,
+    ):
+        k = candidate_colors[y_slice, x_slice].shape[2]
+
+        def ensure_candidate_dim(tensor):
+            if tensor.ndim == 4:
+                return tensor
+            return tensor[..., None, :].expand(-1, -1, k, -1)
+
+        candidate_block = torch.stack(
+            [
+                ensure_candidate_dim(top_left),
+                ensure_candidate_dim(top_right),
+                ensure_candidate_dim(bottom_left),
+                ensure_candidate_dim(bottom_right),
+            ],
+            dim=-2,
+        )
+        anchor_block = torch.stack(
+            [
+                anchor_top_left,
+                anchor_top_right,
+                anchor_bottom_left,
+                anchor_bottom_right,
+            ],
+            dim=-2,
+        )
+        error = (
+            _normalized_motif_blocks(torch, candidate_block)
+            - _normalized_motif_blocks(torch, anchor_block[..., None, :, :])
+        ).abs().mean(dim=(-2, -1))
+        energy[y_slice, x_slice] = energy[y_slice, x_slice] + error
+        contributions[y_slice, x_slice] = contributions[y_slice, x_slice] + 1.0
+
+    add_block_error(
+        slice(1, None),
+        slice(1, None),
+        context_colors[:-1, :-1, :],
+        context_colors[:-1, 1:, :],
+        context_colors[1:, :-1, :],
+        candidate_colors[1:, 1:, :, :],
+        anchor[:-1, :-1, :],
+        anchor[:-1, 1:, :],
+        anchor[1:, :-1, :],
+        anchor[1:, 1:, :],
+    )
+    add_block_error(
+        slice(1, None),
+        slice(None, -1),
+        context_colors[:-1, :-1, :],
+        context_colors[:-1, 1:, :],
+        candidate_colors[1:, :-1, :, :],
+        context_colors[1:, 1:, :],
+        anchor[:-1, :-1, :],
+        anchor[:-1, 1:, :],
+        anchor[1:, :-1, :],
+        anchor[1:, 1:, :],
+    )
+    add_block_error(
+        slice(None, -1),
+        slice(1, None),
+        context_colors[:-1, :-1, :],
+        candidate_colors[:-1, 1:, :, :],
+        context_colors[1:, :-1, :],
+        context_colors[1:, 1:, :],
+        anchor[:-1, :-1, :],
+        anchor[:-1, 1:, :],
+        anchor[1:, :-1, :],
+        anchor[1:, 1:, :],
+    )
+    add_block_error(
+        slice(None, -1),
+        slice(None, -1),
+        candidate_colors[:-1, :-1, :, :],
+        context_colors[:-1, 1:, :],
+        context_colors[1:, :-1, :],
+        context_colors[1:, 1:, :],
+        anchor[:-1, :-1, :],
+        anchor[:-1, 1:, :],
+        anchor[1:, :-1, :],
+        anchor[1:, 1:, :],
+    )
+
+    return energy / contributions.clamp_min(1.0)
+
+
+def _relax_candidate_selection(
+    torch,
+    candidate_colors,
+    base_energy,
+    anchor,
+    desired_delta_x,
+    desired_delta_y,
+    desired_delta_diag,
+    desired_delta_anti,
+    solver_params: SolverHyperParams,
+    *,
+    iterations: int,
+):
+    if iterations <= 0:
+        return torch.argmin(base_energy, dim=-1), []
+
+    start_temp = max(1e-3, solver_params.relax_start_temperature)
+    end_temp = max(1e-3, min(start_temp, solver_params.relax_end_temperature))
+    damping = float(np.clip(solver_params.relax_damping, 0.0, 0.95))
+
+    probs = (-base_energy / start_temp).softmax(dim=2)
+    loss_history: list[float] = []
+    final_energy = base_energy
+
+    for step in range(iterations):
+        context_colors = (candidate_colors * probs[..., None]).sum(dim=2)
+        final_energy = base_energy.clone()
+        final_energy = final_energy + _pairwise_candidate_energy(
+            candidate_colors,
+            context_colors,
+            desired_delta_x,
+            desired_delta_y,
+            desired_delta_diag,
+            desired_delta_anti,
+            orthogonal_weight=solver_params.refine_orthogonal_weight,
+            diagonal_weight=solver_params.refine_diagonal_weight,
+        )
+        if solver_params.refine_motif_weight > 0.0:
+            motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, anchor)
+            final_energy = final_energy + motif_energy * solver_params.refine_motif_weight
+
+        alpha = 1.0 if iterations <= 1 else step / float(iterations - 1)
+        temperature = start_temp + (end_temp - start_temp) * alpha
+        updated_probs = (-final_energy / max(temperature, 1e-3)).softmax(dim=2)
+        if damping > 0.0:
+            probs = updated_probs * (1.0 - damping) + probs * damping
+            probs = probs / probs.sum(dim=2, keepdim=True).clamp_min(1e-8)
+        else:
+            probs = updated_probs
+        loss_history.append(float((final_energy * probs).sum(dim=2).mean().detach().cpu().item()))
+
+    return torch.argmax(probs, dim=2), loss_history
+
+
 def _snap_output_to_source_pixels(
     torch,
     source_t,
@@ -448,71 +686,41 @@ def _discrete_refine_output(
     desired_delta_diag = anchor_delta_diag
     desired_delta_anti = anchor_delta_anti
 
-    selected = torch.argmin(anchor_energy + distance_energy * 0.05, dim=-1)
+    passes = max(0, iterations)
+    relax_iterations = min(max(0, solver_params.relax_iterations), passes) if passes > 0 else 0
+    selected, relax_history = _relax_candidate_selection(
+        torch,
+        candidate_colors,
+        anchor_energy + distance_energy * 0.05,
+        anchor,
+        desired_delta_x,
+        desired_delta_y,
+        desired_delta_diag,
+        desired_delta_anti,
+        solver_params,
+        iterations=relax_iterations,
+    )
     best_selected = selected.clone()
     best_score = float("inf")
-    loss_history: list[float] = []
-    passes = max(0, iterations)
+    loss_history: list[float] = list(relax_history)
     anchor_hw = anchor_t.permute(0, 2, 3, 1)
 
     for step in range(passes + 1):
         selected_colors = _select_colors(candidate_colors, selected)
         energy = base_energy.clone()
-
-        if output_width > 1:
-            left_selected = torch.zeros_like(selected_colors)
-            left_selected[:, 1:, :] = selected_colors[:, :-1, :]
-            left_mask = torch.zeros((output_height, output_width, 1), device=uv.device, dtype=uv.dtype)
-            left_mask[:, 1:, :] = 1.0
-            left_desired = torch.zeros_like(selected_colors)
-            left_desired[:, 1:, :] = desired_delta_x
-            left_error = ((candidate_colors - left_selected[..., None, :]) - left_desired[..., None, :]).abs().mean(dim=-1)
-            energy = energy + left_error * left_mask * solver_params.refine_orthogonal_weight
-
-            right_selected = torch.zeros_like(selected_colors)
-            right_selected[:, :-1, :] = selected_colors[:, 1:, :]
-            right_mask = torch.zeros((output_height, output_width, 1), device=uv.device, dtype=uv.dtype)
-            right_mask[:, :-1, :] = 1.0
-            right_desired = torch.zeros_like(selected_colors)
-            right_desired[:, :-1, :] = desired_delta_x
-            right_error = ((right_selected[..., None, :] - candidate_colors) - right_desired[..., None, :]).abs().mean(dim=-1)
-            energy = energy + right_error * right_mask * solver_params.refine_orthogonal_weight
-        if output_height > 1:
-            up_selected = torch.zeros_like(selected_colors)
-            up_selected[1:, :, :] = selected_colors[:-1, :, :]
-            up_mask = torch.zeros((output_height, output_width, 1), device=uv.device, dtype=uv.dtype)
-            up_mask[1:, :, :] = 1.0
-            up_desired = torch.zeros_like(selected_colors)
-            up_desired[1:, :, :] = desired_delta_y
-            up_error = ((candidate_colors - up_selected[..., None, :]) - up_desired[..., None, :]).abs().mean(dim=-1)
-            energy = energy + up_error * up_mask * solver_params.refine_orthogonal_weight
-
-            down_selected = torch.zeros_like(selected_colors)
-            down_selected[:-1, :, :] = selected_colors[1:, :, :]
-            down_mask = torch.zeros((output_height, output_width, 1), device=uv.device, dtype=uv.dtype)
-            down_mask[:-1, :, :] = 1.0
-            down_desired = torch.zeros_like(selected_colors)
-            down_desired[:-1, :, :] = desired_delta_y
-            down_error = ((down_selected[..., None, :] - candidate_colors) - down_desired[..., None, :]).abs().mean(dim=-1)
-            energy = energy + down_error * down_mask * solver_params.refine_orthogonal_weight
-        if output_height > 1 and output_width > 1:
-            diag_selected = torch.zeros_like(selected_colors)
-            diag_selected[1:, 1:, :] = selected_colors[:-1, :-1, :]
-            diag_mask = torch.zeros((output_height, output_width, 1), device=uv.device, dtype=uv.dtype)
-            diag_mask[1:, 1:, :] = 1.0
-            diag_desired = torch.zeros_like(selected_colors)
-            diag_desired[1:, 1:, :] = desired_delta_diag
-            diag_error = ((candidate_colors - diag_selected[..., None, :]) - diag_desired[..., None, :]).abs().mean(dim=-1)
-            energy = energy + diag_error * diag_mask * solver_params.refine_diagonal_weight
-
-            anti_selected = torch.zeros_like(selected_colors)
-            anti_selected[1:, :-1, :] = selected_colors[:-1, 1:, :]
-            anti_mask = torch.zeros((output_height, output_width, 1), device=uv.device, dtype=uv.dtype)
-            anti_mask[1:, :-1, :] = 1.0
-            anti_desired = torch.zeros_like(selected_colors)
-            anti_desired[1:, :-1, :] = desired_delta_anti
-            anti_error = ((candidate_colors - anti_selected[..., None, :]) - anti_desired[..., None, :]).abs().mean(dim=-1)
-            energy = energy + anti_error * anti_mask * solver_params.refine_diagonal_weight
+        energy = energy + _pairwise_candidate_energy(
+            candidate_colors,
+            selected_colors,
+            desired_delta_x,
+            desired_delta_y,
+            desired_delta_diag,
+            desired_delta_anti,
+            orthogonal_weight=solver_params.refine_orthogonal_weight,
+            diagonal_weight=solver_params.refine_diagonal_weight,
+        )
+        if solver_params.refine_motif_weight > 0.0:
+            motif_energy = _motif_candidate_energy(torch, candidate_colors, selected_colors, anchor)
+            energy = energy + motif_energy * solver_params.refine_motif_weight
 
         candidate_t = selected_colors[None, ...]
         score = float(
