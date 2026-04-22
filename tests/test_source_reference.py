@@ -63,3 +63,18 @@ def test_source_lattice_reference_tracks_edge_peaks_and_gradients() -> None:
     assert np.all(reference.edge_strength[:, 0] == 1.0)
     assert np.all(reference.edge_grad_x[:, 0] == 1.0)
     assert np.all(reference.edge_grad_y[:, 0] == 0.0)
+def test_source_lattice_reference_computes_default_edge_metadata() -> None:
+    source = np.zeros((6, 6, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    source[:, 2, :3] = 1.0
+
+    reference = build_source_lattice_reference(
+        source,
+        target_width=2,
+        target_height=2,
+        phase_x=0.0,
+        phase_y=0.0,
+    )
+
+    assert np.all(reference.edge_strength[:, 0] > 0.0)
+    assert np.all(reference.edge_peak_x[:, 0] == 2)

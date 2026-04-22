@@ -62,6 +62,10 @@ In scope now:
 - make source reliability edge-aware instead of dispersion-only so high-contrast thin features are not downweighted just because they are locally messy
 - expand snap/refine candidate generation beyond fixed offset grids by injecting sharp per-cell exemplars, edge peaks, and gradient-guided offsets
 
+Current implementation note:
+- raw image edges are the right signal for source-detail targeting; cluster boundaries were too broad and caused thin-feature washout when reused here
+- enriched edge candidates are currently gated to high-dispersion edge cells, and `snap` stays on the conservative local grid while `refine` gets the richer candidate pool
+
 Next after that:
 - rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
 - rerun tuning after the edge-aware/source-guided behavior lands

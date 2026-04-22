@@ -121,7 +121,6 @@ def test_candidate_positions_include_sharp_and_edge_guided_samples() -> None:
         for y, x in zip(candidate_y[0, 0].cpu().tolist(), candidate_x[0, 0].cpu().tolist())
     }
 
-    assert (int(reference.sharp_y[0, 0]), int(reference.sharp_x[0, 0])) in cell_candidates
     assert (int(reference.edge_peak_y[0, 0]), int(reference.edge_peak_x[0, 0])) in cell_candidates
     assert len(cell_candidates) > 2
 

@@ -9,9 +9,9 @@ from PIL import Image, ImageDraw
 from repixelizer.analysis import analyze_source
 from repixelizer.continuous import (
     _build_candidate_positions,
+    _build_source_detail_reference,
     _discrete_refine_output,
     _build_source_reliability,
-    _cluster_boundary_map,
     _edge_gradient_maps,
     _make_patch_offsets,
     _make_regular_uv,
@@ -119,8 +119,8 @@ def _build_focus_states(
     offsets_t = torch.from_numpy(
         _make_patch_offsets(height=height, width=width, target_height=inference.target_height, target_width=inference.target_width)
     ).to(device=resolved_device, dtype=torch.float32)
-    edge = np.maximum(analysis.edge_map, _cluster_boundary_map(analysis.cluster_map))
-    edge_grad_x, edge_grad_y = _edge_gradient_maps(edge)
+    source_edge = analysis.edge_map.astype(np.float32)
+    edge_grad_x, edge_grad_y = _edge_gradient_maps(source_edge)
     source_lattice_reference = build_source_lattice_reference(
         source,
         target_width=inference.target_width,
@@ -128,14 +128,15 @@ def _build_focus_states(
         phase_x=inference.phase_x,
         phase_y=inference.phase_y,
         alpha_threshold=solver_params.alpha_transparent_threshold,
-        edge_hint=edge,
+        edge_hint=source_edge,
         edge_grad_x_hint=edge_grad_x,
         edge_grad_y_hint=edge_grad_y,
     )
+    source_detail_reference = _build_source_detail_reference(source, source_lattice_reference, solver_params)
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     representative_t, _ = _representative_colors(initial_patches, solver_params)
     representative_t = representative_t.detach()
-    source_reference_t = torch.from_numpy(premultiply(source_lattice_reference.sharp_rgba)[None, ...]).to(
+    source_reference_t = torch.from_numpy(premultiply(source_detail_reference)[None, ...]).to(
         device=resolved_device,
         dtype=torch.float32,
     )
@@ -144,23 +145,23 @@ def _build_focus_states(
         dtype=torch.float32,
     )
     source_delta_x_t = (
-        torch.from_numpy(source_lattice_reference.delta_x[None, ...]).to(device=resolved_device, dtype=torch.float32)
-        if source_lattice_reference.delta_x is not None
+        torch.from_numpy((premultiply(source_detail_reference)[:, 1:, :] - premultiply(source_detail_reference)[:, :-1, :])[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if inference.target_width > 1
         else None
     )
     source_delta_y_t = (
-        torch.from_numpy(source_lattice_reference.delta_y[None, ...]).to(device=resolved_device, dtype=torch.float32)
-        if source_lattice_reference.delta_y is not None
+        torch.from_numpy((premultiply(source_detail_reference)[1:, :, :] - premultiply(source_detail_reference)[:-1, :, :])[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if inference.target_height > 1
         else None
     )
     source_delta_diag_t = (
-        torch.from_numpy(source_lattice_reference.delta_diag[None, ...]).to(device=resolved_device, dtype=torch.float32)
-        if source_lattice_reference.delta_diag is not None
+        torch.from_numpy((premultiply(source_detail_reference)[1:, 1:, :] - premultiply(source_detail_reference)[:-1, :-1, :])[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if inference.target_height > 1 and inference.target_width > 1
         else None
     )
     source_delta_anti_t = (
-        torch.from_numpy(source_lattice_reference.delta_anti[None, ...]).to(device=resolved_device, dtype=torch.float32)
-        if source_lattice_reference.delta_anti is not None
+        torch.from_numpy((premultiply(source_detail_reference)[1:, :-1, :] - premultiply(source_detail_reference)[:-1, 1:, :])[None, ...]).to(device=resolved_device, dtype=torch.float32)
+        if inference.target_height > 1 and inference.target_width > 1
         else None
     )
 

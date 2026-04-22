@@ -6,6 +6,21 @@ from .io import premultiply, unpremultiply
 from .types import SourceLatticeReference
 
 
+def _default_edge_hint(source_rgba: np.ndarray) -> np.ndarray:
+    rgb = source_rgba[..., :3]
+    alpha = source_rgba[..., 3]
+    lum = rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722
+    dx = np.zeros_like(lum, dtype=np.float32)
+    dy = np.zeros_like(lum, dtype=np.float32)
+    dx[:, 1:] = np.abs(lum[:, 1:] - lum[:, :-1]) + np.abs(alpha[:, 1:] - alpha[:, :-1])
+    dy[1:, :] = np.abs(lum[1:, :] - lum[:-1, :]) + np.abs(alpha[1:, :] - alpha[:-1, :])
+    edge = np.sqrt(dx * dx + dy * dy, dtype=np.float32)
+    max_edge = float(np.max(edge))
+    if max_edge > 0.0:
+        edge /= max_edge
+    return edge.astype(np.float32)
+
+
 def lattice_indices(
     *,
     height: int,
@@ -48,6 +63,7 @@ def build_source_lattice_reference(
 ) -> SourceLatticeReference:
     height = source_rgba.shape[0]
     width = source_rgba.shape[1]
+    edge_hint = edge_hint.astype(np.float32) if edge_hint is not None else _default_edge_hint(source_rgba)
     indices = lattice_indices(
         height=height,
         width=width,
@@ -61,6 +77,7 @@ def build_source_lattice_reference(
     flat_idx = indices.reshape(-1)
     flat_premul = premul.reshape(-1, premul.shape[-1])
     flat_alpha = source_rgba.reshape(-1, source_rgba.shape[-1])[:, 3]
+    flat_edge = edge_hint.reshape(-1).astype(np.float32)
 
     counts = np.bincount(flat_idx, minlength=cell_count).astype(np.float32)
     safe_counts = np.maximum(counts, 1.0)
@@ -103,6 +120,37 @@ def build_source_lattice_reference(
     flat_x = pixel_x.reshape(-1)
     flat_y = pixel_y.reshape(-1)
     exemplar_cost = pixel_diff + np.maximum(0.0, per_pixel_mean[:, 3] - flat_premul[:, 3]) * 1e-3
+
+    edge_score = flat_edge + flat_alpha.astype(np.float32) * 0.05
+    edge_order = np.lexsort((-edge_score.astype(np.float32), flat_idx.astype(np.int64)))
+    edge_peak_x_flat = sharp_x_flat.copy()
+    edge_peak_y_flat = sharp_y_flat.copy()
+    edge_strength_flat = np.zeros(cell_count, dtype=np.float32)
+    edge_grad_x_flat = np.zeros(cell_count, dtype=np.float32)
+    edge_grad_y_flat = np.zeros(cell_count, dtype=np.float32)
+    best_edge_order = np.asarray([], dtype=np.int64)
+    best_edge_cells = np.asarray([], dtype=np.int64)
+    if edge_order.size > 0:
+        sorted_edge_cells = flat_idx[edge_order]
+        first_edge_positions = np.concatenate(([0], np.flatnonzero(np.diff(sorted_edge_cells)) + 1))
+        best_edge_order = edge_order[first_edge_positions]
+        best_edge_cells = flat_idx[best_edge_order]
+        edge_peak_x_flat[best_edge_cells] = flat_x[best_edge_order]
+        edge_peak_y_flat[best_edge_cells] = flat_y[best_edge_order]
+        edge_strength_flat[best_edge_cells] = flat_edge[best_edge_order]
+        if edge_grad_x_hint is not None:
+            edge_grad_x_flat[best_edge_cells] = edge_grad_x_hint.reshape(-1)[best_edge_order].astype(np.float32)
+        if edge_grad_y_hint is not None:
+            edge_grad_y_flat[best_edge_cells] = edge_grad_y_hint.reshape(-1)[best_edge_order].astype(np.float32)
+
+    np.maximum.at(edge_strength_flat, flat_idx, flat_edge)
+    if edge_grad_x_hint is not None or edge_grad_y_hint is not None:
+        edge_peak_index_flat = edge_peak_y_flat * width + edge_peak_x_flat
+        if edge_grad_x_hint is not None:
+            edge_grad_x_flat = edge_grad_x_hint.reshape(-1)[edge_peak_index_flat].astype(np.float32)
+        if edge_grad_y_hint is not None:
+            edge_grad_y_flat = edge_grad_y_hint.reshape(-1)[edge_peak_index_flat].astype(np.float32)
+
     order = np.lexsort((exemplar_cost.astype(np.float32), flat_idx.astype(np.int64)))
     sharp_premul_flat = mean_premul_flat.copy()
     if order.size > 0:
@@ -113,6 +161,7 @@ def build_source_lattice_reference(
         sharp_premul_flat[best_cells] = flat_premul[best_order]
         sharp_x_flat[best_cells] = flat_x[best_order]
         sharp_y_flat[best_cells] = flat_y[best_order]
+
     sharp_premul = sharp_premul_flat.reshape(target_height, target_width, premul.shape[-1])
     sharp_rgba = unpremultiply(sharp_premul)
 
@@ -120,36 +169,6 @@ def build_source_lattice_reference(
     np.maximum.at(cell_alpha_max, flat_idx, flat_alpha)
     expected_pixels_per_cell = float(source_rgba.shape[0] * source_rgba.shape[1]) / float(cell_count)
     cell_support = (counts / max(expected_pixels_per_cell, 1.0)).reshape(target_height, target_width)
-    edge_peak_x_flat = sharp_x_flat.copy()
-    edge_peak_y_flat = sharp_y_flat.copy()
-    edge_strength_flat = np.zeros(cell_count, dtype=np.float32)
-    edge_grad_x_flat = np.zeros(cell_count, dtype=np.float32)
-    edge_grad_y_flat = np.zeros(cell_count, dtype=np.float32)
-
-    if edge_hint is not None:
-        flat_edge = edge_hint.reshape(-1).astype(np.float32)
-        edge_score = flat_edge + flat_alpha.astype(np.float32) * 0.05
-        edge_order = np.lexsort((-edge_score.astype(np.float32), flat_idx.astype(np.int64)))
-        if edge_order.size > 0:
-            sorted_edge_cells = flat_idx[edge_order]
-            first_edge_positions = np.concatenate(([0], np.flatnonzero(np.diff(sorted_edge_cells)) + 1))
-            best_edge_order = edge_order[first_edge_positions]
-            best_edge_cells = flat_idx[best_edge_order]
-            edge_peak_x_flat[best_edge_cells] = flat_x[best_edge_order]
-            edge_peak_y_flat[best_edge_cells] = flat_y[best_edge_order]
-            edge_strength_flat[best_edge_cells] = flat_edge[best_edge_order]
-            if edge_grad_x_hint is not None:
-                edge_grad_x_flat[best_edge_cells] = edge_grad_x_hint.reshape(-1)[best_edge_order].astype(np.float32)
-            if edge_grad_y_hint is not None:
-                edge_grad_y_flat[best_edge_cells] = edge_grad_y_hint.reshape(-1)[best_edge_order].astype(np.float32)
-
-        np.maximum.at(edge_strength_flat, flat_idx, flat_edge)
-        if edge_grad_x_hint is not None or edge_grad_y_hint is not None:
-            edge_peak_index_flat = edge_peak_y_flat * width + edge_peak_x_flat
-            if edge_grad_x_hint is not None:
-                edge_grad_x_flat = edge_grad_x_hint.reshape(-1)[edge_peak_index_flat].astype(np.float32)
-            if edge_grad_y_hint is not None:
-                edge_grad_y_flat = edge_grad_y_hint.reshape(-1)[edge_peak_index_flat].astype(np.float32)
 
     delta_x, delta_y, delta_diag, delta_anti = _reference_deltas(sharp_premul)
     return SourceLatticeReference(

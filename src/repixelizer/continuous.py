@@ -377,11 +377,10 @@ def _build_candidate_positions(
     candidates_x.append(torch.round(xs[..., None] + offset_x))
     candidates_y.append(torch.round(ys[..., None] + offset_y))
 
-    sharp_x = torch.from_numpy(source_reference.sharp_x).to(device=uv.device, dtype=uv.dtype)
-    sharp_y = torch.from_numpy(source_reference.sharp_y).to(device=uv.device, dtype=uv.dtype)
     edge_peak_x = torch.from_numpy(source_reference.edge_peak_x).to(device=uv.device, dtype=uv.dtype)
     edge_peak_y = torch.from_numpy(source_reference.edge_peak_y).to(device=uv.device, dtype=uv.dtype)
     edge_strength = torch.from_numpy(source_reference.edge_strength).to(device=uv.device, dtype=uv.dtype)
+    cell_dispersion = torch.from_numpy(source_reference.cell_dispersion).to(device=uv.device, dtype=uv.dtype)
     edge_grad_x = torch.from_numpy(source_reference.edge_grad_x).to(device=uv.device, dtype=uv.dtype)
     edge_grad_y = torch.from_numpy(source_reference.edge_grad_y).to(device=uv.device, dtype=uv.dtype)
     grad_norm = (edge_grad_x.square() + edge_grad_y.square()).sqrt()
@@ -389,12 +388,12 @@ def _build_candidate_positions(
     unit_grad_x = torch.where(valid_grad, edge_grad_x / grad_norm.clamp_min(1e-4), torch.zeros_like(edge_grad_x))
     unit_grad_y = torch.where(valid_grad, edge_grad_y / grad_norm.clamp_min(1e-4), torch.zeros_like(edge_grad_y))
 
-    candidates_x.append(sharp_x[..., None])
-    candidates_y.append(sharp_y[..., None])
-    candidates_x.append(edge_peak_x[..., None])
-    candidates_y.append(edge_peak_y[..., None])
+    dispersion_ratio = cell_dispersion / max(float(source_reference.dispersion), 1e-4)
+    detail_gate = (edge_strength > solver_params.guided_candidate_edge_threshold) & (dispersion_ratio > 1.15)
+    edge_gate = detail_gate & valid_grad
+    candidates_x.append(torch.where(detail_gate, edge_peak_x, torch.round(xs))[..., None])
+    candidates_y.append(torch.where(detail_gate, edge_peak_y, torch.round(ys))[..., None])
 
-    edge_gate = (edge_strength > solver_params.guided_candidate_edge_threshold) & valid_grad
     guided_scales = (
         -solver_params.guided_candidate_outer_scale,
         -solver_params.guided_candidate_inner_scale,
@@ -434,6 +433,16 @@ def _reference_match_energy(
     representative_mix = representative_weight + (1.0 - source_reliability[..., None]) * source_weight
     normalization = (source_mix + representative_mix).clamp_min(1e-4)
     return (representative_energy * representative_mix + source_energy * source_mix) / normalization
+
+
+def _build_source_detail_reference(source_rgba: np.ndarray, source_reference, solver_params: SolverHyperParams) -> np.ndarray:
+    edge_rgba = source_rgba[source_reference.edge_peak_y, source_reference.edge_peak_x]
+    threshold = float(np.clip(solver_params.source_edge_detail_threshold, 0.0, 0.95))
+    normalized_edge = np.clip((source_reference.edge_strength - threshold) / max(1e-4, 1.0 - threshold), 0.0, 1.0)
+    edge_mix = (normalized_edge * solver_params.source_edge_detail_mix)[..., None]
+    detail_rgba = source_reference.sharp_rgba * (1.0 - edge_mix) + edge_rgba * edge_mix
+    detail_rgba[..., 3] = np.maximum(source_reference.sharp_rgba[..., 3], detail_rgba[..., 3])
+    return detail_rgba.astype(np.float32)
 
 
 def _edge_reliability(source_reliability, axis: str):
@@ -858,17 +867,14 @@ def _snap_output_to_source_pixels(
     output_height = representative.shape[0]
     output_width = representative.shape[1]
 
-    candidate_x, candidate_y, _, _ = _build_candidate_positions(
-        torch,
-        uv,
-        source_reference_np,
-        solver_params,
-        width=width,
-        height=height,
-        cell_x=cell_x,
-        cell_y=cell_y,
-        base_fraction_values=np.asarray([-0.42, -0.21, 0.0, 0.21, 0.42], dtype=np.float32),
-    )
+    fractions = torch.tensor([-0.42, -0.21, 0.0, 0.21, 0.42], device=uv.device, dtype=uv.dtype)
+    offset_y, offset_x = torch.meshgrid(fractions, fractions, indexing="ij")
+    offset_x = (offset_x.reshape(-1) * cell_x).to(dtype=uv.dtype)
+    offset_y = (offset_y.reshape(-1) * cell_y).to(dtype=uv.dtype)
+    xs = (uv[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
+    ys = (uv[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
+    candidate_x = torch.round(xs[..., None] + offset_x).clamp(0, max(0, width - 1)).to(dtype=torch.long)
+    candidate_y = torch.round(ys[..., None] + offset_y).clamp(0, max(0, height - 1)).to(dtype=torch.long)
     candidate_colors = source_hw[candidate_y, candidate_x]
 
     representative_match = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
@@ -1369,9 +1375,10 @@ def optimize_uv_field(
     cell_x = width / max(1, inference.target_width)
     cell_y = height / max(1, inference.target_height)
     source_t = torch.from_numpy(source.transpose(2, 0, 1)[None, ...]).to(device=device, dtype=torch.float32)
-    edge = np.maximum(analysis.edge_map, _cluster_boundary_map(analysis.cluster_map))
-    edge_grad_x, edge_grad_y = _edge_gradient_maps(edge)
-    edge_t = torch.from_numpy(edge[None, None, ...]).to(device=device, dtype=torch.float32)
+    source_edge = analysis.edge_map.astype(np.float32)
+    edge_grad_x, edge_grad_y = _edge_gradient_maps(source_edge)
+    guide_edge = np.maximum(source_edge, _cluster_boundary_map(analysis.cluster_map))
+    edge_t = torch.from_numpy(guide_edge[None, None, ...]).to(device=device, dtype=torch.float32)
     uv0 = _make_regular_uv(
         height=height,
         width=width,
@@ -1392,14 +1399,15 @@ def optimize_uv_field(
         phase_x=inference.phase_x,
         phase_y=inference.phase_y,
         alpha_threshold=solver_params.alpha_transparent_threshold,
-        edge_hint=edge,
+        edge_hint=source_edge,
         edge_grad_x_hint=edge_grad_x,
         edge_grad_y_hint=edge_grad_y,
     )
+    source_detail_reference = _build_source_detail_reference(rgba, source_lattice_reference, solver_params)
     initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
     initial_representative_t, _ = _representative_colors(initial_patches, solver_params)
     initial_representative_t = initial_representative_t.detach()
-    initial_source_reference_t = torch.from_numpy(premultiply(source_lattice_reference.sharp_rgba)[None, ...]).to(
+    initial_source_reference_t = torch.from_numpy(premultiply(source_detail_reference)[None, ...]).to(
         device=device,
         dtype=torch.float32,
     )
@@ -1408,23 +1416,23 @@ def optimize_uv_field(
         dtype=torch.float32,
     )
     source_delta_x_t = (
-        torch.from_numpy(source_lattice_reference.delta_x[None, ...]).to(device=device, dtype=torch.float32)
-        if source_lattice_reference.delta_x is not None
+        torch.from_numpy((premultiply(source_detail_reference)[:, 1:, :] - premultiply(source_detail_reference)[:, :-1, :])[None, ...]).to(device=device, dtype=torch.float32)
+        if inference.target_width > 1
         else None
     )
     source_delta_y_t = (
-        torch.from_numpy(source_lattice_reference.delta_y[None, ...]).to(device=device, dtype=torch.float32)
-        if source_lattice_reference.delta_y is not None
+        torch.from_numpy((premultiply(source_detail_reference)[1:, :, :] - premultiply(source_detail_reference)[:-1, :, :])[None, ...]).to(device=device, dtype=torch.float32)
+        if inference.target_height > 1
         else None
     )
     source_delta_diag_t = (
-        torch.from_numpy(source_lattice_reference.delta_diag[None, ...]).to(device=device, dtype=torch.float32)
-        if source_lattice_reference.delta_diag is not None
+        torch.from_numpy((premultiply(source_detail_reference)[1:, 1:, :] - premultiply(source_detail_reference)[:-1, :-1, :])[None, ...]).to(device=device, dtype=torch.float32)
+        if inference.target_height > 1 and inference.target_width > 1
         else None
     )
     source_delta_anti_t = (
-        torch.from_numpy(source_lattice_reference.delta_anti[None, ...]).to(device=device, dtype=torch.float32)
-        if source_lattice_reference.delta_anti is not None
+        torch.from_numpy((premultiply(source_detail_reference)[1:, :-1, :] - premultiply(source_detail_reference)[:-1, 1:, :])[None, ...]).to(device=device, dtype=torch.float32)
+        if inference.target_height > 1 and inference.target_width > 1
         else None
     )
     snap_rgba = _snap_output_to_source_pixels(

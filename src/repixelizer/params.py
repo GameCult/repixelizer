@@ -9,6 +9,8 @@ class SolverHyperParams:
     source_edge_reliability_gain: float = 1.6
     source_edge_reliability_floor: float = 0.25
     source_edge_alpha_floor: float = 0.45
+    source_edge_detail_mix: float = 0.65
+    source_edge_detail_threshold: float = 0.25
     boundary_probe_scale: float = 0.22
     boundary_signed_weight: float = 0.55
     boundary_direction_weight: float = 0.30
