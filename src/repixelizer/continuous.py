@@ -186,6 +186,12 @@ def _normalized_motif_blocks(torch, blocks):
     return centered / scale
 
 
+def _normalized_line_triplets(torch, triplets):
+    centered = triplets - triplets.mean(dim=-2, keepdim=True)
+    scale = centered.abs().mean(dim=(-2, -1), keepdim=True)
+    return centered / scale.clamp_min(1e-4), scale
+
+
 def _pairwise_candidate_energy(
     candidate_colors,
     context_colors,
@@ -364,6 +370,134 @@ def _motif_candidate_energy(torch, candidate_colors, context_colors, anchor):
     return energy / contributions.clamp_min(1.0)
 
 
+def _line_candidate_energy(torch, candidate_colors, context_colors, anchor):
+    if candidate_colors.shape[0] < 3 and candidate_colors.shape[1] < 3:
+        return candidate_colors.new_zeros(candidate_colors.shape[:3])
+
+    energy = candidate_colors.new_zeros(candidate_colors.shape[:3])
+    contributions = candidate_colors.new_zeros(candidate_colors.shape[:3])
+
+    def add_line_error(y_slice, x_slice, prev_context, next_context, anchor_prev, anchor_center, anchor_next):
+        candidate_triplet = torch.stack(
+            [
+                prev_context[..., None, :].expand(-1, -1, candidate_colors[y_slice, x_slice].shape[2], -1),
+                candidate_colors[y_slice, x_slice],
+                next_context[..., None, :].expand(-1, -1, candidate_colors[y_slice, x_slice].shape[2], -1),
+            ],
+            dim=-2,
+        )
+        anchor_triplet = torch.stack(
+            [
+                anchor_prev,
+                anchor_center,
+                anchor_next,
+            ],
+            dim=-2,
+        )
+        candidate_norm, _ = _normalized_line_triplets(torch, candidate_triplet)
+        anchor_norm, anchor_scale = _normalized_line_triplets(torch, anchor_triplet)
+        weight = anchor_scale[..., 0, 0].clamp_max(1.0)
+        error = (candidate_norm - anchor_norm[..., None, :, :]).abs().mean(dim=(-2, -1))
+        energy[y_slice, x_slice] = energy[y_slice, x_slice] + error * weight[..., None]
+        contributions[y_slice, x_slice] = contributions[y_slice, x_slice] + weight[..., None]
+
+    if candidate_colors.shape[1] >= 3:
+        add_line_error(
+            slice(None),
+            slice(1, -1),
+            context_colors[:, :-2, :],
+            context_colors[:, 2:, :],
+            anchor[:, :-2, :],
+            anchor[:, 1:-1, :],
+            anchor[:, 2:, :],
+        )
+
+    if candidate_colors.shape[0] >= 3:
+        add_line_error(
+            slice(1, -1),
+            slice(None),
+            context_colors[:-2, :, :],
+            context_colors[2:, :, :],
+            anchor[:-2, :, :],
+            anchor[1:-1, :, :],
+            anchor[2:, :, :],
+        )
+
+    if candidate_colors.shape[0] >= 3 and candidate_colors.shape[1] >= 3:
+        add_line_error(
+            slice(1, -1),
+            slice(1, -1),
+            context_colors[:-2, :-2, :],
+            context_colors[2:, 2:, :],
+            anchor[:-2, :-2, :],
+            anchor[1:-1, 1:-1, :],
+            anchor[2:, 2:, :],
+        )
+        add_line_error(
+            slice(1, -1),
+            slice(1, -1),
+            context_colors[:-2, 2:, :],
+            context_colors[2:, :-2, :],
+            anchor[:-2, 2:, :],
+            anchor[1:-1, 1:-1, :],
+            anchor[2:, :-2, :],
+        )
+
+    return energy / contributions.clamp_min(1e-4)
+
+
+def _line_pattern_loss(torch, tensor, reference):
+    losses = []
+
+    def add_line_loss(prev_tensor, center_tensor, next_tensor, prev_ref, center_ref, next_ref):
+        tensor_triplet = torch.stack([prev_tensor, center_tensor, next_tensor], dim=-2)
+        ref_triplet = torch.stack([prev_ref, center_ref, next_ref], dim=-2)
+        tensor_norm, _ = _normalized_line_triplets(torch, tensor_triplet)
+        ref_norm, ref_scale = _normalized_line_triplets(torch, ref_triplet)
+        weight = ref_scale[..., 0, 0].clamp_max(1.0)
+        losses.append(((tensor_norm - ref_norm).abs().mean(dim=(-2, -1)) * weight).sum() / weight.sum().clamp_min(1e-4))
+
+    if tensor.shape[2] >= 3:
+        add_line_loss(
+            tensor[:, :, :-2, :],
+            tensor[:, :, 1:-1, :],
+            tensor[:, :, 2:, :],
+            reference[:, :, :-2, :],
+            reference[:, :, 1:-1, :],
+            reference[:, :, 2:, :],
+        )
+    if tensor.shape[1] >= 3:
+        add_line_loss(
+            tensor[:, :-2, :, :],
+            tensor[:, 1:-1, :, :],
+            tensor[:, 2:, :, :],
+            reference[:, :-2, :, :],
+            reference[:, 1:-1, :, :],
+            reference[:, 2:, :, :],
+        )
+    if tensor.shape[1] >= 3 and tensor.shape[2] >= 3:
+        add_line_loss(
+            tensor[:, :-2, :-2, :],
+            tensor[:, 1:-1, 1:-1, :],
+            tensor[:, 2:, 2:, :],
+            reference[:, :-2, :-2, :],
+            reference[:, 1:-1, 1:-1, :],
+            reference[:, 2:, 2:, :],
+        )
+        add_line_loss(
+            tensor[:, :-2, 2:, :],
+            tensor[:, 1:-1, 1:-1, :],
+            tensor[:, 2:, :-2, :],
+            reference[:, :-2, 2:, :],
+            reference[:, 1:-1, 1:-1, :],
+            reference[:, 2:, :-2, :],
+        )
+
+    if not losses:
+        return tensor.new_tensor(0.0)
+    return sum(losses) / len(losses)
+
+
 def _relax_candidate_selection(
     torch,
     candidate_colors,
@@ -404,6 +538,9 @@ def _relax_candidate_selection(
         if solver_params.refine_motif_weight > 0.0:
             motif_energy = _motif_candidate_energy(torch, candidate_colors, context_colors, anchor)
             final_energy = final_energy + motif_energy * solver_params.refine_motif_weight
+        if solver_params.refine_line_weight > 0.0:
+            line_energy = _line_candidate_energy(torch, candidate_colors, context_colors, anchor)
+            final_energy = final_energy + line_energy * solver_params.refine_line_weight
 
         alpha = 1.0 if iterations <= 1 else step / float(iterations - 1)
         temperature = start_temp + (end_temp - start_temp) * alpha
@@ -593,6 +730,7 @@ def _finalize_output_rgba(best_colors, force_opaque_mask, force_transparent_mask
 
 
 def _structure_score(
+    torch,
     F,
     source_t,
     uv_t,
@@ -611,11 +749,13 @@ def _structure_score(
     )
     anchor_adj = _adjacency_pattern_loss(candidate_t, anchor_t)
     anchor_motif = _motif_pattern_loss(candidate_t, anchor_t)
+    anchor_line = _line_pattern_loss(torch, candidate_t, anchor_t)
     representative_match = (candidate_t - representative_t).abs().mean()
     return (
         boundary * solver_params.structure_boundary_weight
         + anchor_adj * solver_params.structure_anchor_adjacency_weight
         + anchor_motif * solver_params.structure_anchor_motif_weight
+        + anchor_line * solver_params.structure_anchor_line_weight
         + representative_match * solver_params.structure_representative_weight
     )
 
@@ -721,10 +861,14 @@ def _discrete_refine_output(
         if solver_params.refine_motif_weight > 0.0:
             motif_energy = _motif_candidate_energy(torch, candidate_colors, selected_colors, anchor)
             energy = energy + motif_energy * solver_params.refine_motif_weight
+        if solver_params.refine_line_weight > 0.0:
+            line_energy = _line_candidate_energy(torch, candidate_colors, selected_colors, anchor)
+            energy = energy + line_energy * solver_params.refine_line_weight
 
         candidate_t = selected_colors[None, ...]
         score = float(
             _structure_score(
+                torch,
                 F,
                 source_t,
                 uv_t,

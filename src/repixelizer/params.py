@@ -21,6 +21,7 @@ class SolverHyperParams:
     refine_orthogonal_weight: float = 0.24
     refine_diagonal_weight: float = 0.08
     refine_motif_weight: float = 0.12
+    refine_line_weight: float = 0.10
     relax_iterations: int = 8
     relax_start_temperature: float = 0.55
     relax_end_temperature: float = 0.10
@@ -28,6 +29,7 @@ class SolverHyperParams:
     structure_boundary_weight: float = 0.60
     structure_anchor_adjacency_weight: float = 0.15
     structure_anchor_motif_weight: float = 0.20
+    structure_anchor_line_weight: float = 0.10
     structure_representative_weight: float = 0.05
     alpha_foreground_threshold: float = 0.50
     alpha_representative_foreground_threshold: float = 0.60
