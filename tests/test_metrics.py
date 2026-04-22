@@ -10,6 +10,7 @@ from repixelizer.metrics import (
     foreground_exact_match_ratio,
     foreground_motif_error,
     foreground_reconstruction_error,
+    foreground_stroke_wobble_error,
     source_lattice_consistency_breakdown,
     reconstruction_error,
 )
@@ -95,6 +96,20 @@ def test_edge_concentration_prefers_crisp_edges_to_blurry_smear() -> None:
     blurred[1:6, 4] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
 
     assert foreground_edge_concentration(shifted) > foreground_edge_concentration(blurred)
+
+
+def test_stroke_wobble_metric_penalizes_local_line_jitter() -> None:
+    original = np.zeros((9, 9, 4), dtype=np.float32)
+    original[2:7, 4] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    stable = original.copy()
+
+    wobbly = np.zeros_like(original)
+    wobbly[2:4, 4] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    wobbly[4:7, 5] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    assert foreground_stroke_wobble_error(original, stable) == 0.0
+    assert foreground_stroke_wobble_error(original, wobbly) > 0.0
 
 
 def test_source_lattice_consistency_prefers_matching_cell_structure() -> None:

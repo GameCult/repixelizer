@@ -213,6 +213,30 @@ def foreground_edge_concentration(
     return float(np.sum(values * values) / total)
 
 
+def foreground_stroke_wobble_error(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+    radius: int = 2,
+    line_threshold: float = 0.12,
+) -> float:
+    edge_a = _edge_strength_map(a)
+    edge_b = _edge_strength_map(b)
+    strength_a, centroid_a = _line_profile_signature(edge_a, radius=radius)
+    strength_b, centroid_b = _line_profile_signature(edge_b, radius=radius)
+
+    orientation = np.argmax(strength_b, axis=0)
+    source_strength = np.take_along_axis(strength_b, orientation[None, ...], axis=0)[0]
+    source_centroid = np.take_along_axis(centroid_b, orientation[None, ...], axis=0)[0]
+    output_centroid = np.take_along_axis(centroid_a, orientation[None, ...], axis=0)[0]
+
+    support_mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo) & (source_strength >= line_threshold)
+    if not np.any(support_mask):
+        return 0.0
+    return float(np.mean(np.abs(output_centroid[support_mask] - source_centroid[support_mask])))
+
+
 def source_lattice_consistency_breakdown(
     source_rgba: np.ndarray,
     output_rgba: np.ndarray,
@@ -362,6 +386,37 @@ def _best_local_edge_support(edge: np.ndarray, *, radius: int, distance_penalty:
             shifted[dst_y0:dst_y1, dst_x0:dst_x1] = edge[src_y0:src_y1, src_x0:src_x1] * weight
             best = np.maximum(best, shifted)
     return best
+
+
+def _line_profile_signature(edge: np.ndarray, *, radius: int) -> tuple[np.ndarray, np.ndarray]:
+    offsets = np.arange(-radius, radius + 1, dtype=np.float32)
+    profiles = []
+    for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        stack = np.stack([_shift2d(edge, int(dy * offset), int(dx * offset)) for offset in offsets], axis=0)
+        energy = np.sum(stack, axis=0)
+        safe_energy = np.maximum(energy, 1e-6)
+        centroid = np.sum(stack * offsets[:, None, None], axis=0) / safe_energy
+        spread = np.sum(stack * np.abs(offsets[:, None, None] - centroid[None, :, :]), axis=0) / safe_energy
+        strength = energy / (1.0 + spread * 2.0)
+        profiles.append((strength.astype(np.float32), centroid.astype(np.float32)))
+    strengths = np.stack([item[0] for item in profiles], axis=0)
+    centroids = np.stack([item[1] for item in profiles], axis=0)
+    return strengths, centroids
+
+
+def _shift2d(arr: np.ndarray, dy: int, dx: int) -> np.ndarray:
+    height, width = arr.shape
+    shifted = np.zeros_like(arr, dtype=np.float32)
+    src_y0 = max(0, -dy)
+    src_y1 = min(height, height - dy)
+    src_x0 = max(0, -dx)
+    src_x1 = min(width, width - dx)
+    dst_y0 = max(0, dy)
+    dst_y1 = dst_y0 + (src_y1 - src_y0)
+    dst_x0 = max(0, dx)
+    dst_x1 = dst_x0 + (src_x1 - src_x0)
+    shifted[dst_y0:dst_y1, dst_x0:dst_x1] = arr[src_y0:src_y1, src_x0:src_x1]
+    return shifted
 
 
 def _motif_blocks(premul: np.ndarray) -> np.ndarray:

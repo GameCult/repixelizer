@@ -16,6 +16,7 @@ from .metrics import (
     foreground_edge_position_error,
     foreground_motif_error,
     foreground_reconstruction_error,
+    foreground_stroke_wobble_error,
     reconstruction_error,
 )
 from .palette import load_palette
@@ -107,6 +108,7 @@ def run_compare(
                 "foreground_reconstruction_error": foreground_reconstruction_error(preview, source),
                 "foreground_edge_concentration": foreground_edge_concentration(image),
                 "foreground_edge_position_error": foreground_edge_position_error(preview, source),
+                "foreground_stroke_wobble_error": foreground_stroke_wobble_error(preview, source),
                 "foreground_adjacency_error": foreground_adjacency_error(preview, source),
                 "foreground_motif_error": foreground_motif_error(preview, source),
             }
