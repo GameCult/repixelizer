@@ -4,8 +4,6 @@
 
 This is a map of the live `phase-field` machine in the repo right now.
 
-Not the dream version. Not the sales pitch. Not the older tray cult we dragged out behind the shed and shot. The actual machine:
-
 `source image -> lattice inference -> edge scout -> fixed lattice centers -> projected displacement-field optimization -> nearest source sample -> cleanup / diagnostics`
 
 The relevant source lives in:
@@ -33,7 +31,7 @@ These are the pieces that actually matter:
 - `pos_px = uv0_px + disp_t`: the current sample positions in source pixel space
 - `target_rgba`: the final output grid after nearest-source sampling
 
-Everything else is either support scaffolding or receipts.
+Everything else is support scaffolding.
 
 ## Diagram
 
@@ -542,7 +540,7 @@ The machine gets judged two ways:
 
 We learned the hard way that the accountant can be a liar.
 
-## What this machine is good at
+## Stable core
 
 - one fixed ruler after inference
 - one real optimization variable
@@ -550,19 +548,19 @@ We learned the hard way that the accountant can be a liar.
 - honest final nearest-source sampling
 - explicit order-preserving projection after every step
 
-Those pieces all speak the same language.
+These pieces all belong to the same model of the machine.
 
-## What is still weird
+## Current seams
 
 - `snap_initial` is still a legacy label for the zero-displacement baseline
 - low-confidence phase rerank judges lattices using a `steps=0` probe, not the full optimized field
 - the edge scout only knows edge magnitude, not direction, so the solver still struggles with along-stroke versus across-stroke behavior near tapered contours
 
-Those are not crimes, but they are live seams.
+These are the places where the current implementation is still a little awkward or incomplete.
 
-## What does not belong back in here
+## Guardrails
 
-If any of these try to crawl back into the machine, they should be treated like raccoons in the vents:
+These are the categories of complexity that would change the nature of the solver if they came back:
 
 - representative portraits
 - source-reference portraits driving the optimizer
@@ -571,11 +569,3 @@ If any of these try to crawl back into the machine, they should be treated like 
 - duplicated motif / line / boundary dialects
 
 The whole point of this machine is that it stays one field, one loss, one final sample.
-
-## The diamond test
-
-Can a new reader describe the entire solver without sounding like they are trying to justify a committee's expense report?
-
-Right now, mostly yes.
-
-That means the machine is finally small enough to improve without losing the plot. The job now is not to decorate it. The job is to make the field better at preserving linework without turning it back into baroque nonsense.
