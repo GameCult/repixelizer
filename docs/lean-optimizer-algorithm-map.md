@@ -101,13 +101,13 @@ After that, phase rerank may still happen, but only for `phase-field`, only when
 
 That part matters. The pipeline is effectively asking:
 
-`before the field starts wiggling, which lattice already looks least stupid?`
+`before the field starts wiggling, which lattice already looks most plausible?`
 
 ### Metaphor
 
 This is the survey crew laying down the ruler and arguing about where the graph paper should go.
 
-If the user pinned the lattice, the argument is over. If not, the crew drags the ruler around, squints at a bunch of possible alignments, and picks the one that seems least embarrassing before the real workers show up.
+If the user pinned the lattice, the argument is over. If not, the crew drags the ruler around, checks a bunch of possible alignments, and picks the one that seems most plausible before the real workers show up.
 
 ## Stage 1: The edge scout builds a danger map
 
@@ -347,7 +347,7 @@ Each worker is standing on a spring-loaded square of graph paper, poking the wal
 - If the halo feels like one calm slab of paint, good.
 - If it feels jagged and noisy, bad.
 - If neighboring workers want to drift together across a smooth region, fine.
-- If they try to dogpile into the same footprint, the foreman throws a brick at them.
+- If they all try to collapse into the same footprint, the constraint pushes them apart.
 
 ## Stage 5: Adam moves the sheet, then projection slaps it back into order
 
@@ -391,13 +391,13 @@ So the live machine is not "pure unconstrained gradient descent." It is projecte
 
 Adam is the part of the crew that says, "fine, slide a little left, slide a little down."
 
-Projection is the bouncer at the door saying:
+Projection is the guide rail saying:
 
 - you two still need to stay in order
 - nobody gets to leave the mural
 - nobody stretches farther than the leash allows
 
-Without that bouncer, the field would absolutely find a way to ooze into a puddle.
+Without that guide rail, the field would drift into invalid configurations.
 
 ## Stage 6: Final sampling throws away the bilinear training wheels
 
@@ -439,7 +439,7 @@ The solver also packages:
 
 During training, the workers are allowed to squint and interpolate.
 
-At the end, that privilege is revoked. They must plant the flag on a real brick in the wall. No anti-aliased dithering apology. Pick a source pixel and live with it.
+At the end, that privilege is revoked. They must plant the flag on a real brick in the wall. The final output is a direct source-pixel choice.
 
 ## Stage 7: The pipeline does the boring adult work
 
@@ -531,7 +531,7 @@ Those are the closest thing this machine has to an X-ray of its phase drift.
 
 ### Metaphor
 
-This is the coroner's table.
+This is the inspection bench.
 
 The machine gets judged two ways:
 
