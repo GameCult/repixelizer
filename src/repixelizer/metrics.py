@@ -193,6 +193,37 @@ def foreground_edge_position_error(
     return float(np.mean((deficit_a[support_mask] + deficit_b[support_mask]) * 0.5))
 
 
+def foreground_edge_support_breakdown(
+    a: np.ndarray,
+    b: np.ndarray,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+    radius: int = 1,
+    distance_penalty: float = 0.35,
+    edge_threshold: float = 0.02,
+) -> dict[str, float]:
+    edge_a = _edge_strength_map(a)
+    edge_b = _edge_strength_map(b)
+    mask = sprite_mask(a, b, alpha_threshold=alpha_threshold, halo=halo)
+    output_edge_mask = mask & (edge_a >= edge_threshold)
+    source_edge_mask = mask & (edge_b >= edge_threshold)
+
+    support_from_source = _best_local_edge_support(edge_b, radius=radius, distance_penalty=distance_penalty)
+    support_from_output = _best_local_edge_support(edge_a, radius=radius, distance_penalty=distance_penalty)
+
+    precision = float(np.mean(np.clip(support_from_source[output_edge_mask], 0.0, 1.0))) if np.any(output_edge_mask) else 1.0
+    recall = float(np.mean(np.clip(support_from_output[source_edge_mask], 0.0, 1.0))) if np.any(source_edge_mask) else 1.0
+    if precision + recall <= 1e-6:
+        f1 = 0.0
+    else:
+        f1 = float(2.0 * precision * recall / (precision + recall))
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
+
+
 def foreground_edge_concentration(
     rgba: np.ndarray,
     alpha_threshold: float = 0.05,
@@ -297,6 +328,46 @@ def source_lattice_evidence_breakdown(
         "cell_dispersion": reference.dispersion,
         "adjacency_strength": adjacency_strength,
         "score": evidence_score,
+    }
+
+
+def source_structure_breakdown(
+    source_rgba: np.ndarray,
+    output_rgba: np.ndarray,
+    *,
+    alpha_threshold: float = 0.05,
+    halo: int = 1,
+) -> dict[str, float]:
+    if output_rgba.shape[:2] != source_rgba.shape[:2]:
+        from .io import nearest_resize
+
+        preview = nearest_resize(output_rgba, width=source_rgba.shape[1], height=source_rgba.shape[0])
+    else:
+        preview = output_rgba
+
+    fg_recon = foreground_reconstruction_error(preview, source_rgba, alpha_threshold=alpha_threshold, halo=halo)
+    edge_position = foreground_edge_position_error(preview, source_rgba, alpha_threshold=alpha_threshold, halo=halo)
+    stroke_wobble = foreground_stroke_wobble_error(preview, source_rgba, alpha_threshold=alpha_threshold, halo=halo)
+    edge_support = foreground_edge_support_breakdown(preview, source_rgba, alpha_threshold=alpha_threshold, halo=halo)
+    exact_ratio = foreground_exact_match_ratio(preview, source_rgba, alpha_threshold=alpha_threshold, halo=halo)
+    wobble_penalty = float(stroke_wobble / (1.0 + stroke_wobble))
+    score = (
+        fg_recon * 0.30
+        + edge_position * 0.20
+        + wobble_penalty * 0.15
+        + (1.0 - edge_support["f1"]) * 0.20
+        + (1.0 - exact_ratio) * 0.15
+    )
+    return {
+        "foreground_reconstruction_error": fg_recon,
+        "edge_position_error": edge_position,
+        "stroke_wobble_error": stroke_wobble,
+        "stroke_wobble_penalty": wobble_penalty,
+        "edge_precision": edge_support["precision"],
+        "edge_recall": edge_support["recall"],
+        "edge_f1": edge_support["f1"],
+        "exact_match_ratio": exact_ratio,
+        "score": score,
     }
 
 

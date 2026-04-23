@@ -14,10 +14,12 @@ from .metrics import (
     foreground_adjacency_error,
     foreground_edge_concentration,
     foreground_edge_position_error,
+    foreground_edge_support_breakdown,
     foreground_motif_error,
     foreground_reconstruction_error,
     foreground_stroke_wobble_error,
     reconstruction_error,
+    source_structure_breakdown,
 )
 from .palette import load_palette
 from .pipeline import run_pipeline
@@ -111,6 +113,8 @@ def run_compare(
     ):
         preview = nearest_resize(image, width=source.shape[1], height=source.shape[0])
         coherence = coherence_breakdown(image)
+        edge_support = foreground_edge_support_breakdown(preview, source)
+        structure = source_structure_breakdown(source, image)
         rows.append(
             {
                 "name": name,
@@ -125,8 +129,12 @@ def run_compare(
                 "foreground_edge_concentration": foreground_edge_concentration(image),
                 "foreground_edge_position_error": foreground_edge_position_error(preview, source),
                 "foreground_stroke_wobble_error": foreground_stroke_wobble_error(preview, source),
+                "foreground_edge_precision": edge_support["precision"],
+                "foreground_edge_recall": edge_support["recall"],
+                "foreground_edge_f1": edge_support["f1"],
                 "foreground_adjacency_error": foreground_adjacency_error(preview, source),
                 "foreground_motif_error": foreground_motif_error(preview, source),
+                "source_structure_score": structure["score"],
             }
         )
     write_compare_csv(diagnostics_path / "compare.csv", rows)

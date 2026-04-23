@@ -229,6 +229,19 @@ First honest result:
 
 That is a respectable first brick: not good enough, but finally the right shape.
 
+Important metric correction:
+
+- that same first phase-field badge run is also the clearest proof that `source_fidelity` is not enough as the repo's north star
+- visually, the phase-field output preserves the important internal badge structure better than the pinned continuous output
+- numerically, the old `source_fidelity` score still calls it worse because it rewards agreement with the lattice reference's mean / sharp portraits
+- the repo now also reports `source_structure`, a source-size structural metric that combines:
+  - foreground reconstruction error
+  - edge-position error
+  - stroke wobble
+  - edge support precision / recall / F1
+  - exact-match ratio
+- on the pinned badge comparison under `artifacts/phase-field-metric-check/`, that new metric finally agrees with human judgment: `phase-field` scores `0.4244` versus continuous `0.4291` where lower is better
+
 ## High-value regression case
 
 ### AI badge emblem with baked checkerboard background

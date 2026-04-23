@@ -13,6 +13,7 @@ from .metrics import (
     coherence_breakdown,
     foreground_reconstruction_error,
     reconstruction_error,
+    source_structure_breakdown,
     source_lattice_consistency_breakdown,
 )
 from .types import InferenceResult, RunResult
@@ -210,6 +211,7 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         "source_preview_foreground_error": foreground_reconstruction_error(source_preview, result.source_rgba),
         "output_colors_from_source_ratio": _source_color_ratio(result.source_rgba, result.output_rgba),
         "source_fidelity": source_fidelity,
+        "source_structure": source_structure_breakdown(result.source_rgba, result.output_rgba),
         "phase_rerank_candidates": rerank_candidates,
         "loss_history": result.solver.loss_history,
         "optimizer_displacement": displacement_metrics,

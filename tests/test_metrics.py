@@ -7,12 +7,14 @@ from repixelizer.metrics import (
     foreground_adjacency_error,
     foreground_edge_concentration,
     foreground_edge_position_error,
+    foreground_edge_support_breakdown,
     foreground_exact_match_ratio,
     foreground_motif_error,
     foreground_reconstruction_error,
     foreground_stroke_wobble_error,
-    source_lattice_consistency_breakdown,
     reconstruction_error,
+    source_lattice_consistency_breakdown,
+    source_structure_breakdown,
 )
 
 
@@ -110,6 +112,46 @@ def test_stroke_wobble_metric_penalizes_local_line_jitter() -> None:
 
     assert foreground_stroke_wobble_error(original, stable) == 0.0
     assert foreground_stroke_wobble_error(original, wobbly) > 0.0
+
+
+def test_edge_support_breakdown_rewards_nearby_edge_recall() -> None:
+    source = np.zeros((9, 9, 4), dtype=np.float32)
+    source[2:7, 4] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    stable = source.copy()
+
+    shifted = np.zeros_like(source)
+    shifted[2:7, 5] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    missing = np.zeros_like(source)
+
+    stable_support = foreground_edge_support_breakdown(stable, source)
+    shifted_support = foreground_edge_support_breakdown(shifted, source)
+    missing_support = foreground_edge_support_breakdown(missing, source)
+
+    assert stable_support["f1"] >= shifted_support["f1"] > missing_support["f1"]
+
+
+def test_source_structure_breakdown_prefers_exact_and_supported_structure() -> None:
+    source = np.zeros((9, 9, 4), dtype=np.float32)
+    source[2:7, 4] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    exact = source.copy()
+
+    shifted = np.zeros_like(source)
+    shifted[2:7, 5] = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+
+    blurred = np.zeros_like(source)
+    blurred[2:7, 3] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
+    blurred[2:7, 4] = np.asarray([0.7, 0.7, 0.7, 1.0], dtype=np.float32)
+    blurred[2:7, 5] = np.asarray([0.4, 0.4, 0.4, 1.0], dtype=np.float32)
+
+    exact_score = source_structure_breakdown(source, exact)["score"]
+    shifted_score = source_structure_breakdown(source, shifted)["score"]
+    blurred_score = source_structure_breakdown(source, blurred)["score"]
+
+    assert exact_score < shifted_score
+    assert exact_score < blurred_score
 
 
 def test_source_lattice_consistency_prefers_matching_cell_structure() -> None:

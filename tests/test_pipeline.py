@@ -36,6 +36,8 @@ def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
 
     run_json = json.loads((diagnostics_dir / "run.json").read_text(encoding="utf-8"))
     assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
+    assert "source_structure" in run_json
+    assert {"edge_f1", "exact_match_ratio", "score"} <= set(run_json["source_structure"].keys())
     assert "phase_rerank_candidates" in run_json
     assert {"snap", "relax_handoff", "relax_mode", "final_output"} <= set(run_json["optimizer_displacement"].keys())
     assert result.output_rgba.shape[0] == result.inference.target_height
