@@ -12,6 +12,10 @@ When it fails, this map is here to answer:
 
 Where did the machine start negotiating with itself too much?
 
+This is a map of the **current** optimizer in `src/repixelizer/continuous.py`.
+
+If you want the replacement target instead of the autopsy, read `docs/lean-optimizer-algorithm-map.md` too. That companion map describes the smaller displacement-field machine this repo should grow next.
+
 ## One-sentence machine
 
 The current optimizer machine is:

@@ -65,6 +65,7 @@ Current tile-graph status:
 - the next relax cut also paid off: removing the old relax-mode bonus while keeping the core relax stage improved the same pinned badge smoke again from `0.07485` to `0.07451`
 - the optimizer now emits stage displacement diagnostics too, so `run.json` can show what snap, relax handoff, relax mode, and final refine actually did to the per-cell source-pixel displacement field instead of just reporting a single fidelity score
 - those new diagnostics also settled the design argument about relax: on the pinned badge check under `artifacts/optimizer-relax-purpose-check/`, relax improves source-fidelity a bit (`0.07549` without relax to `0.07451` with it), but it does not act like a strong broad-swatch phase smoother; the displacement field stays roughly as jittery, so the current relax stage is better described as a soft consensus / handoff stabilizer over fixed local candidates
+- that diagnosis finally forced the obvious architectural verdict: the current optimizer is still a tray-based discrete chooser in a fake moustache, so the repo now also carries `docs/lean-optimizer-algorithm-map.md`, a replacement target for a real displacement-field optimizer with one field, one objective, and one final sample
 - after the first pruning pass, tile-graph no longer participates in pipeline phase-rerank probes and no longer carries hybrid geometry priors through its unary cost; the path is now one lattice-conditioned candidate generator plus one local discrete solver
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
@@ -146,6 +147,7 @@ That keeps benchmark assets, attribution exports, and tuning runs from polluting
 - `docs/implementation-plan.md`: working roadmap
 - `docs/tile-graph-algorithm-map.md`: detailed tile-graph dataflow and failure-point map
 - `docs/optimizer-algorithm-map.md`: detailed optimizer dataflow and contradiction map
+- `docs/lean-optimizer-algorithm-map.md`: replacement target for the stripped-down displacement-field optimizer
 - `examples/corpus/README.md`: local corpus layout and attribution workflow
 
 Core modules:

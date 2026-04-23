@@ -170,6 +170,45 @@ That means the next optimizer cuts should treat `relax` as a measurable subsolve
 
 The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
 
+### Lean optimizer restart target
+
+The next real optimizer move is not another incremental trim on the old tray-based solver. It is a restart toward the smaller machine now mapped in `docs/lean-optimizer-algorithm-map.md`.
+
+What that new map says plainly:
+
+- keep lattice inference and edge scouting
+- keep one fixed grid of cell centers
+- attach one displacement vector `(dx, dy)` to each output cell, initialized to zero
+- optimize that displacement field directly
+- use a tiny objective with only:
+  - local solidity / coherence
+  - smoothness
+  - edge-aware smoothness
+  - anti-collapse / anti-fold constraints
+  - displacement magnitude regularization
+- sample the final output once from the optimized field
+
+What that restart explicitly rejects:
+
+- `representative_t`
+- `source_lattice_reference`
+- `source_reliability_t`
+- tray-based snap / relax / refine as the core optimizer state
+- repeated adjacency / motif / line dialects trying to compensate for each other
+
+Why this is the right next cut:
+
+- the current optimizer map now makes the contradiction impossible to ignore: the code is not really optimizing phase directly anymore
+- the relax diagnostics proved that one of the old justifications was overstated; the machine gets a tiny score win from relax, but not the promised broad-swatch phase drift
+- the user's target description is cleaner than the current code: find cell size, initialize a phase field at zero, wiggle it into solid areas coherently, sample, done
+
+Next implementation steps:
+
+1. create a brand-new optimizer module beside `continuous.py`
+2. wire it up behind an experimental reconstruction mode or internal switch
+3. start with only the five objective terms listed above
+4. compare it against pinned badge and emblem runs before porting any old heuristics
+
 ## High-value regression case
 
 ### AI badge emblem with baked checkerboard background
