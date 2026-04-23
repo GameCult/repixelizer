@@ -100,6 +100,23 @@ Next after that:
 - rerun tuning after the tile-graph objective and candidate sets stabilize
 - decide whether the tile-graph path should stay an alternate solver or become a candidate generator for the continuous refine stage
 
+### Optimizer map
+
+That documentation pass is now in `docs/optimizer-algorithm-map.md`.
+
+The new map does for `continuous.py` what `docs/tile-graph-algorithm-map.md` does for tile-graph:
+
+- walks the optimizer from pipeline entry to final output
+- names the real state variables the machine carries (`uv0_t`, `initial_representative_t`, `source_lattice_reference`, `source_reliability_t`, `snap_t`)
+- explains the regular UV lattice, representative portrait, source lattice portrait, source-first snap, relaxed handoff, and discrete refine stages in plain language
+- identifies the main contradictions still living in the optimizer, especially:
+  - `optimize_uv_field(...)` no longer actually optimizing the UV field
+  - the machine maintaining two overlapping portraits of the same lattice and spending much of its complexity mediating between them
+  - real edge evidence still being mixed with coarse k-means cluster boundaries
+  - adjacency / motif / line structure being expressed repeatedly in several slightly different dialects
+
+The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
+
 ## High-value regression case
 
 ### AI badge emblem with baked checkerboard background
