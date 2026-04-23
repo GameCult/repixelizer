@@ -88,20 +88,6 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
             low=0.05,
             high=2.5,
         ),
-        phase_field_data_center_edge_weight=_mutate_positive(
-            rng,
-            base.phase_field_data_center_edge_weight,
-            scale=scale,
-            low=0.10,
-            high=3.0,
-        ),
-        phase_field_spacing_weight=_mutate_positive(
-            rng,
-            base.phase_field_spacing_weight,
-            scale=scale,
-            low=0.01,
-            high=1.0,
-        ),
         phase_field_smoothness_weight=_mutate_positive(
             rng,
             base.phase_field_smoothness_weight,
@@ -130,14 +116,6 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
             sigma=0.05,
             low=0.01,
             high=0.45,
-        ),
-        phase_field_max_spacing_ratio=_mutate_linear(
-            rng,
-            base.phase_field_max_spacing_ratio,
-            scale=scale,
-            sigma=0.12,
-            low=0.8,
-            high=1.8,
         ),
         phase_field_magnitude_weight=_mutate_positive(
             rng,

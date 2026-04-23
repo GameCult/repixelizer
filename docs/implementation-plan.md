@@ -85,6 +85,13 @@ Current hypothesis:
 - the field needs better anisotropic behavior near sharp tapered contours
 - it likely needs to distinguish motion along a stroke from motion across a stroke
 
+What we just learned:
+
+- the later `d9fa411` phase-field tuning pass was a real regression, not paranoia
+- that pass strengthened the local edge penalty, added a spacing loss plus upper-spacing clamp, and made edge gating more aggressive
+- on the pinned badge case, it removed internal linework and changed `2433 / 15876` output cells relative to the original good `phase-field` run
+- reverting that tuning pass restores the original good badge result exactly; the fresh fixed run under `artifacts/phase-field-regression-fix-badge-126/` is byte-identical to the original `artifacts/phase-field-v1-recheck-badge-126/`
+
 Tracked fixture:
 
 - `tests/fixtures/real/ai-badge-tip-focus.json`

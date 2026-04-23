@@ -24,11 +24,6 @@ class _PhaseFieldPrep:
     width: int
     height: int
 
-
-def _charbonnier(torch, value, epsilon: float = 1e-4):
-    return torch.sqrt(value.square() + epsilon)
-
-
 def _require_torch():
     try:
         import torch
@@ -122,12 +117,6 @@ def _sample_patch_scalar(F, scalar_t, coords_px, offsets_t, *, width: int, heigh
     sampled = sampled[:, 0]
     return sampled.reshape(batch, out_h, out_w, samples)
 
-
-def _spacing_loss(torch, step, target_step: float):
-    normalized = step / max(target_step, 1e-4)
-    return _charbonnier(torch, normalized - 1.0).mean()
-
-
 def _displacement_diagnostics(uv_field: np.ndarray, selected_x, selected_y, *, width: int, height: int) -> dict[str, np.ndarray | float]:
     uv_x = (uv_field[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
     uv_y = (uv_field[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
@@ -183,8 +172,6 @@ def _project_displacements_in_place(
     *,
     min_dx: float,
     min_dy: float,
-    max_step_x: float,
-    max_step_y: float,
     max_dx: float,
     max_dy: float,
     width: int,
@@ -195,21 +182,13 @@ def _project_displacements_in_place(
         pos_y = (base_y_t + disp_t[..., 1]).clamp(0.0, max(0.0, float(height - 1)))
 
         for index in range(1, pos_x.shape[2]):
-            lower = pos_x[:, :, index - 1] + min_dx
-            upper = pos_x[:, :, index - 1] + max_step_x
-            pos_x[:, :, index] = torch.minimum(torch.maximum(pos_x[:, :, index], lower), upper)
+            pos_x[:, :, index] = torch.maximum(pos_x[:, :, index], pos_x[:, :, index - 1] + min_dx)
         for index in range(pos_x.shape[2] - 2, -1, -1):
-            lower = pos_x[:, :, index + 1] - max_step_x
-            upper = pos_x[:, :, index + 1] - min_dx
-            pos_x[:, :, index] = torch.maximum(torch.minimum(pos_x[:, :, index], upper), lower)
+            pos_x[:, :, index] = torch.minimum(pos_x[:, :, index], pos_x[:, :, index + 1] - min_dx)
         for index in range(1, pos_y.shape[1]):
-            lower = pos_y[:, index - 1, :] + min_dy
-            upper = pos_y[:, index - 1, :] + max_step_y
-            pos_y[:, index, :] = torch.minimum(torch.maximum(pos_y[:, index, :], lower), upper)
+            pos_y[:, index, :] = torch.maximum(pos_y[:, index, :], pos_y[:, index - 1, :] + min_dy)
         for index in range(pos_y.shape[1] - 2, -1, -1):
-            lower = pos_y[:, index + 1, :] - max_step_y
-            upper = pos_y[:, index + 1, :] - min_dy
-            pos_y[:, index, :] = torch.maximum(torch.minimum(pos_y[:, index, :], upper), lower)
+            pos_y[:, index, :] = torch.minimum(pos_y[:, index, :], pos_y[:, index + 1, :] - min_dy)
 
         pos_x = pos_x.clamp(0.0, max(0.0, float(width - 1)))
         pos_y = pos_y.clamp(0.0, max(0.0, float(height - 1)))
@@ -306,16 +285,8 @@ def _phase_field_loss(torch, F, prep: _PhaseFieldPrep, disp_t, solver_params: So
 
     center_rgba = patch_rgba[..., 0, :]
     neighbor_rgba = patch_rgba[..., 1:, :]
-    neighbor_weights = patch_rgba.new_tensor([1.0, 1.0, 1.0, 1.0, 0.75, 0.75, 0.75, 0.75]).view(1, 1, 1, -1)
-    color_delta = (neighbor_rgba - center_rgba[..., None, :]).abs().mean(dim=-1)
-    local_coherence = (color_delta * neighbor_weights).sum() / neighbor_weights.sum().clamp_min(1e-6) / max(
-        1.0, float(color_delta.shape[0] * color_delta.shape[1] * color_delta.shape[2])
-    )
-    center_edge = patch_edge[..., 0].mean()
-    ring_edge = ((patch_edge[..., 1:] * neighbor_weights).sum() / neighbor_weights.sum().clamp_min(1e-6)) / max(
-        1.0, float(patch_edge.shape[0] * patch_edge.shape[1] * patch_edge.shape[2])
-    )
-    local_edge = center_edge * solver_params.phase_field_data_center_edge_weight + ring_edge
+    local_coherence = (neighbor_rgba - center_rgba[..., None, :]).abs().mean()
+    local_edge = patch_edge.mean()
 
     disp_norm = disp_t.clone()
     disp_norm[..., 0] = disp_norm[..., 0] / max(prep.cell_x, 1e-4)
@@ -326,27 +297,24 @@ def _phase_field_loss(torch, F, prep: _PhaseFieldPrep, disp_t, solver_params: So
     smoothness = sampled_rgba.new_tensor(0.0)
     if pos_mid_x is not None:
         edge_x = _sample_scalar(F, prep.edge_t, pos_mid_x, width=prep.width, height=prep.height)
-        weight_x = torch.exp(-solver_params.phase_field_edge_gate_strength * edge_x.clamp_min(0.0))
+        weight_x = torch.exp(-solver_params.phase_field_edge_gate_strength * edge_x)
         delta_x = disp_norm[:, :, 1:, :] - disp_norm[:, :, :-1, :]
-        smoothness = smoothness + (weight_x * _charbonnier(torch, delta_x, epsilon=1e-4).mean(dim=-1)).mean()
+        smoothness = smoothness + (weight_x * torch.sqrt(delta_x.square().sum(dim=-1) + 1e-6)).mean()
     if pos_mid_y is not None:
         edge_y = _sample_scalar(F, prep.edge_t, pos_mid_y, width=prep.width, height=prep.height)
-        weight_y = torch.exp(-solver_params.phase_field_edge_gate_strength * edge_y.clamp_min(0.0))
+        weight_y = torch.exp(-solver_params.phase_field_edge_gate_strength * edge_y)
         delta_y = disp_norm[:, 1:, :, :] - disp_norm[:, :-1, :, :]
-        smoothness = smoothness + (weight_y * _charbonnier(torch, delta_y, epsilon=1e-4).mean(dim=-1)).mean()
+        smoothness = smoothness + (weight_y * torch.sqrt(delta_y.square().sum(dim=-1) + 1e-6)).mean()
 
     collapse = sampled_rgba.new_tensor(0.0)
-    spacing = sampled_rgba.new_tensor(0.0)
     min_dx = solver_params.phase_field_min_spacing_ratio * prep.cell_x
     min_dy = solver_params.phase_field_min_spacing_ratio * prep.cell_y
     if pos_px.shape[2] > 1:
         step_x = pos_px[:, :, 1:, 0] - pos_px[:, :, :-1, 0]
         collapse = collapse + torch.relu(min_dx - step_x).square().mean()
-        spacing = spacing + _spacing_loss(torch, step_x, prep.cell_x)
     if pos_px.shape[1] > 1:
         step_y = pos_px[:, 1:, :, 1] - pos_px[:, :-1, :, 1]
         collapse = collapse + torch.relu(min_dy - step_y).square().mean()
-        spacing = spacing + _spacing_loss(torch, step_y, prep.cell_y)
 
     magnitude = (
         (disp_t[..., 0] / max(prep.cell_x, 1e-4)).square()
@@ -357,7 +325,6 @@ def _phase_field_loss(torch, F, prep: _PhaseFieldPrep, disp_t, solver_params: So
         local_coherence * solver_params.phase_field_data_coherence_weight
         + local_edge * solver_params.phase_field_data_edge_weight
         + smoothness * solver_params.phase_field_smoothness_weight
-        + spacing * solver_params.phase_field_spacing_weight
         + collapse * solver_params.phase_field_collapse_weight
         + magnitude * solver_params.phase_field_magnitude_weight
     )
@@ -365,7 +332,6 @@ def _phase_field_loss(torch, F, prep: _PhaseFieldPrep, disp_t, solver_params: So
         "local_coherence": float(local_coherence.detach().cpu().item()),
         "local_edge": float(local_edge.detach().cpu().item()),
         "smoothness": float(smoothness.detach().cpu().item()),
-        "spacing": float(spacing.detach().cpu().item()),
         "collapse": float(collapse.detach().cpu().item()),
         "magnitude": float(magnitude.detach().cpu().item()),
     }
@@ -413,8 +379,6 @@ def optimize_phase_field(
     final_terms: dict[str, float] = {}
     min_dx = solver_params.phase_field_min_spacing_ratio * prep.cell_x
     min_dy = solver_params.phase_field_min_spacing_ratio * prep.cell_y
-    max_step_x = solver_params.phase_field_max_spacing_ratio * prep.cell_x
-    max_step_y = solver_params.phase_field_max_spacing_ratio * prep.cell_y
     max_dx = solver_params.phase_field_max_displacement_ratio * prep.cell_x
     max_dy = solver_params.phase_field_max_displacement_ratio * prep.cell_y
 
@@ -430,8 +394,6 @@ def optimize_phase_field(
             prep.base_y_t,
             min_dx=min_dx,
             min_dy=min_dy,
-            max_step_x=max_step_x,
-            max_step_y=max_step_y,
             max_dx=max_dx,
             max_dy=max_dy,
             width=prep.width,
