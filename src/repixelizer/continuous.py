@@ -6,7 +6,7 @@ from .io import premultiply, unpremultiply
 from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
 from .source_reference import build_source_lattice_reference
-from .types import InferenceResult, SolverArtifacts, SourceAnalysis
+from .types import ContinuousSourceAnalysis, InferenceResult, SolverArtifacts
 
 
 def _require_torch():
@@ -1358,7 +1358,7 @@ def _discrete_refine_output(
 def optimize_uv_field(
     rgba: np.ndarray,
     inference: InferenceResult,
-    analysis: SourceAnalysis,
+    analysis: ContinuousSourceAnalysis,
     steps: int,
     seed: int,
     device: str,

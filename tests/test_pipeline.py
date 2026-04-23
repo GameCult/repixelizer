@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
 
-from repixelizer.analysis import analyze_source
+from repixelizer.analysis import analyze_continuous_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.continuous import optimize_uv_field
 from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error, source_lattice_consistency_breakdown
@@ -119,6 +120,76 @@ def test_pipeline_can_emit_initialized_output_without_optimizer_steps(tmp_path: 
     assert output_path.exists()
     assert result.output_rgba.shape[0] == result.inference.target_height
     assert result.output_rgba.shape[1] == result.inference.target_width
+
+
+def test_fixed_tile_graph_pipeline_output_matches_refactor_baseline(tmp_path: Path) -> None:
+    source = make_emblem(24, 24)
+    fake = fake_pixelize(
+        source,
+        upscale=8,
+        phase_x=0.1,
+        phase_y=-0.05,
+        blur_radius=0.4,
+        warp_strength=0.15,
+        warp_detail=4,
+        seed=9,
+    )
+    input_path = tmp_path / "tile-baseline-input.png"
+    output_path = tmp_path / "tile-baseline-output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, fake)
+    result = run_pipeline(
+        input_path,
+        output_path,
+        reconstruction_mode="tile-graph",
+        target_width=24,
+        target_height=24,
+        phase_x=0.1,
+        phase_y=-0.05,
+        enable_phase_rerank=False,
+        steps=0,
+        device="cpu",
+    )
+
+    output_hash = hashlib.sha256(np.ascontiguousarray(result.output_rgba).view(np.uint8)).hexdigest()
+    assert output_hash == "31e3bc2cbb802a8d11bf00fbeb73772f7fa4934e5f187888d6f0d5b356f36ae9"
+
+
+def test_fixed_continuous_pipeline_output_matches_refactor_baseline(tmp_path: Path) -> None:
+    source = make_emblem(24, 24)
+    fake = fake_pixelize(
+        source,
+        upscale=8,
+        phase_x=0.1,
+        phase_y=-0.05,
+        blur_radius=0.4,
+        warp_strength=0.15,
+        warp_detail=4,
+        seed=9,
+    )
+    input_path = tmp_path / "continuous-baseline-input.png"
+    output_path = tmp_path / "continuous-baseline-output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, fake)
+    result = run_pipeline(
+        input_path,
+        output_path,
+        reconstruction_mode="continuous",
+        target_width=24,
+        target_height=24,
+        phase_x=0.1,
+        phase_y=-0.05,
+        enable_phase_rerank=False,
+        steps=0,
+        device="cpu",
+    )
+
+    output_hash = hashlib.sha256(np.ascontiguousarray(result.output_rgba).view(np.uint8)).hexdigest()
+    assert output_hash == "404748af3c7241a6602cb91fdfed1fd7e116dd14098827e33e78c7da5e3d7903"
 
 
 def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) -> None:
@@ -302,7 +373,7 @@ def test_pipeline_runs_tile_graph_once_without_phase_probe_reuse(tmp_path: Path,
     )
 
     class DummyAnalysis:
-        cluster_preview = np.zeros((6, 6, 4), dtype=np.float32)
+        edge_map = np.zeros((6, 6), dtype=np.float32)
 
     call_count = {"tile_graph": 0}
 
@@ -336,7 +407,7 @@ def test_pipeline_runs_tile_graph_once_without_phase_probe_reuse(tmp_path: Path,
         return {"score": 0.05 if target_width == 3 else 0.15}
 
     monkeypatch.setattr("repixelizer.pipeline.infer_lattice", lambda *args, **kwargs: inference)
-    monkeypatch.setattr("repixelizer.pipeline.analyze_source", lambda *args, **kwargs: DummyAnalysis())
+    monkeypatch.setattr("repixelizer.pipeline.analyze_tile_graph_source", lambda *args, **kwargs: DummyAnalysis())
     monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fake_optimize_tile_graph)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
     monkeypatch.setattr("repixelizer.pipeline.foreground_edge_position_error", lambda *args, **kwargs: 0.1)
@@ -377,7 +448,8 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
     )
 
     class DummyAnalysis:
-        cluster_preview = np.zeros((6, 6, 4), dtype=np.float32)
+        edge_map = np.zeros((6, 6), dtype=np.float32)
+        cluster_map = np.zeros((6, 6), dtype=np.int32)
 
     def fail_infer(*args, **kwargs):
         raise AssertionError("full lattice search should not run for fixed target/phase")
@@ -398,7 +470,7 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
 
     monkeypatch.setattr("repixelizer.pipeline.infer_lattice", fail_infer)
     monkeypatch.setattr("repixelizer.pipeline.infer_fixed_lattice", fake_infer_fixed)
-    monkeypatch.setattr("repixelizer.pipeline.analyze_source", lambda *args, **kwargs: DummyAnalysis())
+    monkeypatch.setattr("repixelizer.pipeline.analyze_continuous_source", lambda *args, **kwargs: DummyAnalysis())
     monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
 
     result = run_pipeline(
@@ -551,7 +623,7 @@ def test_badge_fixture_candidate_beats_previous_source_fidelity_baselines() -> N
     artifacts = optimize_uv_field(
         source,
         inference=inference,
-        analysis=analyze_source(source, seed=7),
+        analysis=analyze_continuous_source(source, seed=7),
         steps=2,
         seed=7,
         device="cpu",

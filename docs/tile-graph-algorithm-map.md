@@ -55,16 +55,16 @@ That sentence matters because it explains the failure mode. When the lattice is 
 flowchart TD
     A["source_rgba (H x W x 4)"] --> B["run_pipeline(...)"]
     B --> C["infer_lattice(...) or infer_fixed_lattice(...)"]
-    B --> D["analyze_source(...)"]
+    B --> D["analyze_tile_graph_source(...)"]
     C --> E["InferenceResult"]
-    D --> F["SourceAnalysis"]
+    D --> F["TileGraphSourceAnalysis"]
     E --> G["phase rerank probes (optional)"]
     F --> G
     G --> H["optimize_tile_graph(...)"]
-    H --> I["build_source_lattice_reference(...)"]
+    H --> I["build_tile_graph_source_reference(...)"]
     H --> J["_segment_atomic_source_regions(...)"]
     J --> K["_extract_source_region_tiles(...)"]
-    I --> L["per-output-cell references"]
+    I --> L["per-output-cell sharp and edge anchors"]
     K --> M["region buckets per output coord"]
     L --> N["build_tile_graph_model(...)"]
     M --> N
@@ -110,48 +110,34 @@ Plain-language picture:
 
 This is the foreman's decision about the size and offset of the graph paper. Every later worker trusts this sheet.
 
-### `SourceAnalysis`
+### `TileGraphSourceAnalysis`
 
 - File: `src/repixelizer/types.py`
 - Fields:
   - `edge_map`: per-source-pixel edge strength
-  - `cluster_map`: k-means color labels
-  - `cluster_centers`: color centroids
-  - `alpha_map`: source alpha
-  - `cluster_preview`: diagnostic preview
 
 Important note:
 
-- `cluster_map` is diagnostic/coarse analysis data
-- it is not the current tile-graph region ownership model
+- this is only the edge scout report
+- tile-graph no longer drags cluster labels, alpha mirrors, or preview images through its core contract
 
 Plain-language picture:
 
 This is a scouting report about where the mural has edges and rough color families. It is binoculars, not ownership papers.
 
-Current tile-graph note:
-
-- the tile-graph path now asks only for the edge scout report
-- cluster labels and cluster preview are left empty on that path because the tile-graph machine does not use them
-
-### `SourceLatticeReference`
+### `TileGraphSourceReference`
 
 - File: `src/repixelizer/types.py`
-- Meaning: lattice-conditioned summary of the source under one exact `(target_width, target_height, phase_x, phase_y)`
+- Meaning: tile-graph's lattice-conditioned anchor pack under one exact `(target_width, target_height, phase_x, phase_y)`
 - Fields:
-  - `mean_rgba`: average premultiplied color per inferred cell, then unpremultiplied
   - `sharp_rgba`: one chosen exemplar pixel per inferred cell
-  - `dispersion`: average per-pixel deviation from cell mean
-  - `lattice_indices`: source-pixel to inferred-cell assignment map
-  - `cell_dispersion`, `cell_counts`, `cell_support`, `cell_alpha_max`
   - `sharp_x`, `sharp_y`
   - `edge_peak_x`, `edge_peak_y`
-  - `edge_strength`, `edge_grad_x`, `edge_grad_y`
-  - `delta_x`, `delta_y`, `delta_diag`, `delta_anti`
+  - `edge_strength`
 
 Plain-language picture:
 
-This is the mural after the graph paper has already been pressed onto it. Each square now gets a little dossier: its average color, one "best" pixel, one edge pixel, and a few notes about how it differs from neighbors.
+This is the mural after the graph paper has already been pressed onto it, but only the notes tile-graph actually reads are kept: one sharp pixel, one edge pixel, and how strong that edge is.
 
 ### `TileGraphModel`
 
@@ -159,14 +145,24 @@ This is the mural after the graph paper has already been pressed onto it. Each s
 - Meaning: the fully built discrete candidate model for one source + one fixed lattice
 - Fields:
   - `candidate_rgba`: all candidate pixel colors
-  - `candidate_coords`: output coord `(y, x)` each candidate belongs to
   - `candidate_area_ratio`: how much of a cell-sized source window the source region covered
   - `candidate_coverage`: clipped version of area coverage
   - `candidate_deltas`: expected RGBA deltas to right/down/left/up neighbors sampled one cell away in source space
   - `cell_candidate_offsets`, `cell_candidate_indices`: CSR-like mapping from output cells to candidate rows
   - `reference_sharp_rgba`, `reference_edge_rgba`
   - `edge_strength`
-  - `component_count`, `edge_density`, `average_choices`
+
+### `TileGraphBuildStats`
+
+- File: `src/repixelizer/tile_graph.py`
+- Meaning: diagnostics and cache metadata carried alongside the model rather than inside it
+- Fields:
+  - `component_count`
+  - `candidate_count`
+  - `edge_density`
+  - `average_choices`
+  - `model_device`
+  - `cache_hit`
 
 Plain-language picture:
 
@@ -185,7 +181,7 @@ Main variables:
 - `source`: loaded RGBA source image
 - `fixed_dims`: either `None` or exact `(target_width, target_height)` resolved from CLI
 - `inference`: one `InferenceResult`
-- `analysis`: one `SourceAnalysis`
+- `analysis`: one `TileGraphSourceAnalysis`
 - `solver`: `SolverArtifacts` from continuous or tile-graph
 - `cleanup`: `CleanupArtifacts`
 - `output_rgba`: final saved output
@@ -268,25 +264,21 @@ File: `src/repixelizer/analysis.py`
 
 Entry point:
 
-- `analyze_source(rgba, seed, cluster_count=6, device=None, include_clusters=True)`
+- `analyze_tile_graph_source(rgba, device=None)`
 
 Outputs:
 
 - `edge_map`: edge strength from luminance plus alpha differences
-- `cluster_map`: k-means labels on opaque pixels
-- `cluster_centers`: k-means centroids
-- `alpha_map`
-- `cluster_preview`
 
 Plain-language picture:
 
-This is the scout walking the mural with a flashlight, marking where the paint changes abruptly and scribbling rough color families on a clipboard.
+This is the scout walking the mural with a flashlight and doing only one job: marking where the paint changes abruptly.
 
 Important reality check:
 
-- tile-graph no longer uses `cluster_map` as its actual tile ownership map
+- tile-graph no longer uses coarse cluster labels as its ownership map
 - the tile-graph region ownership is built later by connected components over source pixels using color/alpha thresholds
-- after the pruning pass, tile-graph can skip cluster assignment entirely and still run normally because it only needs `edge_map`
+- after the seam split, tile-graph carries only `edge_map` through this stage
 
 ## Stage 4: Optional Phase Rerank
 
@@ -565,8 +557,6 @@ After candidate selection, the model stores:
 
 - `candidate_rgba`
   - literal source-pixel colors, one row per candidate
-- `candidate_coords`
-  - which output cell each candidate belongs to
 - `candidate_area_ratio`
   - window size match score proxy
 - `candidate_coverage`
@@ -578,6 +568,8 @@ After candidate selection, the model stores:
 - `reference_edge_rgba`
   - source pixel at the per-cell edge peak
 - `edge_strength`
+
+The diagnostic counters that used to live here now sit beside the model in `TileGraphBuildStats`, so the solver only carries solver state.
 
 So the final discrete solver is not operating on raw tiles alone.
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from repixelizer.analysis import analyze_source
+from repixelizer.analysis import analyze_continuous_source
 from repixelizer.continuous import (
     _build_candidate_positions,
     _build_source_reliability,
@@ -62,7 +62,7 @@ def test_source_reliability_stays_high_for_high_contrast_edge_cells() -> None:
     source[..., 3] = 1.0
     source[:, 1, :3] = 1.0
 
-    analysis = analyze_source(source, seed=3)
+    analysis = analyze_continuous_source(source, seed=3)
     reference = build_source_lattice_reference(
         source,
         target_width=4,
@@ -154,7 +154,7 @@ def test_optimize_uv_field_does_not_regress_from_snap_on_thin_feature_case() -> 
     artifacts = optimize_uv_field(
         fake,
         inference=inference,
-        analysis=analyze_source(fake, seed=7),
+        analysis=analyze_continuous_source(fake, seed=7),
         steps=4,
         seed=7,
         device="cpu",

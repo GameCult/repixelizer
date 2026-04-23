@@ -2,33 +2,28 @@ from __future__ import annotations
 
 import numpy as np
 
-from repixelizer.analysis import analyze_source
+from repixelizer.analysis import analyze_continuous_source, analyze_tile_graph_source
 
 
-def test_analyze_source_cpu_device_matches_default_path() -> None:
+def test_continuous_source_analysis_cpu_device_matches_default_path() -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
     source[..., 3] = 1.0
     source[2:6, 3:5, :3] = np.asarray([1.0, 0.8, 0.2], dtype=np.float32)
 
-    default = analyze_source(source, seed=7)
-    accelerated = analyze_source(source, seed=7, device="cpu")
+    default = analyze_continuous_source(source, seed=7)
+    accelerated = analyze_continuous_source(source, seed=7, device="cpu")
 
     assert np.allclose(accelerated.edge_map, default.edge_map, atol=1e-5)
-    assert accelerated.cluster_centers.shape == default.cluster_centers.shape
-    assert np.allclose(accelerated.alpha_map, default.alpha_map, atol=1e-5)
     assert accelerated.cluster_map.shape == default.cluster_map.shape
-    assert accelerated.cluster_preview.shape == default.cluster_preview.shape
+    assert np.array_equal(accelerated.cluster_map, default.cluster_map)
 
 
-def test_analyze_source_can_skip_cluster_analysis() -> None:
+def test_tile_graph_source_analysis_is_edge_only() -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
     source[..., 3] = 1.0
     source[2:6, 3:5, :3] = np.asarray([1.0, 0.8, 0.2], dtype=np.float32)
 
-    analysis = analyze_source(source, seed=7, device="cpu", include_clusters=False)
+    analysis = analyze_tile_graph_source(source, device="cpu")
 
     assert analysis.edge_map.shape == source.shape[:2]
-    assert np.allclose(analysis.alpha_map, source[..., 3], atol=1e-5)
-    assert analysis.cluster_centers.size == 0
-    assert np.all(analysis.cluster_map == -1)
-    assert np.count_nonzero(analysis.cluster_preview) == 0
+    assert not hasattr(analysis, "cluster_map")

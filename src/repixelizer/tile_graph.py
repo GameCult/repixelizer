@@ -9,8 +9,8 @@ import numpy as np
 
 from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
-from .source_reference import build_source_lattice_reference
-from .types import InferenceResult, SolverArtifacts, SourceAnalysis
+from .source_reference import build_tile_graph_source_reference
+from .types import InferenceResult, SolverArtifacts, TileGraphSourceAnalysis
 
 _RIGHT = 0
 _DOWN = 1
@@ -54,7 +54,6 @@ def _resolve_device(torch, requested: str) -> str:
 @dataclass(slots=True)
 class TileGraphModel:
     candidate_rgba: np.ndarray
-    candidate_coords: np.ndarray
     candidate_area_ratio: np.ndarray
     candidate_coverage: np.ndarray
     candidate_deltas: np.ndarray
@@ -63,7 +62,12 @@ class TileGraphModel:
     reference_sharp_rgba: np.ndarray
     reference_edge_rgba: np.ndarray
     edge_strength: np.ndarray
+
+
+@dataclass(slots=True)
+class TileGraphBuildStats:
     component_count: int
+    candidate_count: int
     edge_density: float
     average_choices: float
     model_device: str
@@ -72,10 +76,12 @@ class TileGraphModel:
 
 _TILE_GRAPH_MODEL_CACHE_MAX_ENTRIES = 8
 _TILE_GRAPH_MODEL_CACHE: OrderedDict[tuple[object, ...], TileGraphModel] = OrderedDict()
+_TILE_GRAPH_BUILD_STATS_CACHE: OrderedDict[tuple[object, ...], TileGraphBuildStats] = OrderedDict()
 
 
 def clear_tile_graph_model_cache() -> None:
     _TILE_GRAPH_MODEL_CACHE.clear()
+    _TILE_GRAPH_BUILD_STATS_CACHE.clear()
 
 
 def _hash_array(array: np.ndarray) -> str:
@@ -118,19 +124,28 @@ def _tile_graph_model_cache_key(
     )
 
 
-def _get_cached_tile_graph_model(cache_key: tuple[object, ...]) -> TileGraphModel | None:
+def _get_cached_tile_graph_model(cache_key: tuple[object, ...]) -> tuple[TileGraphModel, TileGraphBuildStats] | None:
     cached = _TILE_GRAPH_MODEL_CACHE.get(cache_key)
-    if cached is None:
+    cached_stats = _TILE_GRAPH_BUILD_STATS_CACHE.get(cache_key)
+    if cached is None or cached_stats is None:
         return None
     _TILE_GRAPH_MODEL_CACHE.move_to_end(cache_key)
-    return cached
+    _TILE_GRAPH_BUILD_STATS_CACHE.move_to_end(cache_key)
+    return cached, cached_stats
 
 
-def _store_cached_tile_graph_model(cache_key: tuple[object, ...], model: TileGraphModel) -> None:
+def _store_cached_tile_graph_model(
+    cache_key: tuple[object, ...],
+    model: TileGraphModel,
+    stats: TileGraphBuildStats,
+) -> None:
     _TILE_GRAPH_MODEL_CACHE[cache_key] = model
     _TILE_GRAPH_MODEL_CACHE.move_to_end(cache_key)
+    _TILE_GRAPH_BUILD_STATS_CACHE[cache_key] = stats
+    _TILE_GRAPH_BUILD_STATS_CACHE.move_to_end(cache_key)
     while len(_TILE_GRAPH_MODEL_CACHE) > _TILE_GRAPH_MODEL_CACHE_MAX_ENTRIES:
-        _TILE_GRAPH_MODEL_CACHE.popitem(last=False)
+        old_key, _old_model = _TILE_GRAPH_MODEL_CACHE.popitem(last=False)
+        _TILE_GRAPH_BUILD_STATS_CACHE.pop(old_key, None)
 
 
 def _make_regular_uv(height: int, width: int, target_height: int, target_width: int, phase_x: float, phase_y: float) -> np.ndarray:
@@ -145,10 +160,6 @@ def _make_regular_uv(height: int, width: int, target_height: int, target_width: 
     uv[..., 0] = (uv[..., 0] / max(1.0, width - 1)) * 2.0 - 1.0
     uv[..., 1] = (uv[..., 1] / max(1.0, height - 1)) * 2.0 - 1.0
     return uv.astype(np.float32)
-
-
-def _rgba_luminance(rgba: np.ndarray) -> np.ndarray:
-    return rgba[..., 0] * 0.2126 + rgba[..., 1] * 0.7152 + rgba[..., 2] * 0.0722
 
 
 def _component_axis_stats(member_x: np.ndarray, member_y: np.ndarray) -> tuple[float, float, float, float, float]:
@@ -871,10 +882,10 @@ def build_tile_graph_model(
     source_rgba: np.ndarray,
     *,
     inference: InferenceResult,
-    analysis: SourceAnalysis,
+    analysis: TileGraphSourceAnalysis,
     solver_params: SolverHyperParams | None = None,
     device: str = "cpu",
-) -> TileGraphModel:
+) -> tuple[TileGraphModel, TileGraphBuildStats]:
     torch = _require_torch()
     resolved_device = _resolve_device(torch, device)
     solver_params = solver_params or SolverHyperParams()
@@ -886,8 +897,9 @@ def build_tile_graph_model(
     )
     cached_model = _get_cached_tile_graph_model(cache_key)
     if cached_model is not None:
-        return replace(cached_model, cache_hit=True)
-    source_reference = build_source_lattice_reference(
+        model, stats = cached_model
+        return model, replace(stats, cache_hit=True)
+    source_reference = build_tile_graph_source_reference(
         source_rgba,
         target_width=inference.target_width,
         target_height=inference.target_height,
@@ -974,7 +986,6 @@ def build_tile_graph_model(
     )
 
     candidate_linear: list[int] = []
-    candidate_coords: list[tuple[int, int]] = []
     candidate_area_ratio: list[float] = []
     candidate_coverage: list[float] = []
     candidate_source_x: list[float] = []
@@ -995,7 +1006,6 @@ def build_tile_graph_model(
                 return
             seen_pixels.add(pixel_index)
             candidate_linear.append(pixel_index)
-            candidate_coords.append((coord_y, coord_x))
             candidate_area_ratio.append(float(max(area_ratio, 1e-3)))
             candidate_coverage.append(float(np.clip(coverage, 0.0, 1.0)))
             candidate_source_x.append(float(source_x))
@@ -1052,7 +1062,6 @@ def build_tile_graph_model(
         candidate_deltas_t[:, direction] = source_t[sample_y_t, sample_x_t] - center_rgba_t
 
     candidate_rgba_np = center_rgba_t.detach().cpu().numpy().astype(np.float32)
-    candidate_coords_np = np.asarray(candidate_coords, dtype=np.int32)
     candidate_area_ratio_np = np.asarray(candidate_area_ratio, dtype=np.float32)
     candidate_coverage_np = np.asarray(candidate_coverage, dtype=np.float32)
     candidate_deltas_np = candidate_deltas_t.detach().cpu().numpy().astype(np.float32)
@@ -1068,7 +1077,6 @@ def build_tile_graph_model(
     )
     base_model = TileGraphModel(
         candidate_rgba=candidate_rgba_np,
-        candidate_coords=candidate_coords_np,
         candidate_area_ratio=candidate_area_ratio_np,
         candidate_coverage=candidate_coverage_np,
         candidate_deltas=candidate_deltas_np,
@@ -1077,14 +1085,17 @@ def build_tile_graph_model(
         reference_sharp_rgba=source_reference.sharp_rgba.astype(np.float32),
         reference_edge_rgba=edge_rgba_np.reshape(inference.target_height, inference.target_width, -1).astype(np.float32),
         edge_strength=source_reference.edge_strength.astype(np.float32),
+    )
+    base_stats = TileGraphBuildStats(
         component_count=component_total,
+        candidate_count=int(candidate_rgba_np.shape[0]),
         edge_density=edge_density,
         average_choices=average_choices,
         model_device=resolved_device,
         cache_hit=False,
     )
-    _store_cached_tile_graph_model(cache_key, base_model)
-    return replace(base_model, cache_hit=False)
+    _store_cached_tile_graph_model(cache_key, base_model, base_stats)
+    return base_model, base_stats
 
 
 def _cell_candidate_span(model: TileGraphModel, y: int, x: int) -> tuple[int, int]:
@@ -1273,48 +1284,10 @@ def _assignment_rgba(model: TileGraphModel, selected: np.ndarray) -> np.ndarray:
     return model.candidate_rgba[selected]
 
 
-def _pair_penalty(model: TileGraphModel, left_idx: int, right_idx: int, direction: int, solver_params: SolverHyperParams) -> float:
-    observed_delta = model.candidate_rgba[right_idx] - model.candidate_rgba[left_idx]
-    expected = model.candidate_deltas[left_idx, direction]
-    reverse = model.candidate_deltas[right_idx, _OPPOSITE[direction]]
-    delta_penalty = np.mean(np.abs(observed_delta - expected))
-    reverse_penalty = np.mean(np.abs(-observed_delta - reverse))
-    return float((delta_penalty + reverse_penalty) * 0.5 * solver_params.tile_graph_delta_weight)
-
-
-def _assignment_score(selected: np.ndarray, model: TileGraphModel, unary_cost: np.ndarray, solver_params: SolverHyperParams) -> float:
-    height, width = selected.shape
-    gathered = np.zeros((height, width), dtype=np.float32)
-    for y in range(height):
-        for x in range(width):
-            start, end = _cell_candidate_span(model, y, x)
-            indices = model.cell_candidate_indices[start:end]
-            match = np.flatnonzero(indices == selected[y, x])
-            if match.size == 0:
-                continue
-            gathered[y, x] = unary_cost[start + int(match[0])]
-    score = float(np.mean(gathered))
-    if width > 1:
-        penalties = []
-        for y in range(height):
-            for x in range(width - 1):
-                penalties.append(_pair_penalty(model, int(selected[y, x]), int(selected[y, x + 1]), _RIGHT, solver_params))
-        if penalties:
-            score += float(np.mean(np.asarray(penalties, dtype=np.float32)))
-    if height > 1:
-        penalties = []
-        for y in range(height - 1):
-            for x in range(width):
-                penalties.append(_pair_penalty(model, int(selected[y, x]), int(selected[y + 1, x]), _DOWN, solver_params))
-        if penalties:
-            score += float(np.mean(np.asarray(penalties, dtype=np.float32)))
-    return score
-
-
 def optimize_tile_graph(
     rgba: np.ndarray,
     inference: InferenceResult,
-    analysis: SourceAnalysis,
+    analysis: TileGraphSourceAnalysis,
     steps: int,
     seed: int,
     device: str,
@@ -1327,7 +1300,7 @@ def optimize_tile_graph(
     torch.manual_seed(seed)
     if resolved_device == "cuda":
         torch.cuda.manual_seed_all(seed)
-    model = build_tile_graph_model(
+    model, build_stats = build_tile_graph_model(
         rgba,
         inference=inference,
         analysis=analysis,
@@ -1443,14 +1416,14 @@ def optimize_tile_graph(
         kept_initial_assignment = True
     diagnostics = {
         "mode": "tile-graph",
-        "tile_graph_model_device": model.model_device,
+        "tile_graph_model_device": build_stats.model_device,
         "tile_graph_solver_device": resolved_device,
-        "tile_graph_model_cache_hit": model.cache_hit,
+        "tile_graph_model_cache_hit": build_stats.cache_hit,
         "tile_graph_proposal_mode": "atomic-components",
-        "tile_graph_component_count": model.component_count,
-        "tile_graph_candidate_count": int(model.candidate_rgba.shape[0]),
-        "tile_graph_edge_density": model.edge_density,
-        "tile_graph_average_choices": model.average_choices,
+        "tile_graph_component_count": build_stats.component_count,
+        "tile_graph_candidate_count": build_stats.candidate_count,
+        "tile_graph_edge_density": build_stats.edge_density,
+        "tile_graph_average_choices": build_stats.average_choices,
         "tile_graph_initial_score": float(loss_history[0]),
         "tile_graph_final_score": float(loss_history[-1]),
         "tile_graph_initial_source_fidelity": float(initial_source_fidelity),

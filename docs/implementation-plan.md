@@ -19,11 +19,12 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing (`66 passed`)
+- full test suite currently passing (`70 passed`)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
 - the new algorithm map in `docs/tile-graph-algorithm-map.md` confirms that the pinned `126x126` tile-graph badge collapse is already present in the tile-graph initial assignment; the fixed-lattice pipeline path itself is reproducing that bad state faithfully rather than introducing it, and the newer extraction coverage fix now guarantees that occupied output cells are not silently losing their source-region bucket under the corrected full-size lattice mapping
+- the new architectural split keeps the fixed synthetic emblem baselines byte-identical on both engines: the pinned tile-graph output still hashes to `31e3bc2c...6ae9` and the pinned continuous output still hashes to `404748af...7903`
 
 ## Status after adjacency-first pass
 
@@ -64,9 +65,13 @@ What landed:
 - the experimental `hybrid` path and its geometry-prior wiring have been removed
 - `tile_graph.py` no longer carries geometry-prior fields through `TileGraphModel` or tile-graph unary scoring
 - `tile-graph` now skips source clustering entirely and uses only edge analysis plus sharp/edge lattice references during unary scoring
+- `analysis.py` now has separate prep paths: continuous gets edge plus cluster analysis, while tile-graph gets an edge-only scout report
+- `source_reference.py` now has a dedicated `TileGraphSourceReference` instead of forcing tile-graph through the larger continuous/metrics reference object
+- `TileGraphModel` is now solver-only state; cache metadata and build diagnostics live in a separate `TileGraphBuildStats` sidecar
 - `cli.py` now exposes only `continuous` and `tile-graph` as reconstruction engines
 - `tests/test_pipeline.py` now checks that low-confidence tile-graph runs skip rerank probes instead of rebuilding probe candidates
 - `tests/test_analysis.py` and `tests/test_tile_graph.py` now cover the new edge-only analysis path
+- `tests/test_pipeline.py` now locks in fixed continuous and tile-graph output hashes from a pre-refactor baseline so this architectural cut cannot silently drift behavior
 - `docs/tile-graph-algorithm-map.md` now describes the smaller machine directly rather than documenting the removed hybrid sidecar path
 
 Current implementation note:

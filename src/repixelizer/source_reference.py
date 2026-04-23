@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .io import premultiply, unpremultiply
-from .types import SourceLatticeReference
+from .types import SourceLatticeReference, TileGraphSourceReference
 
 
 def _require_torch():
@@ -95,16 +95,6 @@ def _lattice_indices_torch(
     return y_idx[:, None] * target_width + x_idx[None, :]
 
 
-def _reference_deltas(reference: np.ndarray) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-    height = reference.shape[0]
-    width = reference.shape[1]
-    delta_x = reference[:, 1:, :] - reference[:, :-1, :] if width > 1 else None
-    delta_y = reference[1:, :, :] - reference[:-1, :, :] if height > 1 else None
-    delta_diag = reference[1:, 1:, :] - reference[:-1, :-1, :] if height > 1 and width > 1 else None
-    delta_anti = reference[1:, :-1, :] - reference[:-1, 1:, :] if height > 1 and width > 1 else None
-    return delta_x, delta_y, delta_diag, delta_anti
-
-
 def _unpremultiply_torch(torch, premul_t):
     alpha = premul_t[..., 3:4].clamp_min(1e-6)
     rgb = torch.where(alpha > 1e-6, premul_t[..., :3] / alpha, torch.zeros_like(premul_t[..., :3]))
@@ -147,6 +137,65 @@ def build_source_lattice_reference(
     edge_grad_y_hint: np.ndarray | None = None,
     device: str | None = None,
 ) -> SourceLatticeReference:
+    payload = _build_reference_payload(
+        source_rgba,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+        alpha_threshold=alpha_threshold,
+        edge_hint=edge_hint,
+        edge_grad_x_hint=edge_grad_x_hint,
+        edge_grad_y_hint=edge_grad_y_hint,
+        device=device,
+    )
+    return SourceLatticeReference(**payload)
+
+
+def build_tile_graph_source_reference(
+    source_rgba: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+    alpha_threshold: float = 0.05,
+    edge_hint: np.ndarray | None = None,
+    device: str | None = None,
+) -> TileGraphSourceReference:
+    payload = _build_reference_payload(
+        source_rgba,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+        alpha_threshold=alpha_threshold,
+        edge_hint=edge_hint,
+        device=device,
+    )
+    return TileGraphSourceReference(
+        sharp_rgba=payload["sharp_rgba"],
+        sharp_x=payload["sharp_x"],
+        sharp_y=payload["sharp_y"],
+        edge_peak_x=payload["edge_peak_x"],
+        edge_peak_y=payload["edge_peak_y"],
+        edge_strength=payload["edge_strength"],
+    )
+
+
+def _build_reference_payload(
+    source_rgba: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    phase_x: float,
+    phase_y: float,
+    alpha_threshold: float = 0.05,
+    edge_hint: np.ndarray | None = None,
+    edge_grad_x_hint: np.ndarray | None = None,
+    edge_grad_y_hint: np.ndarray | None = None,
+    device: str | None = None,
+) -> dict[str, np.ndarray | float]:
     if device is not None:
         torch = _require_torch()
         resolved_device = _resolve_device(torch, device)
@@ -261,29 +310,21 @@ def build_source_lattice_reference(
         expected_pixels_per_cell = float(source_rgba.shape[0] * source_rgba.shape[1]) / float(cell_count)
         cell_support_t = (counts_t / max(expected_pixels_per_cell, 1.0)).reshape(target_height, target_width)
 
-        sharp_premul_np = sharp_premul_t.detach().cpu().numpy().astype(np.float32)
-        delta_x, delta_y, delta_diag, delta_anti = _reference_deltas(sharp_premul_np)
-        return SourceLatticeReference(
-            mean_rgba=mean_rgba_t.detach().cpu().numpy().astype(np.float32),
-            sharp_rgba=sharp_rgba_t.detach().cpu().numpy().astype(np.float32),
-            dispersion=dispersion,
-            lattice_indices=indices_t.detach().cpu().numpy().astype(np.int32),
-            cell_dispersion=cell_dispersion_t.detach().cpu().numpy().astype(np.float32),
-            cell_counts=counts_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
-            cell_support=cell_support_t.detach().cpu().numpy().astype(np.float32),
-            cell_alpha_max=cell_alpha_max_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
-            sharp_x=sharp_x_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
-            sharp_y=sharp_y_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
-            edge_peak_x=edge_peak_x_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
-            edge_peak_y=edge_peak_y_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
-            edge_strength=edge_strength_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
-            edge_grad_x=edge_grad_x_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
-            edge_grad_y=edge_grad_y_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
-            delta_x=delta_x.astype(np.float32) if delta_x is not None else None,
-            delta_y=delta_y.astype(np.float32) if delta_y is not None else None,
-            delta_diag=delta_diag.astype(np.float32) if delta_diag is not None else None,
-            delta_anti=delta_anti.astype(np.float32) if delta_anti is not None else None,
-        )
+        return {
+            "mean_rgba": mean_rgba_t.detach().cpu().numpy().astype(np.float32),
+            "sharp_rgba": sharp_rgba_t.detach().cpu().numpy().astype(np.float32),
+            "dispersion": dispersion,
+            "cell_dispersion": cell_dispersion_t.detach().cpu().numpy().astype(np.float32),
+            "cell_support": cell_support_t.detach().cpu().numpy().astype(np.float32),
+            "cell_alpha_max": cell_alpha_max_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
+            "sharp_x": sharp_x_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
+            "sharp_y": sharp_y_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
+            "edge_peak_x": edge_peak_x_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
+            "edge_peak_y": edge_peak_y_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.int32),
+            "edge_strength": edge_strength_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
+            "edge_grad_x": edge_grad_x_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
+            "edge_grad_y": edge_grad_y_flat_t.reshape(target_height, target_width).detach().cpu().numpy().astype(np.float32),
+        }
 
     height = source_rgba.shape[0]
     width = source_rgba.shape[1]
@@ -394,25 +435,18 @@ def build_source_lattice_reference(
     expected_pixels_per_cell = float(source_rgba.shape[0] * source_rgba.shape[1]) / float(cell_count)
     cell_support = (counts / max(expected_pixels_per_cell, 1.0)).reshape(target_height, target_width)
 
-    delta_x, delta_y, delta_diag, delta_anti = _reference_deltas(sharp_premul)
-    return SourceLatticeReference(
-        mean_rgba=mean_rgba.astype(np.float32),
-        sharp_rgba=sharp_rgba.astype(np.float32),
-        dispersion=dispersion,
-        lattice_indices=indices.astype(np.int32),
-        cell_dispersion=cell_dispersion.astype(np.float32),
-        cell_counts=counts.reshape(target_height, target_width).astype(np.float32),
-        cell_support=cell_support.astype(np.float32),
-        cell_alpha_max=cell_alpha_max.reshape(target_height, target_width).astype(np.float32),
-        sharp_x=sharp_x_flat.reshape(target_height, target_width).astype(np.int32),
-        sharp_y=sharp_y_flat.reshape(target_height, target_width).astype(np.int32),
-        edge_peak_x=edge_peak_x_flat.reshape(target_height, target_width).astype(np.int32),
-        edge_peak_y=edge_peak_y_flat.reshape(target_height, target_width).astype(np.int32),
-        edge_strength=edge_strength_flat.reshape(target_height, target_width).astype(np.float32),
-        edge_grad_x=edge_grad_x_flat.reshape(target_height, target_width).astype(np.float32),
-        edge_grad_y=edge_grad_y_flat.reshape(target_height, target_width).astype(np.float32),
-        delta_x=delta_x.astype(np.float32) if delta_x is not None else None,
-        delta_y=delta_y.astype(np.float32) if delta_y is not None else None,
-        delta_diag=delta_diag.astype(np.float32) if delta_diag is not None else None,
-        delta_anti=delta_anti.astype(np.float32) if delta_anti is not None else None,
-    )
+    return {
+        "mean_rgba": mean_rgba.astype(np.float32),
+        "sharp_rgba": sharp_rgba.astype(np.float32),
+        "dispersion": dispersion,
+        "cell_dispersion": cell_dispersion.astype(np.float32),
+        "cell_support": cell_support.astype(np.float32),
+        "cell_alpha_max": cell_alpha_max.reshape(target_height, target_width).astype(np.float32),
+        "sharp_x": sharp_x_flat.reshape(target_height, target_width).astype(np.int32),
+        "sharp_y": sharp_y_flat.reshape(target_height, target_width).astype(np.int32),
+        "edge_peak_x": edge_peak_x_flat.reshape(target_height, target_width).astype(np.int32),
+        "edge_peak_y": edge_peak_y_flat.reshape(target_height, target_width).astype(np.int32),
+        "edge_strength": edge_strength_flat.reshape(target_height, target_width).astype(np.float32),
+        "edge_grad_x": edge_grad_x_flat.reshape(target_height, target_width).astype(np.float32),
+        "edge_grad_y": edge_grad_y_flat.reshape(target_height, target_width).astype(np.float32),
+    }

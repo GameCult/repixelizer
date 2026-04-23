@@ -39,6 +39,8 @@ Recent adjacency-focused status:
 Current tile-graph status:
 
 - it now keeps candidates strictly local to each output coord and only uses literal source-pixel colors, so it no longer invents averaged patch colors or borrow labels from distant regions
+- tile-graph prep is now a separate edge-only path: it no longer hauls continuous-only cluster analysis or the rich shared lattice reference through its core loop
+- tile-graph now builds against its own lean source reference and keeps diagnostics/cache metadata outside the solver model itself
 - candidate seeding now starts from source-side atomic regions projected onto the output lattice, layered together with the old sharp/edge anchors instead of replacing them outright
 - the new deep-dive map in `docs/tile-graph-algorithm-map.md` walks the tile-graph path end to end and records the current fixed-lattice failure mode: the garbled `126x126` badge output is already bad at the tile-graph initial assignment stage, not because the fixed-lattice pipeline wrapper is corrupting it
 - the extraction stage now has an explicit empty-cell overlap fill pass, so output cells that actually contain opaque sampled source pixels no longer silently lose their extracted region bucket under the fixed badge lattice

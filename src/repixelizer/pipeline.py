@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from .analysis import analyze_source
+from .analysis import analyze_continuous_source, analyze_tile_graph_source
 from .continuous import optimize_uv_field
 from .diagnostics import (
     summarize_run,
@@ -29,7 +29,7 @@ from .params import SolverHyperParams
 from .palette import load_palette, quantize_rgba, save_palette_report
 from .preprocess import strip_edge_background
 from .tile_graph import optimize_tile_graph
-from .types import InferenceResult, RunResult
+from .types import ContinuousSourceAnalysis, InferenceResult, RunResult, TileGraphSourceAnalysis
 
 
 def run_pipeline(
@@ -79,11 +79,11 @@ def run_pipeline(
             device=device,
         )
         inference_mode = "fixed"
-    analysis = analyze_source(
+    analysis = _prepare_analysis(
         source,
         seed=seed,
-        device=device if reconstruction_mode == "tile-graph" else None,
-        include_clusters=reconstruction_mode != "tile-graph",
+        device=device,
+        reconstruction_mode=reconstruction_mode,
     )
     inference = _select_phase_candidate(
         source,
@@ -139,8 +139,6 @@ def run_pipeline(
         )
         write_alpha_preview(diagnostics_path / "alpha-preview.png", source, output_rgba)
         write_heatmap(diagnostics_path / "noise-heatmap.png", cleanup.isolated_heatmap)
-        if analysis.cluster_centers.size:
-            save_rgba(diagnostics_path / "cluster-preview.png", analysis.cluster_preview)
         run_json = summarize_run(result)
         run_json["inference"] = inference_to_json(inference)
         run_json["settings"] = {
@@ -165,6 +163,18 @@ def run_pipeline(
         if palette_result is not None:
             save_palette_report(diagnostics_path / "palette-report.json", palette_result.palette)
     return result
+
+
+def _prepare_analysis(
+    source: np.ndarray,
+    *,
+    seed: int,
+    device: str,
+    reconstruction_mode: str,
+) -> ContinuousSourceAnalysis | TileGraphSourceAnalysis:
+    if reconstruction_mode == "tile-graph":
+        return analyze_tile_graph_source(source, device=device)
+    return analyze_continuous_source(source, seed=seed)
 
 
 def _select_phase_candidate(

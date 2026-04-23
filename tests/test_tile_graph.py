@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from repixelizer.analysis import analyze_source
+from repixelizer.analysis import analyze_tile_graph_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.io import save_rgba
 from repixelizer.metrics import source_lattice_consistency_breakdown
@@ -36,15 +36,20 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_lattice_proposa
         top_candidates=[],
     )
 
-    model = build_tile_graph_model(source, inference=inference, analysis=analyze_source(source, seed=7), device="cpu")
+    model, stats = build_tile_graph_model(
+        source,
+        inference=inference,
+        analysis=analyze_tile_graph_source(source, device="cpu"),
+        device="cpu",
+    )
 
     assert model.candidate_rgba.shape[0] > 4
     choice_counts = np.diff(model.cell_candidate_offsets)
     assert choice_counts.shape[0] == inference.target_width * inference.target_height
     assert np.all(choice_counts >= 1)
-    assert model.average_choices >= 1.0
-    assert model.edge_density > 0.0
-    assert model.model_device == "cpu"
+    assert stats.average_choices >= 1.0
+    assert stats.edge_density > 0.0
+    assert stats.model_device == "cpu"
 
 
 def test_tile_graph_model_works_with_edge_only_analysis() -> None:
@@ -61,15 +66,15 @@ def test_tile_graph_model_works_with_edge_only_analysis() -> None:
         top_candidates=[],
     )
 
-    model = build_tile_graph_model(
+    model, stats = build_tile_graph_model(
         source,
         inference=inference,
-        analysis=analyze_source(source, seed=5, device="cpu", include_clusters=False),
+        analysis=analyze_tile_graph_source(source, device="cpu"),
         device="cpu",
     )
 
     assert model.candidate_rgba.shape[0] > 0
-    assert model.model_device == "cpu"
+    assert stats.model_device == "cpu"
 
 
 def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
@@ -93,10 +98,10 @@ def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
         confidence=1.0,
         top_candidates=[],
     )
-    model = build_tile_graph_model(
+    model, _stats = build_tile_graph_model(
         source,
         inference=inference,
-        analysis=analyze_source(source, seed=13),
+        analysis=analyze_tile_graph_source(source),
         solver_params=SolverHyperParams(tile_graph_max_candidates=32, tile_graph_max_candidates_per_coord=2),
     )
 
@@ -106,7 +111,7 @@ def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
     assert candidate_colors.issubset(source_colors | {tuple(np.zeros(4, dtype=np.float32))})
 
 
-def test_tile_graph_candidates_are_scoped_to_their_output_coord() -> None:
+def test_tile_graph_candidate_buckets_are_contiguous_per_output_coord() -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
     source[..., 3] = 1.0
     source[:, 2:4] = np.asarray([1.0, 0.9, 0.2, 1.0], dtype=np.float32)
@@ -120,20 +125,16 @@ def test_tile_graph_candidates_are_scoped_to_their_output_coord() -> None:
         top_candidates=[],
     )
 
-    model = build_tile_graph_model(
+    model, _stats = build_tile_graph_model(
         source,
         inference=inference,
-        analysis=analyze_source(source, seed=11),
+        analysis=analyze_tile_graph_source(source),
     )
 
-    for y in range(inference.target_height):
-        for x in range(inference.target_width):
-            flat = y * inference.target_width + x
-            start = int(model.cell_candidate_offsets[flat])
-            end = int(model.cell_candidate_offsets[flat + 1])
-            coords = model.candidate_coords[model.cell_candidate_indices[start:end]]
-            assert np.all(coords[:, 0] == y)
-            assert np.all(coords[:, 1] == x)
+    total_candidates = int(model.candidate_rgba.shape[0])
+    assert int(model.cell_candidate_offsets[0]) == 0
+    assert int(model.cell_candidate_offsets[-1]) == total_candidates
+    assert np.array_equal(model.cell_candidate_indices, np.arange(total_candidates, dtype=np.int32))
 
 
 def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> None:
@@ -157,7 +158,7 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
         top_candidates=[],
     )
     params = SolverHyperParams()
-    analysis = analyze_source(source, seed=7, device="cpu")
+    analysis = analyze_tile_graph_source(source, device="cpu")
     cell_h = source.shape[0] / inference.target_height
     cell_w = source.shape[1] / inference.target_width
     source_region_stride = 2
@@ -236,10 +237,10 @@ def test_tile_graph_projects_source_regions_instead_of_mixed_lattice_buckets() -
         top_candidates=[],
     )
 
-    model = build_tile_graph_model(
+    model, _stats = build_tile_graph_model(
         source,
         inference=inference,
-        analysis=analyze_source(source, seed=19),
+        analysis=analyze_tile_graph_source(source),
         device="cpu",
     )
 
@@ -280,10 +281,10 @@ def test_tile_graph_edge_cells_include_multiple_same_cell_contour_colors() -> No
         confidence=1.0,
         top_candidates=[],
     )
-    model = build_tile_graph_model(
+    model, _stats = build_tile_graph_model(
         source,
         inference=inference,
-        analysis=analyze_source(source, seed=17),
+        analysis=analyze_tile_graph_source(source),
         device="cpu",
     )
 
@@ -329,7 +330,7 @@ def test_tile_graph_reconstructs_synthetic_thin_feature_better_than_naive() -> N
     artifacts, _ = optimize_tile_graph(
         fake,
         inference=inference,
-        analysis=analyze_source(fake, seed=7),
+        analysis=analyze_tile_graph_source(fake),
         steps=0,
         seed=7,
         device="cpu",
@@ -384,7 +385,7 @@ def test_tile_graph_keeps_shallow_connected_stroke_from_fanning_out() -> None:
             confidence=1.0,
             top_candidates=[],
         ),
-        analysis=analyze_source(source, seed=7),
+        analysis=analyze_tile_graph_source(source),
         steps=0,
         seed=7,
         device="cpu",
@@ -423,7 +424,7 @@ def test_tile_graph_preserves_transparent_background_on_sparse_detail() -> None:
             confidence=1.0,
             top_candidates=[],
         ),
-        analysis=analyze_source(fake, seed=7),
+        analysis=analyze_tile_graph_source(fake),
         steps=0,
         seed=7,
         device="cpu",
@@ -449,8 +450,8 @@ def test_tile_graph_cuda_matches_cpu_on_small_case() -> None:
         confidence=1.0,
         top_candidates=[],
     )
-    cpu_analysis = analyze_source(fake, seed=7, device="cpu")
-    cuda_analysis = analyze_source(fake, seed=7, device="cuda")
+    cpu_analysis = analyze_tile_graph_source(fake, device="cpu")
+    cuda_analysis = analyze_tile_graph_source(fake, device="cuda")
 
     cpu_artifacts, cpu_diag = optimize_tile_graph(
         fake,
@@ -488,23 +489,23 @@ def test_tile_graph_model_cache_reuses_fixed_lattice_build() -> None:
         confidence=1.0,
         top_candidates=[],
     )
-    analysis = analyze_source(fake, seed=7, device="cpu")
+    analysis = analyze_tile_graph_source(fake, device="cpu")
 
-    first = build_tile_graph_model(
+    first, first_stats = build_tile_graph_model(
         fake,
         inference=inference,
         analysis=analysis,
         device="cpu",
     )
-    second = build_tile_graph_model(
+    second, second_stats = build_tile_graph_model(
         fake,
         inference=inference,
         analysis=analysis,
         device="cpu",
     )
 
-    assert first.cache_hit is False
-    assert second.cache_hit is True
+    assert first_stats.cache_hit is False
+    assert second_stats.cache_hit is True
     assert np.array_equal(first.candidate_rgba, second.candidate_rgba)
 
 
