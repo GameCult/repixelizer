@@ -463,6 +463,26 @@ Recent cut:
 This is wet plaster and half-seated stones.  
 Nothing is fully committed yet. Each slot is allowed to say, "I'm 60% this dark edge stone, 30% the slightly duller one, 10% the safer interior stone." The wall is still trembling, but the trembling starts to synchronize. Temperature drops. The slurry thickens. Shapes that looked independent begin leaning into each other like bones finding their sockets.
 
+### Measured reality
+
+The original design goal for `relax` was larger than "soften local choices." It was supposed to let the machine adjust phase smoothly over broad swaths of the canvas instead of only making tiny local corrections.
+
+The current instrumentation in `continuous.py` says the truth is weaker than that story.
+
+On the pinned cleaned-badge run at `126x126`, phase `(0.0, -0.2)`, `steps=48`:
+
+- with `relax_iterations=24`, final source-fidelity lands at `0.07451`
+- with `relax_iterations=0`, final source-fidelity lands at `0.07549`
+- so `relax` does help a little
+
+But the displacement-field diagnostics do **not** show a dramatic large-scale phase-smoothing effect:
+
+- final orthogonal displacement jitter is `1.7154` with relax versus `1.6783` without it
+- final local residual is `1.1548` with relax versus `1.1312` without it
+- final dominant-offset ratio is `0.6296` with relax versus `0.6380` without it
+
+So the current `relax` earns a small fidelity gain, but it does not look like a true broad-swatch phase transport stage. It behaves more like a soft consensus pass over a fixed tray of local candidates, then hands that consensus to greedy refine.
+
 ## Stage 8: Greedy discrete refine
 
 Function:
@@ -601,7 +621,7 @@ That is much simpler than the surrounding names make it sound.
 If we keep pruning, the highest-value cuts look like this:
 
 1. Put relax on trial.
-   The soft relaxation stage still seems useful, but the relax-mode bonus was dead weight. The next question is which remaining relax terms are actually earning their keep.
+   The soft relaxation stage still seems useful, but the current measurements say it is not really acting like a large-scale phase smoother. The next question is which remaining relax terms are actually earning their keep, and whether the surviving benefit comes from handoff stabilization rather than regional phase drift.
 2. Collapse duplicate structure voices.
    Adjacency, motif, and line are important, but they should not need three near-parallel dialects unless they are truly doing different work.
 3. Decide whether snap still needs both portraits everywhere.

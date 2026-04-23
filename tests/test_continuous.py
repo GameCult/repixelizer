@@ -155,3 +155,34 @@ def test_optimize_lattice_pixels_does_not_regress_from_snap_on_thin_feature_case
     )["score"]
 
     assert final_score <= snap_score + 1e-6
+
+
+def test_optimize_lattice_pixels_emits_displacement_diagnostics() -> None:
+    source = np.zeros((12, 12, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    source[3:9, 6, :3] = 1.0
+
+    inference = InferenceResult(
+        target_width=6,
+        target_height=6,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+    artifacts = optimize_lattice_pixels(
+        source,
+        inference=inference,
+        analysis=analyze_continuous_source(source, seed=7),
+        steps=2,
+        seed=7,
+        device="cpu",
+    )
+
+    displacement = artifacts.stage_diagnostics["displacements"]
+    assert {"snap", "relax_handoff", "relax_mode", "final_output"} <= set(displacement.keys())
+    for stage_name in ("snap", "relax_handoff", "final_output"):
+        payload = displacement[stage_name]
+        assert payload["displacement_x"].shape == (6, 6)
+        assert payload["displacement_y"].shape == (6, 6)
+        assert payload["orthogonal_jitter_px"] >= 0.0

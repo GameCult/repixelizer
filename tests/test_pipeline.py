@@ -30,11 +30,14 @@ def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
     assert output_path.exists()
     assert (diagnostics_dir / "run.json").exists()
     assert (diagnostics_dir / "output-preview.png").exists()
+    assert (diagnostics_dir / "displacement-snap.png").exists()
+    assert (diagnostics_dir / "displacement-snap-preview.png").exists()
     import json
 
     run_json = json.loads((diagnostics_dir / "run.json").read_text(encoding="utf-8"))
     assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
     assert "phase_rerank_candidates" in run_json
+    assert {"snap", "relax_handoff", "relax_mode", "final_output"} <= set(run_json["optimizer_displacement"].keys())
     assert result.output_rgba.shape[0] == result.inference.target_height
     assert result.output_rgba.shape[1] == result.inference.target_width
 

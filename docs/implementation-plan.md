@@ -153,6 +153,21 @@ Next after that:
 - add a focused ablation runner for pinned badge/emblem cases before cutting more behavior
 - collapse duplicated adjacency / motif / line voices only after ablation shows which stage owns each idea
 
+The next pass turned that "put relax on trial" note into an actual measurement seam:
+
+- `SolverArtifacts` now carries stage diagnostics for continuous runs, including the exact selected-source displacement field for `snap`, `relax_handoff`, `relax_mode`, and `final_output`
+- `run.json` now includes `optimizer_displacement` metrics, and diagnostics directories now write color-coded displacement previews for those stages
+- the pinned cleaned-badge comparison under `artifacts/optimizer-relax-purpose-check/` runs the same fixed lattice twice: once with normal relax and once with `relax_iterations=0`
+
+What that test says:
+
+- `relax` still helps a little on the real badge objective: final source-fidelity improves from `0.07549` without relax to `0.07451` with relax
+- but the displacement field does **not** become clearly smoother in the way the original design story promised
+- on that same pinned badge run, final orthogonal displacement jitter is `1.7154` with relax versus `1.6783` without it, and final local residual is `1.1548` with relax versus `1.1312` without it
+- the honest read is that the current relax stage behaves more like a soft consensus / handoff stabilizer over fixed local candidate trays than a true large-swath phase adjustment mechanism
+
+That means the next optimizer cuts should treat `relax` as a measurable subsolver with a narrower actual job, not as a sacred phase-field story we keep around out of nostalgia.
+
 The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
 
 ## High-value regression case

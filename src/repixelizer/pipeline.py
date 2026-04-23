@@ -12,6 +12,7 @@ from .diagnostics import (
     summarize_run,
     write_alpha_preview,
     write_comparison,
+    write_displacement_preview,
     write_heatmap,
     write_json,
     write_lattice_overlay,
@@ -139,6 +140,24 @@ def run_pipeline(
         )
         write_alpha_preview(diagnostics_path / "alpha-preview.png", source, output_rgba)
         write_heatmap(diagnostics_path / "noise-heatmap.png", cleanup.isolated_heatmap)
+        stage_displacements = result.solver.stage_diagnostics.get("displacements", {})
+        for stage_name, payload in stage_displacements.items():
+            displacement_x = payload.get("displacement_x")
+            displacement_y = payload.get("displacement_y")
+            if isinstance(displacement_x, np.ndarray) and isinstance(displacement_y, np.ndarray):
+                displacement_rgba = write_displacement_preview(
+                    diagnostics_path / f"displacement-{stage_name}.png",
+                    displacement_x,
+                    displacement_y,
+                )
+                save_rgba(
+                    diagnostics_path / f"displacement-{stage_name}-preview.png",
+                    nearest_resize(
+                        displacement_rgba,
+                        width=output_rgba.shape[1] * 8,
+                        height=output_rgba.shape[0] * 8,
+                    ),
+                )
         run_json = summarize_run(result)
         run_json["inference"] = inference_to_json(inference)
         run_json["settings"] = {

@@ -1047,7 +1047,17 @@ def _snap_output_to_source_pixels(
         solver_params=solver_params,
     )
     final_colors = _select_colors(candidate_colors, hardened_selected)
-    return _finalize_output_rgba(final_colors, use_opaque, use_transparent)
+    final_x, final_y = _select_positions(candidate_x, candidate_y, hardened_selected)
+    stage_debug = {
+        "snap": _displacement_diagnostics(
+            uv_t[0].detach().cpu().numpy(),
+            final_x,
+            final_y,
+            width=width,
+            height=height,
+        )
+    }
+    return _finalize_output_rgba(final_colors, use_opaque, use_transparent), stage_debug
 
 
 def _select_colors(candidate_colors, selected):
@@ -1057,6 +1067,88 @@ def _select_colors(candidate_colors, selected):
         dim=2,
         index=selected[..., None, None].expand(output_height, output_width, 1, candidate_colors.shape[-1]),
     ).squeeze(2)
+
+
+def _select_positions(candidate_x, candidate_y, selected):
+    output_height = candidate_x.shape[0]
+    output_width = candidate_x.shape[1]
+    gather_index = selected[..., None]
+    selected_x = candidate_x.gather(
+        dim=2,
+        index=gather_index.expand(output_height, output_width, 1),
+    ).squeeze(2)
+    selected_y = candidate_y.gather(
+        dim=2,
+        index=gather_index.expand(output_height, output_width, 1),
+    ).squeeze(2)
+    return selected_x, selected_y
+
+
+def _box_blur_field(field: np.ndarray) -> np.ndarray:
+    padded = np.pad(field, ((1, 1), (1, 1), (0, 0)), mode="edge")
+    accum = np.zeros_like(field, dtype=np.float32)
+    for dy in range(3):
+        for dx in range(3):
+            accum += padded[dy : dy + field.shape[0], dx : dx + field.shape[1]]
+    return accum / 9.0
+
+
+def _displacement_diagnostics(uv_field: np.ndarray, selected_x, selected_y, *, width: int, height: int) -> dict[str, np.ndarray | float]:
+    uv_x = (uv_field[..., 0] + 1.0) * 0.5 * max(1.0, float(width - 1))
+    uv_y = (uv_field[..., 1] + 1.0) * 0.5 * max(1.0, float(height - 1))
+    selected_x_np = selected_x.detach().cpu().numpy().astype(np.float32)
+    selected_y_np = selected_y.detach().cpu().numpy().astype(np.float32)
+    displacement_x = selected_x_np - uv_x.astype(np.float32)
+    displacement_y = selected_y_np - uv_y.astype(np.float32)
+    displacement = np.stack([displacement_x, displacement_y], axis=-1)
+    magnitude = np.linalg.norm(displacement, axis=-1)
+
+    orthogonal_jumps: list[np.ndarray] = []
+    if displacement.shape[1] > 1:
+        orthogonal_jumps.append(np.linalg.norm(displacement[:, 1:, :] - displacement[:, :-1, :], axis=-1))
+    if displacement.shape[0] > 1:
+        orthogonal_jumps.append(np.linalg.norm(displacement[1:, :, :] - displacement[:-1, :, :], axis=-1))
+    diagonal_jumps: list[np.ndarray] = []
+    if displacement.shape[0] > 1 and displacement.shape[1] > 1:
+        diagonal_jumps.append(np.linalg.norm(displacement[1:, 1:, :] - displacement[:-1, :-1, :], axis=-1))
+        diagonal_jumps.append(np.linalg.norm(displacement[1:, :-1, :] - displacement[:-1, 1:, :], axis=-1))
+
+    rounded_dx = np.rint(displacement_x).astype(np.int16)
+    rounded_dy = np.rint(displacement_y).astype(np.int16)
+    equal_pairs: list[np.ndarray] = []
+    if rounded_dx.shape[1] > 1:
+        equal_pairs.append((rounded_dx[:, 1:] == rounded_dx[:, :-1]) & (rounded_dy[:, 1:] == rounded_dy[:, :-1]))
+    if rounded_dx.shape[0] > 1:
+        equal_pairs.append((rounded_dx[1:, :] == rounded_dx[:-1, :]) & (rounded_dy[1:, :] == rounded_dy[:-1, :]))
+
+    offsets = np.stack([rounded_dx.reshape(-1), rounded_dy.reshape(-1)], axis=-1)
+    if offsets.size:
+        unique_offsets, counts = np.unique(offsets, axis=0, return_counts=True)
+        dominant_offset = unique_offsets[int(np.argmax(counts))]
+        dominant_ratio = float(np.max(counts) / max(1, offsets.shape[0]))
+    else:
+        dominant_offset = np.asarray([0, 0], dtype=np.int16)
+        dominant_ratio = 1.0
+
+    blur = _box_blur_field(displacement)
+    local_residual = np.linalg.norm(displacement - blur, axis=-1)
+    return {
+        "selected_x": selected_x_np,
+        "selected_y": selected_y_np,
+        "displacement_x": displacement_x,
+        "displacement_y": displacement_y,
+        "mean_magnitude_px": float(np.mean(magnitude)),
+        "max_magnitude_px": float(np.max(magnitude)),
+        "orthogonal_jitter_px": float(np.mean(np.concatenate([jump.reshape(-1) for jump in orthogonal_jumps]))) if orthogonal_jumps else 0.0,
+        "diagonal_jitter_px": float(np.mean(np.concatenate([jump.reshape(-1) for jump in diagonal_jumps]))) if diagonal_jumps else 0.0,
+        "local_residual_px": float(np.mean(local_residual)),
+        "orthogonal_equal_ratio": float(np.mean(np.concatenate([pair.reshape(-1) for pair in equal_pairs]).astype(np.float32))) if equal_pairs else 1.0,
+        "dominant_offset_ratio": dominant_ratio,
+        "dominant_offset_dx_px": float(dominant_offset[0]),
+        "dominant_offset_dy_px": float(dominant_offset[1]),
+        "mean_dx_px": float(np.mean(displacement_x)),
+        "mean_dy_px": float(np.mean(displacement_y)),
+    }
 
 
 def _harden_binary_alpha_selection(
@@ -1372,7 +1464,33 @@ def _discrete_refine_output(
         solver_params=solver_params,
     )
     best_colors = _select_colors(candidate_colors, hardened_selected)
-    return _finalize_output_rgba(best_colors, use_opaque, use_transparent), loss_history
+    handoff_x, handoff_y = _select_positions(candidate_x, candidate_y, selected)
+    mode_x, mode_y = _select_positions(candidate_x, candidate_y, relaxed_mode_selected)
+    final_x, final_y = _select_positions(candidate_x, candidate_y, hardened_selected)
+    stage_debug = {
+        "relax_handoff": _displacement_diagnostics(
+            uv_t[0].detach().cpu().numpy(),
+            handoff_x,
+            handoff_y,
+            width=source_t.shape[-1],
+            height=source_t.shape[-2],
+        ),
+        "relax_mode": _displacement_diagnostics(
+            uv_t[0].detach().cpu().numpy(),
+            mode_x,
+            mode_y,
+            width=source_t.shape[-1],
+            height=source_t.shape[-2],
+        ),
+        "final_output": _displacement_diagnostics(
+            uv_t[0].detach().cpu().numpy(),
+            final_x,
+            final_y,
+            width=source_t.shape[-1],
+            height=source_t.shape[-2],
+        ),
+    }
+    return _finalize_output_rgba(best_colors, use_opaque, use_transparent), loss_history, stage_debug
 
 
 def _prepare_optimizer(
@@ -1477,7 +1595,7 @@ def optimize_lattice_pixels(
         solver_params,
         device=device,
     )
-    snap_rgba = _snap_output_to_source_pixels(
+    snap_rgba, snap_stage_debug = _snap_output_to_source_pixels(
         torch,
         prep.source_t,
         prep.uv_t,
@@ -1494,7 +1612,7 @@ def optimize_lattice_pixels(
         dtype=torch.float32,
     )
     with torch.no_grad():
-        target_rgba, loss_history = _discrete_refine_output(
+        target_rgba, loss_history, refine_stage_debug = _discrete_refine_output(
             torch,
             F,
             prep.source_t,
@@ -1529,10 +1647,22 @@ def optimize_lattice_pixels(
             phase_y=inference.phase_y,
             alpha_threshold=solver_params.alpha_transparent_threshold,
         )["score"]
-        if target_score > snap_score + 1e-6:
+        guardrail_kept_snap = bool(target_score > snap_score + 1e-6)
+        if guardrail_kept_snap:
             target_rgba = snap_rgba
             loss_history.append(float(snap_score))
+            refine_stage_debug["final_output"] = snap_stage_debug["snap"]
         initial_rgba = snap_rgba
+        stage_diagnostics = {
+            "displacements": {
+                **snap_stage_debug,
+                **refine_stage_debug,
+            },
+            "guardrail_kept_snap": guardrail_kept_snap,
+            "snap_source_fidelity_score": float(snap_score),
+            "solver_target_source_fidelity_score": float(target_score),
+            "relax_iterations": int(min(max(0, solver_params.relax_iterations), max(0, steps)) if steps > 0 else 0),
+        }
 
     return SolverArtifacts(
         target_rgba=target_rgba,
@@ -1540,4 +1670,5 @@ def optimize_lattice_pixels(
         guidance_strength=prep.guidance,
         initial_rgba=initial_rgba,
         loss_history=loss_history,
+        stage_diagnostics=stage_diagnostics,
     )

@@ -90,6 +90,45 @@ def write_heatmap(path: str | Path, heatmap: np.ndarray) -> None:
     save_rgba(path, rgba)
 
 
+def _displacement_preview_rgba(displacement_x: np.ndarray, displacement_y: np.ndarray) -> np.ndarray:
+    magnitude = np.sqrt(np.square(displacement_x) + np.square(displacement_y)).astype(np.float32)
+    scale = float(np.percentile(magnitude, 95)) if magnitude.size else 0.0
+    normalized = np.clip(magnitude / max(scale, 1e-4), 0.0, 1.0)
+    hue = (np.arctan2(displacement_y, displacement_x) + np.pi) / (2.0 * np.pi)
+    saturation = normalized
+    value = np.clip(0.2 + normalized * 0.8, 0.0, 1.0)
+
+    h6 = hue * 6.0
+    i = np.floor(h6).astype(np.int32) % 6
+    f = h6 - np.floor(h6)
+    p = value * (1.0 - saturation)
+    q = value * (1.0 - f * saturation)
+    t = value * (1.0 - (1.0 - f) * saturation)
+
+    rgb = np.zeros((*hue.shape, 3), dtype=np.float32)
+    cases = (
+        (i == 0, np.stack([value, t, p], axis=-1)),
+        (i == 1, np.stack([q, value, p], axis=-1)),
+        (i == 2, np.stack([p, value, t], axis=-1)),
+        (i == 3, np.stack([p, q, value], axis=-1)),
+        (i == 4, np.stack([t, p, value], axis=-1)),
+        (i == 5, np.stack([value, p, q], axis=-1)),
+    )
+    for mask, colors in cases:
+        rgb[mask] = colors[mask]
+
+    rgba = np.zeros((*hue.shape, 4), dtype=np.float32)
+    rgba[..., :3] = rgb
+    rgba[..., 3] = 1.0
+    return rgba
+
+
+def write_displacement_preview(path: str | Path, displacement_x: np.ndarray, displacement_y: np.ndarray) -> np.ndarray:
+    rgba = _displacement_preview_rgba(displacement_x, displacement_y)
+    save_rgba(path, rgba)
+    return rgba
+
+
 def write_json(path: str | Path, payload: dict[str, Any]) -> None:
     Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -152,6 +191,14 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         for candidate in result.inference.top_candidates
         if "phase_rerank_score" in candidate.breakdown
     ]
+    displacement_metrics = {}
+    stage_diagnostics = result.solver.stage_diagnostics.get("displacements", {})
+    for stage_name, payload in stage_diagnostics.items():
+        displacement_metrics[stage_name] = {
+            key: float(value)
+            for key, value in payload.items()
+            if not isinstance(value, np.ndarray)
+        }
     return {
         "target_width": result.inference.target_width,
         "target_height": result.inference.target_height,
@@ -165,6 +212,7 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         "source_fidelity": source_fidelity,
         "phase_rerank_candidates": rerank_candidates,
         "loss_history": result.solver.loss_history,
+        "optimizer_displacement": displacement_metrics,
     }
 
 

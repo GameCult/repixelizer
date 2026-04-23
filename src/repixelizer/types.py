@@ -64,6 +64,7 @@ class SolverArtifacts:
     guidance_strength: np.ndarray
     initial_rgba: np.ndarray
     loss_history: list[float]
+    stage_diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
