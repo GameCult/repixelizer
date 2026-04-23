@@ -32,8 +32,8 @@ Or, in pictures:
 
 The optimizer carries five important pieces of cargo all the way through:
 
-- `uv0_t`: the regular lattice centers, in normalized sampling coordinates
-- `initial_representative_t`: the soft portrait made by sampling little patches around each UV center
+- `uv_t`: the regular lattice centers, in normalized sampling coordinates
+- `representative_t`: the soft portrait made by sampling little patches around each UV center
 - `source_lattice_reference`: the hard portrait built by assigning every source pixel to one inferred output cell
 - `source_reliability_t`: the per-cell trust dial that decides how much the machine should listen to the hard portrait instead of the soft one
 - `snap_t`: the first fully discrete output, used as both a candidate answer and the anchor for later refinement
@@ -41,6 +41,12 @@ The optimizer carries five important pieces of cargo all the way through:
 If we lose track of one of those, the optimizer becomes impossible to reason about.
 
 The first structural cut now gathers that cargo into `_OptimizerPrep` before snap and refine begin. That does not make the algorithm better by itself, but it makes the machine easier to see: preparation builds the map, snap and refine walk it.
+
+There is one extra sidecar cargo too:
+
+- `guidance`: a downsampled edge map saved into `SolverArtifacts` for the later cleanup stage
+
+It matters to the pipeline contract, but it is not part of the optimizer's decision-making spine.
 
 For every stage below, read it in two layers:
 
@@ -52,6 +58,8 @@ For every stage below, read it in two layers:
 Functions:
 
 - `run_pipeline(...)` in `src/repixelizer/pipeline.py`
+- `_prepare_analysis(...)` in `src/repixelizer/pipeline.py`
+- `_select_phase_candidate_with_reconstruction(...)` in `src/repixelizer/pipeline.py`
 - `_run_reconstruction(...)` in `src/repixelizer/pipeline.py`
 
 Inputs:
@@ -65,7 +73,7 @@ Inputs:
 
 Meaning:
 
-Before the optimizer does anything clever, the pipeline chooses the ruler.
+Before the optimizer does anything clever, the pipeline chooses the ruler, and for low-confidence continuous runs it may give that ruler one last suspicious look before letting the solver touch it.
 
 This fixes:
 
@@ -76,12 +84,12 @@ Every later judgment is conditioned on that ruler. If it is wrong, the optimizer
 
 ### What the source actually does
 
-In `run_pipeline(...)`, the pipeline first resolves whether the user pinned a target size and phase through `_resolve_requested_target_dims(...)`. If the user did not, it calls `infer_lattice(...)`; if the user did, it calls `infer_fixed_lattice(...)`. Either way, the result is one `InferenceResult` carrying `target_width`, `target_height`, `phase_x`, and `phase_y`. Then `_run_reconstruction(...)` hands that same ruler to `optimize_lattice_pixels(...)`. No optimizer stage gets to improvise a different grid later.
+In `run_pipeline(...)`, the pipeline first resolves whether the user pinned a target size and phase through `_resolve_requested_target_dims(...)`. If the user did not, it calls `infer_lattice(...)`; if the user did, it calls `infer_fixed_lattice(...)`. Then `_prepare_analysis(...)` builds the edge scout report. After that, `_select_phase_candidate_with_reconstruction(...)` may rerank the inferred candidates, but only when `reconstruction_mode == "continuous"`, reranking is enabled, confidence is low enough, and there is more than one top candidate. That rerank path actually runs `_run_reconstruction(...)` with `steps=0` on up to eight candidates and scores them with source-lattice support, edge-position error, stroke wobble, edge concentration, size delta, and inference penalty. Only after that does `_run_reconstruction(...)` hand the final `InferenceResult` to `optimize_lattice_pixels(...)`. Once the optimizer itself starts, the ruler is fixed.
 
 ### Metaphor
 
-This is the surveyor hammering stakes into the ground before anyone starts building.  
-The rest of the crew can argue about stone choice, mortar lines, and whether a corner should be nudged half an inch, but nobody is allowed to quietly move the foundation stakes once the wall has started going up.
+This is the surveyor hammering stakes into the ground before anyone starts building, then having one brief, paranoid committee meeting about whether the stakes were hammered in the wrong place.  
+After that, the argument is over. The masons do not get to kick the stakes sideways halfway through the wall just because they are having feelings.
 
 ## Stage 1: The edge scout walks the mural
 
@@ -128,15 +136,15 @@ Functions:
 
 Key outputs:
 
-- `uv0`
-- `uv0_t`
+- `uv`
+- `uv_t`
 - `offsets_t`
 
 Meaning:
 
 This stage drops the graph paper onto the mural.
 
-`uv0` is not an optimized warp. It is a perfectly regular lattice built directly from:
+`uv` is not an optimized warp. It is a perfectly regular lattice built directly from:
 
 - source width and height
 - inferred output width and height
@@ -169,7 +177,7 @@ Functions:
 Key variables:
 
 - `initial_patches`
-- `initial_representative_t`
+- `representative_t`
 
 Meaning:
 
@@ -271,7 +279,7 @@ Current code shape:
 
 ### What the source actually does
 
-`build_source_lattice_reference(...)` in `src/repixelizer/source_reference.py` calls `_build_reference_payload(...)`, which first uses `lattice_indices(...)` to assign every source pixel to one output cell under the chosen size and phase. It premultiplies the source, bins pixel contributions by cell index, and computes `mean_rgba`, `cell_dispersion`, `cell_support`, and `cell_alpha_max`. Then it chooses one exemplar-like pixel per cell with `_argbest_linear_indices(...)` over `exemplar_cost_t`, producing `sharp_rgba`, `sharp_x`, and `sharp_y`. In parallel it picks edge-peak locations using the strongest `edge_hint`, giving `edge_peak_x`, `edge_peak_y`, `edge_strength`, `edge_grad_x`, and `edge_grad_y`. Back in `continuous.py`, `_build_source_detail_reference(...)` mixes the sharp pixel with the edge-peak pixel where `edge_strength` clears the configured threshold. `_build_source_reliability(...)` then turns dispersion, support, alpha, and edge strength into a trust map, while `_source_detail_delta_tensors(...)` computes the horizontal, vertical, and diagonal color-jump tensors from that hard portrait.
+`build_source_lattice_reference(...)` in `src/repixelizer/source_reference.py` calls `_build_reference_payload(...)`, which first uses `lattice_indices(...)` to assign every source pixel to one output cell under the chosen size and phase. It premultiplies the source, bins pixel contributions by cell index, and computes `mean_rgba`, `cell_dispersion`, `cell_support`, and `cell_alpha_max`. Then it chooses one exemplar-like pixel per cell with `_argbest_linear_indices(...)` over `exemplar_cost_t`, where that cost is basically "distance from the cell's premultiplied mean, plus a tiny penalty if alpha falls below that mean." That produces `sharp_rgba`, `sharp_x`, and `sharp_y`. In parallel it picks edge-peak locations using the strongest `edge_hint`, giving `edge_peak_x`, `edge_peak_y`, `edge_strength`, `edge_grad_x`, and `edge_grad_y`. Back in `continuous.py`, `_build_source_detail_reference(...)` mixes the sharp pixel with the edge-peak pixel where `edge_strength` clears the configured threshold. `_build_source_reliability(...)` then turns dispersion, support, alpha, and edge strength into a trust map, while `_source_detail_delta_tensors(...)` computes the horizontal, vertical, and diagonal color-jump tensors from that hard portrait.
 
 ### Metaphor
 
@@ -343,12 +351,12 @@ That stops fuzzy half-alpha picks from surviving into the final raster.
 
 ### What the source actually does
 
-`_snap_output_to_source_pixels(...)` turns each UV center into a fixed `5x5` local neighborhood by adding the `fractions = [-0.42, -0.21, 0.0, 0.21, 0.42]` offsets scaled by `cell_x` and `cell_y`, then rounds those positions to real source pixels to get `candidate_x`, `candidate_y`, and `candidate_colors`. It measures `representative_match` against `representative_t` and `source_match` against `source_reference_t`, then fuses them with `_reference_match_energy(...)` using `source_reliability_t`. It also builds `desired_delta_x`, `desired_delta_y`, `desired_delta_diag`, and `desired_delta_anti` by blending the soft portrait's deltas with the hard portrait's deltas through `_blend_reference_delta_map(...)`. Those deltas become pairwise energy terms so the chosen pixel does not only match its own cell; it also tries not to break the expected seam with its neighbors. Finally, `_harden_binary_alpha_selection(...)` snaps indecisive alpha picks to an explicitly opaque or transparent candidate when the ranking supports it.
+`_snap_output_to_source_pixels(...)` turns each UV center into a fixed `5x5` local neighborhood by adding the `fractions = [-0.42, -0.21, 0.0, 0.21, 0.42]` offsets scaled by `cell_x` and `cell_y`, then rounds those positions to real source pixels to get `candidate_x`, `candidate_y`, and `candidate_colors`. It measures `representative_match` against `representative_t` and `source_match` against `source_reference_t`, then fuses them with `_reference_match_energy(...)` using `source_reliability_t`. It also builds `desired_delta_x`, `desired_delta_y`, `desired_delta_diag`, and `desired_delta_anti` by blending the soft portrait's deltas with the hard portrait's deltas through `_blend_reference_delta_map(...)`. Then it does not just choose once. It starts from `selected = argmin(base_energy)`, then runs four synchronous neighbor-consistency sweeps, rebuilding `energy` from the currently selected colors and the desired deltas before taking a new per-cell argmin each time. Finally, `_harden_binary_alpha_selection(...)` snaps indecisive alpha picks to an explicitly opaque or transparent candidate when the ranking supports it.
 
 ### Metaphor
 
 This is the first time the machine has to stop daydreaming and pick actual stones.  
-For each slot in the wall, it kneels over a tray of twenty-five nearby stones, weighs each one against the watercolor sketch and the accountant's ledger, then squints at the seam lines to make sure the choice will not make the neighboring joints look deranged. At the end it slaps the hand away from any damp half-ghost stone and says, no, pick rock or air. Commit.
+For each slot in the wall, it kneels over a tray of twenty-five nearby stones, weighs each one against the watercolor sketch and the accountant's ledger, then does four quick passes across the wall tightening the joints before the mortar sets. At the end it slaps the hand away from any damp half-ghost stone and says, no, pick rock or air. Commit.
 
 ## Stage 6: Expand the search space for refine
 
@@ -448,7 +456,7 @@ Recent cut:
 
 ### What the source actually does
 
-`_relax_candidate_selection(...)` initializes `probs` as a softmax over `-base_energy / start_temp`. On each iteration it converts those probabilities into `context_colors`, the expected color field implied by the current soft choices. It then rebuilds `final_energy` by adding pairwise delta agreement terms, optional source-facing adjacency terms, optional motif terms against both `anchor` and `source_reference`, and optional line-continuation terms. After each step, it damps and cools the distribution so the probabilities get sharper over time. When the loop ends, it keeps both the best handoff selection `selected` and the pure modal pick `mode_selected`. The relax-mode bonus that used to bias refine directly is gone; only the end-of-stage hedge remains.
+`_relax_candidate_selection(...)` initializes `probs` as a softmax over `-base_energy / start_temp`. On each iteration it converts those probabilities into `context_colors`, the expected color field implied by the current soft choices. It then rebuilds `final_energy` by adding pairwise delta agreement terms, optional source-facing adjacency terms, optional motif terms against both `anchor` and `source_reference`, and optional line-continuation terms. After each step, it damps and cools the distribution so the probabilities get sharper over time. When the loop ends, it builds `relaxed_context`, then forms `handoff_energy` by combining `final_energy`, a penalty for straying from `relaxed_context`, pairwise delta agreement against `relaxed_context`, and motif/line terms that now treat `relaxed_context` itself as the local template for the anchor-facing side of the handoff. It keeps both the best handoff selection `selected` and the pure modal pick `mode_selected`. The relax-mode bonus that used to bias refine directly is gone; only the end-of-stage hedge remains.
 
 ### Metaphor
 
@@ -511,7 +519,7 @@ Then it hardens alpha again before producing the final `target_rgba`.
 
 ### What the source actually does
 
-`_discrete_refine_output(...)` starts from the relaxed handoff and relaxed mode states, scores both with `_structure_score(...)`, and keeps the better starting point. Then for up to `iterations` passes it computes `candidate_energy(context_colors)` from `refine_base_energy`, pairwise delta terms, optional motif and line terms against the snapped anchor, and optional source-facing motif, line, and adjacency terms against the hard portrait. Each pass takes the per-cell argmin, scores the full discrete lattice with `_structure_score(...)`, and remembers the best whole-state selection it has seen in `best_selected`. At the end it compares that best greedy state against `relaxed_mode_selected`, picks the lower full-structure score, and hardens alpha one more time. After the recent cuts, this stage no longer consults the representative portrait directly; refine answers to the snapped anchor and the hard source portrait.
+`_discrete_refine_output(...)` starts from the relaxed handoff and relaxed mode states, scores both with `_structure_score(...)`, and keeps the better starting point. Then for up to `iterations` passes it computes `candidate_energy(context_colors)` from `refine_base_energy`, pairwise delta terms, optional motif and line terms against the snapped anchor, and optional source-facing motif, line, and adjacency terms against the hard portrait. `_structure_score(...)` separately judges whole-lattice boundary agreement by directly sampling the source around the UV field with `_boundary_pattern_loss(...)`, then adds anchor-facing adjacency/motif/line losses and source-facing adjacency/motif/line losses. Each pass takes the per-cell argmin, scores the full discrete lattice with `_structure_score(...)`, and remembers the best whole-state selection it has seen in `best_selected`. The loop deliberately runs `passes + 1` scoring rounds so the current state is always scored before the next update is applied. At the end it compares that best greedy state against `relaxed_mode_selected`, picks the lower full-structure score, and hardens alpha one more time. After the recent cuts, this stage no longer consults the representative portrait directly; refine answers to the snapped anchor and the hard source portrait.
 
 ### Metaphor
 
