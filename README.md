@@ -41,6 +41,7 @@ Current tile-graph status:
 
 - it now keeps candidates strictly local to each output coord and only uses literal source-pixel colors, so it no longer invents averaged patch colors or borrow labels from distant regions
 - candidate seeding now starts from source-side atomic regions projected onto the output lattice, layered together with the old sharp/edge anchors instead of replacing them outright
+- the new deep-dive map in `docs/tile-graph-algorithm-map.md` walks the tile-graph path end to end and records the current fixed-lattice failure mode: the garbled `126x126` badge output is already bad at the tile-graph initial assignment stage, not because the fixed-lattice pipeline wrapper is corrupting it
 - the latest full-emblem probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the earlier full-CUDA tile-graph baseline at `0.0283`
 - tile-graph now falls back to its initial assignment when the propagation loop would make source-lattice fidelity worse, which is currently important for preserving sharp internal contour cells
 - it still beats naive resize on the repo's synthetic thin-feature regression and now does so without letting the final propagation step blur past the initial placement
@@ -134,6 +135,7 @@ That keeps benchmark assets, attribution exports, and tuning runs from polluting
 - `tests`: focused regression tests
 - `docs/spec.md`: product and technical spec
 - `docs/implementation-plan.md`: working roadmap
+- `docs/tile-graph-algorithm-map.md`: detailed tile-graph dataflow and failure-point map
 - `examples/corpus/README.md`: local corpus layout and attribution workflow
 
 Core modules:
