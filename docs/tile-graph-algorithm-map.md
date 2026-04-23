@@ -157,12 +157,11 @@ This is the mural after the graph paper has already been pressed onto it. Each s
   - `candidate_coords`: output coord `(y, x)` each candidate belongs to
   - `candidate_area_ratio`: how much of a cell-sized source window the source region covered
   - `candidate_coverage`: clipped version of area coverage
-  - `candidate_deltas`: expected RGBA deltas to right/down/left/up neighbors sampled one cell away in source space
-  - `cell_candidate_offsets`, `cell_candidate_indices`: CSR-like mapping from output cells to candidate rows
-  - `reference_mean_rgba`, `reference_sharp_rgba`, `reference_edge_rgba`
-  - `edge_strength`
-  - `component_count`, `edge_density`, `average_choices`
-  - `geometry_reference_rgba`, `geometry_strength`: optional hybrid-mode priors
+- `candidate_deltas`: expected RGBA deltas to right/down/left/up neighbors sampled one cell away in source space
+- `cell_candidate_offsets`, `cell_candidate_indices`: CSR-like mapping from output cells to candidate rows
+- `reference_mean_rgba`, `reference_sharp_rgba`, `reference_edge_rgba`
+- `edge_strength`
+- `component_count`, `edge_density`, `average_choices`
 
 Plain-language picture:
 
@@ -182,8 +181,7 @@ Main variables:
 - `fixed_dims`: either `None` or exact `(target_width, target_height)` resolved from CLI
 - `inference`: one `InferenceResult`
 - `analysis`: one `SourceAnalysis`
-- `cached_reconstruction`: optional reused probe result from phase rerank
-- `solver`: `SolverArtifacts` from continuous, tile-graph, or hybrid
+- `solver`: `SolverArtifacts` from continuous or tile-graph
 - `cleanup`: `CleanupArtifacts`
 - `output_rgba`: final saved output
 
@@ -311,10 +309,10 @@ This is a dress rehearsal. The pipeline builds a few small stage versions and as
 
 Important note for tile-graph:
 
-- this rerank is pipeline-level, not optimizer-specific
-- today `optimize_tile_graph(...)` ignores `steps`, so tile-graph rerank probes are basically full tile-graph runs
+- after the pruning pass, tile-graph does not participate in this stage at all
+- phase rerank is now a continuous-only wrapper
 
-That is a performance problem, but not the cause of the fixed-126 corruption.
+That keeps the tile-graph machine smaller, but it also means tile-graph currently trusts the selected or pinned lattice directly.
 
 ## Stage 5: Source Lattice Reference
 
@@ -520,20 +518,19 @@ Now each output cell has a tray of possible chips. This stage is the bouncer at 
 
 ### `build_tile_graph_model(...)` main flow
 
-1. Resolve geometry prior inputs if hybrid mode is active.
-2. Check the process-local tile-graph cache.
-3. Build `source_reference`.
-4. Compute `cell_w`, `cell_h`.
-5. Decide `source_region_stride`.
-6. Build `sampled_rgba` and `sampled_edge`.
-7. Segment components.
-8. Extract region tiles into `region_buckets`.
-9. For each output coord:
+1. Check the process-local tile-graph cache.
+2. Build `source_reference`.
+3. Compute `cell_w`, `cell_h`.
+4. Decide `source_region_stride`.
+5. Build `sampled_rgba` and `sampled_edge`.
+6. Segment components.
+7. Extract region tiles into `region_buckets`.
+8. For each output coord:
   - decide whether it is an edge cell from `source_reference.edge_strength`
   - collect region candidates from `region_buckets[flat_index]`
   - downselect them with `_select_source_region_candidates(...)`
   - if no region candidates survive, fall back to `sharp` and optionally `edge_peak`
-10. Build candidate arrays and expected neighbor deltas.
+9. Build candidate arrays and expected neighbor deltas.
 
 ### `_select_source_region_candidates(...)`
 
@@ -629,7 +626,6 @@ For each output cell and each candidate:
   - `area_error`
   - `alpha_error`
   - `coverage_error`
-7. Optionally add hybrid geometry error.
 
 Important implication:
 
@@ -895,7 +891,6 @@ The pieces that are secondary, advisory, or ornamental are:
 
 - `cluster_map` and its color-family story
 - phase rerank as a performance-expensive wrapper
-- hybrid geometry priors
 - cleanup, in the current badge case
 
 That does not mean those pieces are useless. It means they are not the heart of the machine. If the heart is wrong, polishing those side systems will not save the result.

@@ -222,106 +222,6 @@ def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
     assert selected.target_height == candidate_a.target_height
 
 
-def test_hybrid_reconstruction_passes_continuous_geometry_into_tile_graph(monkeypatch) -> None:
-    source = np.zeros((4, 4, 4), dtype=np.float32)
-    geometry_rgba = np.zeros((2, 2, 4), dtype=np.float32)
-    geometry_rgba[0, 0] = np.asarray([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
-    geometry_guidance = np.asarray([[0.8, 0.2], [0.1, 0.6]], dtype=np.float32)
-    inference = InferenceResult(
-        target_width=2,
-        target_height=2,
-        phase_x=0.0,
-        phase_y=0.0,
-        confidence=1.0,
-        top_candidates=[],
-    )
-
-    geometry_solver = SolverArtifacts(
-        target_rgba=geometry_rgba,
-        uv_field=np.zeros((2, 2, 2), dtype=np.float32),
-        guidance_strength=geometry_guidance,
-        initial_rgba=geometry_rgba.copy(),
-        loss_history=[],
-    )
-
-    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
-        assert steps == 0
-        return geometry_solver
-
-    def fake_optimize_tile_graph(
-        source_rgba,
-        inference,
-        analysis,
-        steps,
-        seed,
-        device,
-        solver_params=None,
-        geometry_reference_rgba=None,
-        geometry_guidance_strength=None,
-    ):
-        assert np.allclose(geometry_reference_rgba, geometry_rgba)
-        assert np.allclose(geometry_guidance_strength, geometry_guidance)
-        return (
-            SolverArtifacts(
-                target_rgba=geometry_rgba.copy(),
-                uv_field=np.zeros((2, 2, 2), dtype=np.float32),
-                guidance_strength=np.zeros((2, 2), dtype=np.float32),
-                initial_rgba=geometry_rgba.copy(),
-                loss_history=[],
-            ),
-            {"mode": "tile-graph", "tile_graph_geometry_prior": True},
-        )
-
-    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
-    monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fake_optimize_tile_graph)
-
-    solver, diagnostics = _run_reconstruction(
-        source,
-        inference=inference,
-        analysis=object(),
-        steps=12,
-        seed=7,
-        device="cpu",
-        solver_params=SolverHyperParams(),
-        reconstruction_mode="hybrid",
-    )
-
-    assert np.allclose(solver.target_rgba, geometry_rgba)
-    assert diagnostics["mode"] == "hybrid"
-    assert diagnostics["hybrid_geometry_prepass_mode"] == "continuous"
-    assert diagnostics["tile_graph_geometry_prior"] is True
-
-
-def test_pipeline_hybrid_mode_writes_reconstruction_diagnostics(tmp_path: Path) -> None:
-    source = make_emblem(16, 16)
-    fake = fake_pixelize(source, upscale=8, phase_x=0.1, phase_y=-0.05, blur_radius=0.4, warp_strength=0.15, warp_detail=4)
-    input_path = tmp_path / "input.png"
-    output_path = tmp_path / "output.png"
-    diagnostics_dir = tmp_path / "diagnostics"
-
-    from repixelizer.io import save_rgba
-
-    save_rgba(input_path, fake)
-    result = run_pipeline(
-        input_path,
-        output_path,
-        diagnostics_dir=diagnostics_dir,
-        reconstruction_mode="hybrid",
-        steps=0,
-        device="cpu",
-    )
-
-    import json
-
-    run_json = json.loads((diagnostics_dir / "run.json").read_text(encoding="utf-8"))
-    assert output_path.exists()
-    assert run_json["settings"]["reconstruction_mode"] == "hybrid"
-    assert run_json["reconstruction"]["mode"] == "hybrid"
-    assert run_json["reconstruction"]["tile_graph_geometry_prior"] is True
-    assert run_json["reconstruction"]["hybrid_geometry_prepass_mode"] == "continuous"
-    assert result.diagnostics["reconstruction"]["mode"] == "hybrid"
-
-
 def test_select_phase_candidate_can_skip_phase_rerank(monkeypatch) -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
     candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
@@ -351,7 +251,36 @@ def test_select_phase_candidate_can_skip_phase_rerank(monkeypatch) -> None:
     assert selected.target_height == candidate_a.target_height
 
 
-def test_pipeline_reuses_phase_probe_reconstruction_for_tile_graph(tmp_path: Path, monkeypatch) -> None:
+def test_select_phase_candidate_skips_phase_rerank_for_tile_graph(monkeypatch) -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
+    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
+    inference = InferenceResult(
+        target_width=8,
+        target_height=8,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("tile-graph phase rerank probe should not run")
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fail)
+    selected = _select_phase_candidate(
+        source,
+        inference,
+        analysis=object(),
+        seed=7,
+        device="cpu",
+        reconstruction_mode="tile-graph",
+    )
+    assert selected.target_width == candidate_a.target_width
+    assert selected.target_height == candidate_a.target_height
+
+
+def test_pipeline_runs_tile_graph_once_without_phase_probe_reuse(tmp_path: Path, monkeypatch) -> None:
     source = np.zeros((6, 6, 4), dtype=np.float32)
     source[..., 3] = 1.0
     input_path = tmp_path / "input.png"
@@ -385,10 +314,8 @@ def test_pipeline_reuses_phase_probe_reconstruction_for_tile_graph(tmp_path: Pat
         seed,
         device,
         solver_params=None,
-        geometry_reference_rgba=None,
-        geometry_guidance_strength=None,
     ):
-        del source_rgba, analysis, steps, seed, device, solver_params, geometry_reference_rgba, geometry_guidance_strength
+        del source_rgba, analysis, steps, seed, device, solver_params
         call_count["tile_graph"] += 1
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         rgba[..., 3] = 1.0
@@ -425,8 +352,8 @@ def test_pipeline_reuses_phase_probe_reconstruction_for_tile_graph(tmp_path: Pat
     )
 
     assert output_path.exists()
-    assert call_count["tile_graph"] == 2
-    assert result.diagnostics["reconstruction"]["reused_phase_probe_reconstruction"] is True
+    assert call_count["tile_graph"] == 1
+    assert "reused_phase_probe_reconstruction" not in result.diagnostics["reconstruction"]
     assert result.output_rgba.shape[:2] == (3, 3)
 
 

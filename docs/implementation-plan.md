@@ -14,7 +14,6 @@ Implemented:
 - source-first snap/refine scoring with explicit source-vs-representative weights
 - low-confidence phase reranking with soft size penalties instead of hard size-jump rejection
 - an experimental `tile-graph` reconstruction path with coord-local literal source-pixel candidates
-- an experimental `hybrid` reconstruction path that combines a continuous geometry prepass with tile-graph ownership
 - stage-aware diagnostics writing, including per-stage source-fidelity and rerank traces
 - synthetic test fixtures and automated tests
 
@@ -58,26 +57,23 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass focused on direct control and iteration speed for `tile-graph` and `hybrid`, so the pipeline can run exact user-chosen lattices instead of always paying for the full search-and-rerank path.
+This pass is the first pruning pass after the new algorithm map: strip away the optimizer-era sidecars that are not part of the core tile-graph machine.
 
 What landed:
-- `pipeline.py` now accepts pinned `target_width` / `target_height` plus optional `phase_x` / `phase_y` so the pipeline can construct a fixed inference result directly
-- `inference.py` now exposes `infer_fixed_lattice(...)`, which searches only the requested phase space for one fixed lattice instead of paying the full size search
-- `cli.py` and `compare.py` now expose those controls plus `--skip-phase-rerank`
-- `tile_graph.py` now has a process-local model cache keyed by source content, lattice choice, device, and build-affecting tile-graph params
-- `tests/test_inference.py`, `tests/test_pipeline.py`, `tests/test_tile_graph.py`, and `tests/test_cli.py` now cover fixed-lattice inference, rerank disabling, and cache reuse
-- `docs/tile-graph-algorithm-map.md` now traces the tile-graph path stage by stage, including the exact variables that carry source data into connected components, region buckets, per-cell candidates, unary costs, and the initial assignment
-- that map now records the corrected fixed-lattice failure anatomy on the cleaned badge: with pinned `126x126` / phase `(0.0, -0.2)`, occupied output cells are no longer losing extracted region buckets after the new overlap fill pass, yet the broken result is still already bad at `tile_graph_initial_source_fidelity = 0.500884`
+- `tile-graph` no longer participates in pipeline phase rerank probes; rerank is now a continuous-only wrapper
+- the experimental `hybrid` path and its geometry-prior wiring have been removed
+- `tile_graph.py` no longer carries geometry-prior fields through `TileGraphModel` or tile-graph unary scoring
+- `cli.py` now exposes only `continuous` and `tile-graph` as reconstruction engines
+- `tests/test_pipeline.py` now checks that low-confidence tile-graph runs skip rerank probes instead of rebuilding probe candidates
+- `docs/tile-graph-algorithm-map.md` now describes the smaller machine directly rather than documenting the removed hybrid sidecar path
 
 Current implementation note:
-- the earlier profiling result still stands: on the searched badge path, the solver loop is not the problem; the heavy costs are `infer_lattice(...)`, low-confidence phase rerank probes, and `_extract_source_region_tiles(...)`
-- the new direct-control path is specifically for dodging those costs during iteration when we already know which lattice we want to inspect
+- the earlier profiling result still stands: on the searched badge path, the solver loop is not the problem; the heavy costs are `infer_lattice(...)`, continuous-mode phase rerank probes, and `_extract_source_region_tiles(...)`
+- the direct-control path is specifically for dodging those costs during iteration when we already know which lattice we want to inspect
+- tile-graph now skips pipeline rerank entirely, so iteration no longer rebuilds multiple probe candidates before the final tile-graph solve
 - on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, a fixed-lattice CUDA `tile-graph` run now took about `10.2s` on the first same-process run and about `2.1s` on the cached rerun, with the same output and a reported `tile_graph_model_cache_hit` on the second pass
 - the current deep-dive diagnosis is that the fixed-lattice garbling is not a wrapper bug and not mainly a parity-solver bug; it is being born in lattice-conditioned reference building, source-region cutting/projection, candidate starvation, and the first unary argmin assignment
 - the extraction coverage bug turned out to be real but secondary: the new `_extract_source_region_tiles(...)` overlap fill pass now guarantees that any output cell containing opaque sampled source pixels gets at least one extracted region bucket, but the pinned `126x126` badge output remains numerically unchanged (`0.4998626`), which narrows the remaining failure to candidate ranking and lattice-conditioned reference usage rather than empty region buckets
-- the hybrid remains intentionally conservative: it only biases tile-graph's unary cost with the continuous prepass layout and does not yet replace the pairwise objective or the source-region builder
-- on the cleaned badge, that conservative hybrid still helps: the latest run under `artifacts/badge-hybrid-v2-cuda/` lands at `0.1785`, improving on the current tile-graph badge baseline at `0.1832`
-- the hybrid is still far behind the stronger continuous badge result (`0.0832`), so the seam looks promising but it is not yet enough to solve the real contour problem by itself
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
 
@@ -85,8 +81,7 @@ Next after that:
 - split tile-graph iteration into a cached model-build phase and a near-free solve phase so weight tuning does not keep paying the `~131s` source-region cutting bill
 - extend the current fixed-lattice path so repeated CLI runs can reuse cached model artifacts across processes instead of only within one Python process
 - port or reformulate `_extract_source_region_tiles(...)` so it no longer spends most of the badge runtime in Python/NumPy window cutting
-- reduce rerank probe cost by using cached candidate builds where possible or by using a cheaper rerank proxy before full tile-graph reconstruction
-- decide whether the next hybrid pass should add geometry-aware pairwise terms before changing the source-region builder again
+- decide whether the continuous path should stay the only global search/rerank engine or whether tile-graph eventually needs its own lighter lattice chooser
 - evaluate whether the tile-graph propagation loop should become more contour-aware or simply stay more conservative now that the initial assignment is stronger
 - rerun tuning after the tile-graph objective and candidate sets stabilize
 - decide whether the tile-graph path should stay an alternate solver or become a candidate generator for the continuous refine stage
@@ -114,8 +109,7 @@ Current status:
 - the remaining weakness on tile-graph is not candidate color purity anymore; it is candidate extraction cost plus deciding how aggressive the propagation step should be once the initial assignment is already strong
 - on the cleaned badge, the new CCL-backed tile-graph run under `artifacts/badge-tile-graph-ccl-cuda/` still lands at a weak `0.1800`, so the current CCL work should be treated as an infrastructure/performance step rather than a visual-quality fix
 - the new stroke-aware badge run under `artifacts/badge-tile-graph-stroke-v2-cuda/` still does not solve the guard-contour problem and slightly regresses to `0.1832`, so the next stroke pass should be judged on whether it changes the source-side path model more fundamentally
-- the first hybrid badge run under `artifacts/badge-hybrid-v2-cuda/` improves that tile-graph baseline to `0.1785`, which is modest but real progress in the combined direction
-- on the cleaned badge, iteration is still dominated by preprocessing work rather than the tile-graph parity solver: about `44.1s` in inference, `223.9s` in low-confidence rerank probes, and `142.3s` in the final selected-candidate build before this pass started reusing the chosen phase probe
+- older searched-path profiling showed that iteration was dominated by preprocessing work rather than the tile-graph parity solver: about `44.1s` in inference, `223.9s` in low-confidence rerank probes, and `142.3s` in the final selected-candidate build; the pruned tile-graph path no longer pays those rerank probes, but `_extract_source_region_tiles(...)` is still the heavy remaining step
 
 Important note:
 - the checkerboard is baked into the source image, not transparency

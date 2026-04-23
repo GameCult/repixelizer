@@ -68,8 +68,6 @@ class TileGraphModel:
     edge_density: float
     average_choices: float
     model_device: str
-    geometry_reference_rgba: np.ndarray | None = None
-    geometry_strength: np.ndarray | None = None
     cache_hit: bool = False
 
 
@@ -877,26 +875,10 @@ def build_tile_graph_model(
     analysis: SourceAnalysis,
     solver_params: SolverHyperParams | None = None,
     device: str = "cpu",
-    geometry_reference_rgba: np.ndarray | None = None,
-    geometry_guidance_strength: np.ndarray | None = None,
 ) -> TileGraphModel:
     torch = _require_torch()
     resolved_device = _resolve_device(torch, device)
     solver_params = solver_params or SolverHyperParams()
-    geometry_reference_np = None
-    if geometry_reference_rgba is not None:
-        geometry_reference_np = np.asarray(geometry_reference_rgba, dtype=np.float32)
-        if geometry_reference_np.shape[:2] != (inference.target_height, inference.target_width):
-            raise ValueError(
-                "geometry_reference_rgba must match the inferred output size when provided to tile-graph."
-            )
-    geometry_strength_np = None
-    if geometry_guidance_strength is not None:
-        geometry_strength_np = np.asarray(geometry_guidance_strength, dtype=np.float32)
-        if geometry_strength_np.shape != (inference.target_height, inference.target_width):
-            raise ValueError(
-                "geometry_guidance_strength must match the inferred output size when provided to tile-graph."
-            )
     cache_key = _tile_graph_model_cache_key(
         source_rgba,
         inference=inference,
@@ -905,12 +887,7 @@ def build_tile_graph_model(
     )
     cached_model = _get_cached_tile_graph_model(cache_key)
     if cached_model is not None:
-        return replace(
-            cached_model,
-            geometry_reference_rgba=geometry_reference_np,
-            geometry_strength=geometry_strength_np,
-            cache_hit=True,
-        )
+        return replace(cached_model, cache_hit=True)
     source_reference = build_source_lattice_reference(
         source_rgba,
         target_width=inference.target_width,
@@ -1106,17 +1083,10 @@ def build_tile_graph_model(
         edge_density=edge_density,
         average_choices=average_choices,
         model_device=resolved_device,
-        geometry_reference_rgba=None,
-        geometry_strength=None,
         cache_hit=False,
     )
     _store_cached_tile_graph_model(cache_key, base_model)
-    return replace(
-        base_model,
-        geometry_reference_rgba=geometry_reference_np,
-        geometry_strength=geometry_strength_np,
-        cache_hit=False,
-    )
+    return replace(base_model, cache_hit=False)
 
 
 def _cell_candidate_span(model: TileGraphModel, y: int, x: int) -> tuple[int, int]:
@@ -1175,18 +1145,6 @@ def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperPara
                 + alpha_error * solver_params.tile_graph_alpha_weight
                 + coverage_error * solver_params.tile_graph_coverage_weight
             )
-            if model.geometry_reference_rgba is not None:
-                geometry_reference = model.geometry_reference_rgba[y, x]
-                geometry_error = np.mean(np.abs(geometry_reference[None, :] - candidates), axis=-1)
-                geometry_strength = 1.0
-                if model.geometry_strength is not None:
-                    geometry_strength += (
-                        float(np.clip(model.geometry_strength[y, x], 0.0, 1.0))
-                        * solver_params.hybrid_geometry_edge_boost
-                    )
-                total_cost = total_cost + geometry_error * (
-                    solver_params.hybrid_geometry_match_weight * geometry_strength
-                )
             unary_cost[start:end] = total_cost.astype(np.float32)
     return unary_cost
 
@@ -1208,17 +1166,6 @@ def _tile_graph_unary_cost_torch(
     reference_mean_t = torch.from_numpy(model.reference_mean_rgba).to(device=device, dtype=torch.float32)
     reference_edge_t = torch.from_numpy(model.reference_edge_rgba).to(device=device, dtype=torch.float32)
     edge_strength_t = torch.from_numpy(model.edge_strength).to(device=device, dtype=torch.float32)
-    geometry_reference_t = (
-        torch.from_numpy(model.geometry_reference_rgba).to(device=device, dtype=torch.float32)
-        if model.geometry_reference_rgba is not None
-        else None
-    )
-    geometry_strength_t = (
-        torch.from_numpy(model.geometry_strength).to(device=device, dtype=torch.float32)
-        if model.geometry_strength is not None
-        else None
-    )
-
     choice_rgba_t = candidate_rgba_t[choice_indices_t]
     choice_deltas_t = candidate_deltas_t[choice_indices_t]
     sharp_error_t = (reference_sharp_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
@@ -1240,14 +1187,6 @@ def _tile_graph_unary_cost_torch(
         + alpha_error * solver_params.tile_graph_alpha_weight
         + coverage_error * solver_params.tile_graph_coverage_weight
     )
-    if geometry_reference_t is not None:
-        geometry_error_t = (geometry_reference_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
-        geometry_scale_t = 1.0
-        if geometry_strength_t is not None:
-            geometry_scale_t = 1.0 + geometry_strength_t[..., None].clamp(0.0, 1.0) * solver_params.hybrid_geometry_edge_boost
-        unary_cost_t = unary_cost_t + geometry_error_t * (
-            solver_params.hybrid_geometry_match_weight * geometry_scale_t
-        )
     unary_cost_t = unary_cost_t.masked_fill(~choice_mask_t, float("inf"))
     return unary_cost_t, candidate_rgba_t, candidate_deltas_t, choice_rgba_t, choice_deltas_t
 
@@ -1420,8 +1359,6 @@ def optimize_tile_graph(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    geometry_reference_rgba: np.ndarray | None = None,
-    geometry_guidance_strength: np.ndarray | None = None,
 ) -> tuple[SolverArtifacts, dict[str, Any]]:
     del steps
     torch = _require_torch()
@@ -1436,8 +1373,6 @@ def optimize_tile_graph(
         analysis=analysis,
         solver_params=solver_params,
         device=resolved_device,
-        geometry_reference_rgba=geometry_reference_rgba,
-        geometry_guidance_strength=geometry_guidance_strength,
     )
     choice_indices_np, choice_mask_np = _build_choice_grid(model)
     choice_indices_t = torch.from_numpy(choice_indices_np).to(device=resolved_device, dtype=torch.long)
@@ -1561,7 +1496,6 @@ def optimize_tile_graph(
         "tile_graph_initial_source_fidelity": float(initial_source_fidelity),
         "tile_graph_final_source_fidelity": float(final_source_fidelity),
         "tile_graph_kept_initial_assignment": kept_initial_assignment,
-        "tile_graph_geometry_prior": model.geometry_reference_rgba is not None,
     }
     return (
         SolverArtifacts(
