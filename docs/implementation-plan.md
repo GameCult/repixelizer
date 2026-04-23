@@ -204,10 +204,30 @@ Why this is the right next cut:
 
 Next implementation steps:
 
-1. create a brand-new optimizer module beside `continuous.py`
-2. wire it up behind an experimental reconstruction mode or internal switch
-3. start with only the five objective terms listed above
-4. compare it against pinned badge and emblem runs before porting any old heuristics
+1. compare the new `phase-field` mode against pinned badge and emblem runs before porting any old heuristics
+2. improve the local evidence term so the field is pulled harder into solid fake-pixel interiors
+3. tune the projection / spacing story so the field can drift farther without collapsing or freezing
+4. only then consider importing a small number of old heuristics if they clearly help
+
+What has already landed:
+
+- a brand-new `src/repixelizer/phase_field.py` module
+- an experimental `--reconstruction-mode phase-field` pipeline path
+- a direct displacement-field optimizer using only:
+  - local coherence
+  - local edge avoidance
+  - edge-aware smoothness
+  - anti-collapse spacing
+  - displacement magnitude regularization
+- pinned-badge smoke artifacts under `artifacts/phase-field-v1-badge-126/`
+
+First honest result:
+
+- on the cleaned badge at fixed `126x126`, phase `(0.0, -0.2)`, `steps=48`, CUDA
+- the new `phase-field` mode lands at `0.1461` final source-fidelity
+- that is much worse than the current continuous path (`0.0745` on the same pinned case), but dramatically better than the earlier broken tile-graph collapse and, more importantly, it is being produced by a machine that actually matches its own description
+
+That is a respectable first brick: not good enough, but finally the right shape.
 
 ## High-value regression case
 

@@ -5,6 +5,16 @@ from dataclasses import asdict, dataclass
 
 @dataclass(slots=True)
 class SolverHyperParams:
+    phase_field_patch_extent: float = 0.18
+    phase_field_data_coherence_weight: float = 1.00
+    phase_field_data_edge_weight: float = 0.35
+    phase_field_smoothness_weight: float = 0.28
+    phase_field_edge_gate_strength: float = 6.0
+    phase_field_collapse_weight: float = 1.20
+    phase_field_min_spacing_ratio: float = 0.18
+    phase_field_magnitude_weight: float = 0.08
+    phase_field_learning_rate: float = 0.10
+    phase_field_max_displacement_ratio: float = 0.48
     representative_softmax_scale: float = 18.0
     source_edge_reliability_gain: float = 1.6
     source_edge_reliability_floor: float = 0.25

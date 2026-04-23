@@ -354,6 +354,35 @@ def test_select_phase_candidate_skips_phase_rerank_for_tile_graph(monkeypatch) -
     assert selected.target_height == candidate_a.target_height
 
 
+def test_select_phase_candidate_skips_phase_rerank_for_phase_field(monkeypatch) -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
+    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
+    inference = InferenceResult(
+        target_width=8,
+        target_height=8,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("phase-field phase rerank probe should not run")
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fail)
+    selected = _select_phase_candidate(
+        source,
+        inference,
+        analysis=object(),
+        seed=7,
+        device="cpu",
+        reconstruction_mode="phase-field",
+    )
+    assert selected.target_width == candidate_a.target_width
+    assert selected.target_height == candidate_a.target_height
+
+
 def test_pipeline_runs_tile_graph_once_without_phase_probe_reuse(tmp_path: Path, monkeypatch) -> None:
     source = np.zeros((6, 6, 4), dtype=np.float32)
     source[..., 3] = 1.0
@@ -429,6 +458,62 @@ def test_pipeline_runs_tile_graph_once_without_phase_probe_reuse(tmp_path: Path,
     assert call_count["tile_graph"] == 1
     assert "reused_phase_probe_reconstruction" not in result.diagnostics["reconstruction"]
     assert result.output_rgba.shape[:2] == (3, 3)
+
+
+def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
+    source = np.zeros((6, 6, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, source)
+
+    inference = InferenceResult(
+        target_width=3,
+        target_height=3,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    class DummyAnalysis:
+        edge_map = np.zeros((6, 6), dtype=np.float32)
+
+    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        del source_rgba, analysis, steps, seed, device, solver_params
+        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
+        rgba[..., 1] = 1.0
+        rgba[..., 3] = 1.0
+        return SolverArtifacts(
+            target_rgba=rgba,
+            uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
+            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            initial_rgba=rgba.copy(),
+            loss_history=[0.0],
+            stage_diagnostics={
+                "displacements": {},
+                "phase_field": {"mean_displacement_px": 0.0},
+            },
+        )
+
+    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", lambda *args, **kwargs: inference)
+    monkeypatch.setattr("repixelizer.pipeline.analyze_continuous_source", lambda *args, **kwargs: DummyAnalysis())
+    monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
+
+    result = run_pipeline(
+        input_path,
+        output_path,
+        reconstruction_mode="phase-field",
+        steps=8,
+        device="cpu",
+    )
+
+    assert output_path.exists()
+    assert result.output_rgba.shape[:2] == (3, 3)
+    assert result.diagnostics["reconstruction"]["mode"] == "phase-field"
 
 
 def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, monkeypatch) -> None:

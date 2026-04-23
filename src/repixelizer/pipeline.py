@@ -27,6 +27,7 @@ from .metrics import (
     source_lattice_consistency_breakdown,
 )
 from .params import SolverHyperParams
+from .phase_field import optimize_phase_field
 from .palette import load_palette, quantize_rgba, save_palette_report
 from .preprocess import strip_edge_background
 from .tile_graph import optimize_tile_graph
@@ -440,6 +441,23 @@ def _run_reconstruction(
             device=device,
             solver_params=solver_params,
         )
+    if reconstruction_mode == "phase-field":
+        solver = optimize_phase_field(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=steps,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+        )
+        return solver, {
+            "mode": "phase-field",
+            **{
+                f"phase_field_{key}": value
+                for key, value in solver.stage_diagnostics.get("phase_field", {}).items()
+            },
+        }
     solver = optimize_lattice_pixels(
         source,
         inference=inference,

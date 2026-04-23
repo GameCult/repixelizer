@@ -14,6 +14,19 @@ It is a map of the optimizer we should replace it with:
 
 That is the whole dream. No watercolor portrait. No accountant's ledger. No snap religion and refine religion living in the same cathedral. Just one field, one objective, one final sample.
 
+The first implementation of this restart now exists in `src/repixelizer/phase_field.py` behind `--reconstruction-mode phase-field`.
+
+That implementation is intentionally small and slightly stupid:
+
+- one displacement vector per output cell
+- one local solidity term
+- one edge-aware smoothness term
+- one anti-collapse spacing term
+- one displacement magnitude prior
+- one final nearest source sample
+
+It is not yet beating the old continuous optimizer on the pinned badge stress case, but it is finally the right kind of machine to improve.
+
 ## One-sentence machine
 
 The lean optimizer should be:
