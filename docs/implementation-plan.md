@@ -24,7 +24,7 @@ Verified:
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
-- the new algorithm map in `docs/tile-graph-algorithm-map.md` confirms that the pinned `126x126` tile-graph badge collapse is already present in the tile-graph initial assignment; the fixed-lattice pipeline path itself is reproducing that bad state faithfully rather than introducing it
+- the new algorithm map in `docs/tile-graph-algorithm-map.md` confirms that the pinned `126x126` tile-graph badge collapse is already present in the tile-graph initial assignment; the fixed-lattice pipeline path itself is reproducing that bad state faithfully rather than introducing it, and the newer extraction coverage fix now guarantees that occupied output cells are not silently losing their source-region bucket under the corrected full-size lattice mapping
 
 ## Status after adjacency-first pass
 
@@ -67,13 +67,14 @@ What landed:
 - `tile_graph.py` now has a process-local model cache keyed by source content, lattice choice, device, and build-affecting tile-graph params
 - `tests/test_inference.py`, `tests/test_pipeline.py`, `tests/test_tile_graph.py`, and `tests/test_cli.py` now cover fixed-lattice inference, rerank disabling, and cache reuse
 - `docs/tile-graph-algorithm-map.md` now traces the tile-graph path stage by stage, including the exact variables that carry source data into connected components, region buckets, per-cell candidates, unary costs, and the initial assignment
-- that map also records the current fixed-lattice failure anatomy on the cleaned badge: with pinned `126x126` / phase `(0.0, -0.2)`, about `50.4%` of output cells (`7999 / 15876`) have no extracted region candidate before fallback and the broken result is already bad at `tile_graph_initial_source_fidelity = 0.500884`
+- that map now records the corrected fixed-lattice failure anatomy on the cleaned badge: with pinned `126x126` / phase `(0.0, -0.2)`, occupied output cells are no longer losing extracted region buckets after the new overlap fill pass, yet the broken result is still already bad at `tile_graph_initial_source_fidelity = 0.500884`
 
 Current implementation note:
 - the earlier profiling result still stands: on the searched badge path, the solver loop is not the problem; the heavy costs are `infer_lattice(...)`, low-confidence phase rerank probes, and `_extract_source_region_tiles(...)`
 - the new direct-control path is specifically for dodging those costs during iteration when we already know which lattice we want to inspect
 - on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, a fixed-lattice CUDA `tile-graph` run now took about `10.2s` on the first same-process run and about `2.1s` on the cached rerun, with the same output and a reported `tile_graph_model_cache_hit` on the second pass
 - the current deep-dive diagnosis is that the fixed-lattice garbling is not a wrapper bug and not mainly a parity-solver bug; it is being born in lattice-conditioned reference building, source-region cutting/projection, candidate starvation, and the first unary argmin assignment
+- the extraction coverage bug turned out to be real but secondary: the new `_extract_source_region_tiles(...)` overlap fill pass now guarantees that any output cell containing opaque sampled source pixels gets at least one extracted region bucket, but the pinned `126x126` badge output remains numerically unchanged (`0.4998626`), which narrows the remaining failure to candidate ranking and lattice-conditioned reference usage rather than empty region buckets
 - the hybrid remains intentionally conservative: it only biases tile-graph's unary cost with the continuous prepass layout and does not yet replace the pairwise objective or the source-region builder
 - on the cleaned badge, that conservative hybrid still helps: the latest run under `artifacts/badge-hybrid-v2-cuda/` lands at `0.1785`, improving on the current tile-graph badge baseline at `0.1832`
 - the hybrid is still far behind the stronger continuous badge result (`0.0832`), so the seam looks promising but it is not yet enough to solve the real contour problem by itself

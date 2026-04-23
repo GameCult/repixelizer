@@ -42,6 +42,7 @@ Current tile-graph status:
 - it now keeps candidates strictly local to each output coord and only uses literal source-pixel colors, so it no longer invents averaged patch colors or borrow labels from distant regions
 - candidate seeding now starts from source-side atomic regions projected onto the output lattice, layered together with the old sharp/edge anchors instead of replacing them outright
 - the new deep-dive map in `docs/tile-graph-algorithm-map.md` walks the tile-graph path end to end and records the current fixed-lattice failure mode: the garbled `126x126` badge output is already bad at the tile-graph initial assignment stage, not because the fixed-lattice pipeline wrapper is corrupting it
+- the extraction stage now has an explicit empty-cell overlap fill pass, so output cells that actually contain opaque sampled source pixels no longer silently lose their extracted region bucket under the fixed badge lattice
 - the latest full-emblem probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the earlier full-CUDA tile-graph baseline at `0.0283`
 - tile-graph now falls back to its initial assignment when the propagation loop would make source-lattice fidelity worse, which is currently important for preserving sharp internal contour cells
 - it still beats naive resize on the repo's synthetic thin-feature regression and now does so without letting the final propagation step blur past the initial placement

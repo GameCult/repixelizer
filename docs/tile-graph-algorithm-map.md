@@ -19,6 +19,7 @@ On the current broken badge run:
 - phase: `(0.0, -0.2)`
 - `tile_graph_initial_source_fidelity = 0.500884`
 - `tile_graph_final_source_fidelity = 0.499863`
+- every output cell that contains opaque sampled source pixels now does receive at least one extracted region candidate under the corrected full-size lattice mapping
 
 That tiny change means the parity-update loop is not the main failure. The model build and initial assignment are.
 
@@ -639,28 +640,17 @@ Directly measured on `tests/fixtures/real/ai-badge-cleaned.png` with pinned `126
 - connected components after segmentation: `2499`
 - output cells: `15876`
 - edge cells by `source_reference.edge_strength`: `1610`
-
-Region-bucket statistics before fallback:
-
-- cells with no extracted source-region candidates at all: `7999 / 15876` (`50.4%`)
-- edge cells with no extracted source-region candidates: `325 / 1610` (`20.2%`)
-- mean raw region candidates per cell: `1.24`
-- mean selected region candidates per cell before fallback: `0.93`
-
-Selection histogram before fallback:
-
-- `7999` cells: `0` region candidates survive
-- `1829` cells: `1`
-- `5496` cells: `2`
-- `306` cells: `3`
-- `181` cells: `4`
-- `51` cells: `5`
-- `14` cells: `6`
+- output cells with any opaque sampled source pixel under the full-size lattice mapping: `8167`
+- output cells with any extracted source-region bucket after the empty-cell fill pass: `8169`
+- occupied output cells still missing extracted region buckets: `0`
+- output cells with no extracted region bucket are now background-only cells by design: `7707`
 
 What that means:
 
-- about half the grid gets no source-region candidate at all and must fall back to lattice-derived anchors
-- those anchors come from `source_reference`, which is itself conditioned on the pinned lattice
+- connected-components still ignore pixels below the alpha threshold, so background-only cells do not get source-region buckets from this stage
+- an earlier draft of this document overstated the loss by comparing sampled pixels against `lattice_indices(...)` on the downsampled grid instead of projecting sampled source coordinates back onto the full-size lattice; that comparison was wrong and has now been corrected
+- the missing-bucket bug on occupied cells was real and is now fixed
+- the fixed `126x126` output is still broken anyway, so empty extracted buckets were not the dominant cause of the collapse
 
 So if the pinned lattice is poor for tile-graph, the fallback path is poisoned immediately.
 
@@ -730,14 +720,20 @@ is tiny.
 
 So the parity refinement loop is not "destroying" a good layout. It is starting from a bad one.
 
-### 4. Half the grid falling back is a huge clue
+### 4. The missing-bucket bug was real, but it was not the main collapse
 
-When `7999` cells have no extracted region candidate:
+The extraction stage did have a real bug:
 
-- the model is not primarily selecting from source-owned cut tiles
-- it is primarily leaning on lattice-derived fallback anchors
+- it could emit source-region windows by center projection and still leave some occupied output cells without a source-region candidate
 
-That makes the algorithm much more sensitive to lattice misfit than it looks from the outside.
+That is now fixed by a final overlap-based fill pass, and with the corrected full-size lattice mapping:
+
+- occupied output cells missing extracted buckets: `0`
+
+But the fixed `126x126` output is still effectively unchanged after that fix.
+
+That means the dominant collapse is not "foreground cells had no extracted region bucket at all."
+It is happening later, through the way lattice-conditioned references and unary ranking choose between the candidates that do exist.
 
 ### 5. The fixed-126 run is harsher because it flips extraction stride
 
@@ -777,10 +773,13 @@ It is not yet:
 
 That distinction explains why fixing the lattice can collapse the result so dramatically.
 
-## The Two Most Important Current Findings
+## The Most Important Current Findings
 
 1. The fixed-lattice pipeline path is correct.
    The corruption is not being added by the wrapper.
 
-2. The tile-graph initial assignment is already bad on the broken `126x126` case.
-   The problem lives in lattice-conditioned reference building, source-region cutting/projection, candidate starvation, or unary selection before pairwise refinement has much chance to help.
+2. The extraction stage really did need an exhaustiveness fix.
+   Occupied output cells are no longer silently losing their source-region bucket under the corrected full-size lattice mapping.
+
+3. The tile-graph initial assignment is still bad on the broken `126x126` case even after that fix.
+   So the remaining problem lives in lattice-conditioned reference building, candidate truncation, and unary selection before pairwise refinement has much chance to help.

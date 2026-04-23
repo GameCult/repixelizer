@@ -541,6 +541,65 @@ def _extract_source_region_tiles(
         key=lambda comp: (abs(float(comp["size"]) - cell_area), -float(comp["edge_peak"])),
     )
 
+    def overlap_tiles_for_component(component: dict[str, float | int | np.ndarray]) -> list[dict[str, float | int | np.ndarray]]:
+        member_linear = np.asarray(component["member_linear"], dtype=np.int32)
+        if member_linear.size <= 0:
+            return []
+        member_x = flat_x[member_linear].astype(np.float32)
+        member_y = flat_y[member_linear].astype(np.float32)
+        member_coord_x = np.clip(
+            np.floor((member_x + 0.5) / max(cell_w, 1e-6) - phase_x).astype(np.int32),
+            0,
+            max(0, target_width - 1),
+        )
+        member_coord_y = np.clip(
+            np.floor((member_y + 0.5) / max(cell_h, 1e-6) - phase_y).astype(np.int32),
+            0,
+            max(0, target_height - 1),
+        )
+        member_flat_index = member_coord_y * target_width + member_coord_x
+        order = np.argsort(member_flat_index, kind="stable")
+        sorted_flat_index = member_flat_index[order]
+        starts = np.concatenate(
+            (
+                np.asarray([0], dtype=np.int64),
+                np.flatnonzero(sorted_flat_index[1:] != sorted_flat_index[:-1]) + 1,
+            )
+        )
+        ends = np.concatenate((starts[1:], np.asarray([sorted_flat_index.shape[0]], dtype=np.int64)))
+        tiles: list[dict[str, float | int | np.ndarray]] = []
+        for start, end in zip(starts.tolist(), ends.tolist(), strict=False):
+            local_order = order[start:end]
+            cell_linear = member_linear[local_order]
+            cell_x = member_x[local_order]
+            cell_y = member_y[local_order]
+            cell_edge = flat_edge[cell_linear]
+            flat_index = int(sorted_flat_index[start])
+            center_x = float(np.mean(cell_x))
+            center_y = float(np.mean(cell_y))
+            edge_peak = float(np.max(cell_edge)) if cell_edge.size else 0.0
+            if edge_peak > 0.0:
+                rep_linear = int(cell_linear[int(np.argmax(cell_edge))])
+            else:
+                centroid_dist = (cell_x - center_x) ** 2 + (cell_y - center_y) ** 2
+                rep_linear = int(cell_linear[int(np.argmin(centroid_dist))])
+            tiles.append(
+                {
+                    "rep_linear": rep_linear,
+                    "rep_rgba": flat_rgba[rep_linear].astype(np.float32),
+                    "area_ratio": float((cell_linear.shape[0] * sample_area) / cell_area),
+                    "coverage": float(np.clip((cell_linear.shape[0] * sample_area) / cell_area, 0.0, 1.0)),
+                    "edge_peak": edge_peak,
+                    "source_center_x": center_x,
+                    "source_center_y": center_y,
+                    "coord_x": int(flat_index % target_width),
+                    "coord_y": int(flat_index // target_width),
+                    "flat_index": flat_index,
+                    "guaranteed_fill": True,
+                }
+            )
+        return tiles
+
     for component in ordered_components:
         component_size = int(component["size"])
         if component_size < min_region_pixels:
@@ -752,8 +811,15 @@ def _extract_source_region_tiles(
                 "source_center_y": center_y,
                 "coord_x": coord_x,
                 "coord_y": coord_y,
+                "flat_index": flat_index,
             }
         )
+
+    for component in ordered_components:
+        for tile in overlap_tiles_for_component(component):
+            if buckets[int(tile["flat_index"])]:
+                continue
+            buckets[int(tile["flat_index"])].append(tile)
 
     return buckets
 
@@ -966,6 +1032,10 @@ def build_tile_graph_model(
             edge_reference_rgba=edge_rgba_np[flat_index],
             prefer_edge=edge_cell,
         )
+        selected_only_guaranteed_fill = bool(selected_regions) and all(
+            bool(region.get("guaranteed_fill", False))
+            for region in selected_regions
+        )
         for region in selected_regions:
             pixel_index = int(region["rep_linear"])
             add_candidate(
@@ -975,7 +1045,7 @@ def build_tile_graph_model(
                 source_x=float(region["source_center_x"]),
                 source_y=float(region["source_center_y"]),
             )
-        if len(candidate_linear) == cell_start:
+        if len(candidate_linear) == cell_start or selected_only_guaranteed_fill:
             sharp_pixel = int(sharp_linear_np[flat_index])
             add_candidate(
                 sharp_pixel,

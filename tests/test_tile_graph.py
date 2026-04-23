@@ -12,7 +12,13 @@ from repixelizer.metrics import source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
 from repixelizer.pipeline import run_pipeline
 from repixelizer.synthetic import fake_pixelize, make_emblem
-from repixelizer.tile_graph import build_tile_graph_model, clear_tile_graph_model_cache, optimize_tile_graph
+from repixelizer.tile_graph import (
+    _extract_source_region_tiles,
+    _segment_atomic_source_regions,
+    build_tile_graph_model,
+    clear_tile_graph_model_cache,
+    optimize_tile_graph,
+)
 from repixelizer.types import InferenceResult
 
 
@@ -103,6 +109,90 @@ def test_tile_graph_candidates_are_scoped_to_their_output_coord() -> None:
             coords = model.candidate_coords[model.cell_candidate_indices[start:end]]
             assert np.all(coords[:, 0] == y)
             assert np.all(coords[:, 1] == x)
+
+
+def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> None:
+    source = np.zeros((64, 64, 4), dtype=np.float32)
+    white = np.asarray([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    source[6:10, 6:58] = white
+    source[14:18, 6:50] = white
+    source[22:26, 14:58] = white
+    source[30:34, 6:50] = white
+    source[38:42, 14:58] = white
+    source[46:50, 6:58] = white
+    source[6:50, 6:10] = white
+    source[14:58, 54:58] = white
+
+    inference = InferenceResult(
+        target_width=8,
+        target_height=8,
+        phase_x=0.0,
+        phase_y=-0.2,
+        confidence=1.0,
+        top_candidates=[],
+    )
+    params = SolverHyperParams()
+    analysis = analyze_source(source, seed=7, device="cpu")
+    cell_h = source.shape[0] / inference.target_height
+    cell_w = source.shape[1] / inference.target_width
+    source_region_stride = 2
+    sampled_rgba = source[::source_region_stride, ::source_region_stride].astype(np.float32)
+    sampled_edge = analysis.edge_map[::source_region_stride, ::source_region_stride].astype(np.float32)
+    sampled_y_coords = np.arange(0, source.shape[0], source_region_stride, dtype=np.int32)
+    sampled_x_coords = np.arange(0, source.shape[1], source_region_stride, dtype=np.int32)
+    sampled_y_grid, sampled_x_grid = np.meshgrid(sampled_y_coords, sampled_x_coords, indexing="ij")
+    sampled_flat_rgba = sampled_rgba.reshape(-1, sampled_rgba.shape[-1]).astype(np.float32)
+    sampled_flat_edge = sampled_edge.reshape(-1).astype(np.float32)
+    sampled_flat_y = sampled_y_grid.reshape(-1).astype(np.int32)
+    sampled_flat_x = sampled_x_grid.reshape(-1).astype(np.int32)
+
+    components = _segment_atomic_source_regions(
+        source_rgba=sampled_rgba,
+        edge_map=sampled_edge,
+        alpha_floor=params.alpha_transparent_threshold,
+        color_threshold=params.tile_graph_component_color_threshold,
+        alpha_threshold=params.tile_graph_component_alpha_threshold,
+        device="cpu",
+    )
+    region_buckets = _extract_source_region_tiles(
+        components=components,
+        flat_rgba=sampled_flat_rgba,
+        flat_edge=sampled_flat_edge,
+        flat_x=sampled_flat_x,
+        flat_y=sampled_flat_y,
+        cell_w=cell_w,
+        cell_h=cell_h,
+        sample_area=float(source_region_stride * source_region_stride),
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        phase_x=inference.phase_x,
+        phase_y=inference.phase_y,
+        min_region_area_ratio=params.tile_graph_source_region_min_area_ratio,
+        min_window_coverage=params.tile_graph_source_region_window_coverage,
+        stroke_linearity_threshold=params.tile_graph_stroke_linearity_threshold,
+        stroke_step_scale=params.tile_graph_stroke_step_scale,
+        stroke_minor_limit_scale=params.tile_graph_stroke_minor_limit_scale,
+    )
+
+    opaque = sampled_flat_rgba[:, 3] >= params.alpha_transparent_threshold
+    coord_x = np.clip(
+        np.floor((sampled_flat_x.astype(np.float32) + 0.5) / cell_w - inference.phase_x).astype(np.int32),
+        0,
+        inference.target_width - 1,
+    )
+    coord_y = np.clip(
+        np.floor((sampled_flat_y.astype(np.float32) + 0.5) / cell_h - inference.phase_y).astype(np.int32),
+        0,
+        inference.target_height - 1,
+    )
+    direct_indices = coord_y * inference.target_width + coord_x
+    occupied_direct = np.bincount(
+        direct_indices[opaque],
+        minlength=inference.target_width * inference.target_height,
+    )
+    occupied_bucket = np.asarray([len(bucket) for bucket in region_buckets], dtype=np.int32)
+
+    assert np.all(occupied_bucket[occupied_direct > 0] > 0)
 
 
 def test_tile_graph_projects_source_regions_instead_of_mixed_lattice_buckets() -> None:
