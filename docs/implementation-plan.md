@@ -141,6 +141,18 @@ The third optimizer cut is behavioral:
 - the dead refine/structure representative knobs were removed from `SolverHyperParams` and the tuning harness
 - the pinned cleaned-badge continuous smoke run under `artifacts/optimizer-cut-v3-source-refine-badge-126/` improved slightly: snap stayed `0.08100`, final moved from `0.07535` to `0.07485`
 
+The fourth optimizer cut trims relax rather than removing it:
+
+- the old `refine_relaxed_mode_weight` bonus is gone, so greedy refine is no longer biased toward the relaxed-mode selection on every candidate score
+- the core relax stage is still kept, because the earlier ablation showed that turning relax off entirely made the pinned badge worse
+- the pinned cleaned-badge continuous smoke run under `artifacts/optimizer-cut-v4-relax-bonus-badge-126/` improved again: snap stayed `0.08100`, final moved from `0.07485` to `0.07451`
+
+Next after that:
+
+- keep putting relax on trial, but now term-by-term instead of as a monolith
+- add a focused ablation runner for pinned badge/emblem cases before cutting more behavior
+- collapse duplicated adjacency / motif / line voices only after ablation shows which stage owns each idea
+
 The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
 
 ## High-value regression case

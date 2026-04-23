@@ -1243,15 +1243,9 @@ def _discrete_refine_output(
         solver_params,
         iterations=relax_iterations,
     )
-    relaxed_mode_colors = _select_colors(candidate_colors, relaxed_mode_selected)
     refine_base_energy = base_energy + (
         (candidate_colors - relaxed_context[..., None, :]).abs().mean(dim=-1) * solver_params.relax_handoff_weight
     )
-    if solver_params.refine_relaxed_mode_weight > 0.0:
-        refine_base_energy = refine_base_energy + (
-            (candidate_colors - relaxed_mode_colors[..., None, :]).abs().mean(dim=-1)
-            * solver_params.refine_relaxed_mode_weight
-        )
     start_candidates = [selected, relaxed_mode_selected]
     selected = selected.clone()
     best_selected = selected.clone()

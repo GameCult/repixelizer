@@ -31,7 +31,6 @@ class SolverHyperParams:
     refine_diagonal_weight: float = 0.08
     refine_motif_weight: float = 0.12
     refine_line_weight: float = 0.10
-    refine_relaxed_mode_weight: float = 0.14
     refine_candidate_extent: float = 0.70
     refine_candidate_levels: int = 7
     guided_candidate_edge_threshold: float = 0.06

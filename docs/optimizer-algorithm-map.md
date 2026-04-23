@@ -373,6 +373,11 @@ At the end of relax, the optimizer keeps two things:
 
 That is the machine hedging its bets before the next stage hardens everything again.
 
+Recent cut:
+
+- the old extra `relaxed_mode` bonus in refine is gone
+- the machine still compares the best refined state against the relaxed mode state at the end, but it no longer biases every greedy candidate score toward the relaxed mode
+
 ## Stage 8: Greedy discrete refine
 
 Function:
@@ -476,7 +481,7 @@ These are the places where the optimizer still speaks in an overly complicated o
 - the machine still maintains two overlapping portraits of the same lattice, even though refine is now source-first and only snap still arbitrates between them
 - snap, relax, and refine all carry slightly different versions of adjacency, motif, line, and delta agreement; the same idea is being said three times with different accents
 - the candidate generator is local and the solver is discrete, but the vocabulary around it still sounds like a continuous deformation engine
-- the main entry point is now honestly named `optimize_lattice_pixels(...)`, the k-means boundary scout is gone, prep is split from decision-making, and refine no longer consults the representative portrait; those cuts removed four contradictions from the previous map
+- the main entry point is now honestly named `optimize_lattice_pixels(...)`, the k-means boundary scout is gone, prep is split from decision-making, refine no longer consults the representative portrait, and the relax-mode bonus is gone; those cuts removed five contradictions from the previous map
 
 This is probably the real cutting checklist for the next optimizer pass.
 
@@ -493,7 +498,7 @@ That is much simpler than the surrounding names make it sound.
 If we keep pruning, the highest-value cuts look like this:
 
 1. Put relax on trial.
-   The soft relaxation stage may be a useful bridge, or it may be an expensive second solver that mostly repeats refine.
+   The soft relaxation stage still seems useful, but the relax-mode bonus was dead weight. The next question is which remaining relax terms are actually earning their keep.
 2. Collapse duplicate structure voices.
    Adjacency, motif, and line are important, but they should not need three near-parallel dialects unless they are truly doing different work.
 3. Decide whether snap still needs both portraits everywhere.
