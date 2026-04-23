@@ -242,6 +242,19 @@ Important metric correction:
   - exact-match ratio
 - on the pinned badge comparison under `artifacts/phase-field-metric-check/`, that new metric finally agrees with human judgment: `phase-field` scores `0.4244` versus continuous `0.4291` where lower is better
 
+First focused blemish pass:
+
+- the tracked sword-tip focus fixture now lives in `tests/fixtures/real/ai-badge-tip-focus.json`
+- the next phase-field pass tried exactly the three obvious fixes:
+  - stronger local evidence
+  - less timid edge-aware smoothness gating
+  - a better spacing story with both preferred spacing and an upper spacing clamp
+- the resulting pinned badge run is under `artifacts/phase-field-v2-badge-126/`
+- this did move the specific blemish a little in the right direction, but only a little:
+  - on the tip focus crop, `source_structure` improved from `0.4187` to `0.4179`
+  - on the whole image, `source_structure` regressed slightly from `0.4244` to `0.4248`
+- honest read: the pass shaved the targeted contour swelling a bit, but not enough to call the issue solved, and it did so by spending a little of the whole-image win
+
 ## High-value regression case
 
 ### AI badge emblem with baked checkerboard background
