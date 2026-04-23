@@ -49,6 +49,8 @@ Current tile-graph status:
 - profiling the selected badge candidate shows the main remaining bottleneck is model construction, not the solver loop: `build_tile_graph_model(...)` takes about `142.3s`, and about `131.2s` of that is `_extract_source_region_tiles(...)`
 - the low-confidence badge rerank is also expensive because it still probes eight lattice candidates before the final pick; on the same fixture that phase takes about `223.9s`, of which about `208.1s` is reconstruction work
 - the remaining large-fixture bottleneck is the per-component one-cell window cutting pass inside source-region extraction, which is still Python/NumPy-heavy after the GPU CCL stage
+- the pipeline now has a direct-control path for iteration: `--target-width` / `--target-height` plus optional `--phase-x` / `--phase-y` let you run an exact lattice without paying the full lattice search, and `--skip-phase-rerank` lets you keep the pipeline from second-guessing that choice
+- repeated fixed-lattice `tile-graph` runs in the same Python process now reuse the expensive model build; on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the first CUDA run took about `10.2s` and the second cached rerun took about `2.1s`
 - elongated source regions now get a stroke-aware slicing pass that follows their principal axis instead of only marching with cardinal queue steps, and the repo now has a shallow-stroke regression that checks for fan-out on that kind of component
 - that stroke-aware slicer is a real synthetic improvement but not a real-badge win yet: the latest badge probe under `artifacts/badge-tile-graph-stroke-v2-cuda/` still keeps the initial assignment and slightly regresses source-fidelity (`0.1832` vs `0.1800`)
 - the new low-risk hybrid mode keeps tile-graph's source-owned candidates but scores them against a continuous-optimizer geometry prepass; on the cleaned badge it improves tile-graph from `0.1832` to `0.1785` under `artifacts/badge-hybrid-v2-cuda/`
@@ -72,6 +74,7 @@ repixelize input.png --out output.png --diagnostics-dir diagnostics --device aut
 repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cpu
 repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cuda
 repixelize input.png --out output.png --reconstruction-mode hybrid --diagnostics-dir diagnostics --device cuda
+repixelize input.png --out output.png --reconstruction-mode tile-graph --target-width 126 --target-height 126 --phase-x 0.0 --phase-y -0.2 --skip-phase-rerank --device cuda
 ```
 
 Run the optimizer plus baselines:

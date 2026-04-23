@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass
+import hashlib
+from collections import OrderedDict, deque
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -69,6 +70,70 @@ class TileGraphModel:
     model_device: str
     geometry_reference_rgba: np.ndarray | None = None
     geometry_strength: np.ndarray | None = None
+    cache_hit: bool = False
+
+
+_TILE_GRAPH_MODEL_CACHE_MAX_ENTRIES = 8
+_TILE_GRAPH_MODEL_CACHE: OrderedDict[tuple[object, ...], TileGraphModel] = OrderedDict()
+
+
+def clear_tile_graph_model_cache() -> None:
+    _TILE_GRAPH_MODEL_CACHE.clear()
+
+
+def _hash_array(array: np.ndarray) -> str:
+    contiguous = np.ascontiguousarray(array)
+    return hashlib.blake2b(contiguous.view(np.uint8), digest_size=16).hexdigest()
+
+
+def _tile_graph_model_cache_key(
+    source_rgba: np.ndarray,
+    *,
+    inference: InferenceResult,
+    solver_params: SolverHyperParams,
+    device: str,
+) -> tuple[object, ...]:
+    build_param_names = (
+        "alpha_transparent_threshold",
+        "source_edge_detail_threshold",
+        "tile_graph_max_candidates_per_coord",
+        "tile_graph_edge_candidates_per_coord",
+        "tile_graph_component_color_threshold",
+        "tile_graph_component_alpha_threshold",
+        "tile_graph_source_region_stride",
+        "tile_graph_source_region_min_area_ratio",
+        "tile_graph_source_region_window_coverage",
+        "tile_graph_stroke_linearity_threshold",
+        "tile_graph_stroke_step_scale",
+        "tile_graph_stroke_minor_limit_scale",
+    )
+    build_signature = tuple((name, getattr(solver_params, name)) for name in build_param_names)
+    return (
+        _hash_array(source_rgba),
+        source_rgba.shape,
+        str(source_rgba.dtype),
+        int(inference.target_width),
+        int(inference.target_height),
+        float(inference.phase_x),
+        float(inference.phase_y),
+        device,
+        build_signature,
+    )
+
+
+def _get_cached_tile_graph_model(cache_key: tuple[object, ...]) -> TileGraphModel | None:
+    cached = _TILE_GRAPH_MODEL_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    _TILE_GRAPH_MODEL_CACHE.move_to_end(cache_key)
+    return cached
+
+
+def _store_cached_tile_graph_model(cache_key: tuple[object, ...], model: TileGraphModel) -> None:
+    _TILE_GRAPH_MODEL_CACHE[cache_key] = model
+    _TILE_GRAPH_MODEL_CACHE.move_to_end(cache_key)
+    while len(_TILE_GRAPH_MODEL_CACHE) > _TILE_GRAPH_MODEL_CACHE_MAX_ENTRIES:
+        _TILE_GRAPH_MODEL_CACHE.popitem(last=False)
 
 
 def _make_regular_uv(height: int, width: int, target_height: int, target_width: int, phase_x: float, phase_y: float) -> np.ndarray:
@@ -752,6 +817,34 @@ def build_tile_graph_model(
     torch = _require_torch()
     resolved_device = _resolve_device(torch, device)
     solver_params = solver_params or SolverHyperParams()
+    geometry_reference_np = None
+    if geometry_reference_rgba is not None:
+        geometry_reference_np = np.asarray(geometry_reference_rgba, dtype=np.float32)
+        if geometry_reference_np.shape[:2] != (inference.target_height, inference.target_width):
+            raise ValueError(
+                "geometry_reference_rgba must match the inferred output size when provided to tile-graph."
+            )
+    geometry_strength_np = None
+    if geometry_guidance_strength is not None:
+        geometry_strength_np = np.asarray(geometry_guidance_strength, dtype=np.float32)
+        if geometry_strength_np.shape != (inference.target_height, inference.target_width):
+            raise ValueError(
+                "geometry_guidance_strength must match the inferred output size when provided to tile-graph."
+            )
+    cache_key = _tile_graph_model_cache_key(
+        source_rgba,
+        inference=inference,
+        solver_params=solver_params,
+        device=resolved_device,
+    )
+    cached_model = _get_cached_tile_graph_model(cache_key)
+    if cached_model is not None:
+        return replace(
+            cached_model,
+            geometry_reference_rgba=geometry_reference_np,
+            geometry_strength=geometry_strength_np,
+            cache_hit=True,
+        )
     source_reference = build_source_lattice_reference(
         source_rgba,
         target_width=inference.target_width,
@@ -927,22 +1020,7 @@ def build_tile_graph_model(
     edge_density = float(
         np.mean(source_reference.edge_strength >= solver_params.source_edge_detail_threshold)
     )
-    geometry_reference_np = None
-    if geometry_reference_rgba is not None:
-        geometry_reference_np = np.asarray(geometry_reference_rgba, dtype=np.float32)
-        if geometry_reference_np.shape[:2] != (inference.target_height, inference.target_width):
-            raise ValueError(
-                "geometry_reference_rgba must match the inferred output size when provided to tile-graph."
-            )
-    geometry_strength_np = None
-    if geometry_guidance_strength is not None:
-        geometry_strength_np = np.asarray(geometry_guidance_strength, dtype=np.float32)
-        if geometry_strength_np.shape != (inference.target_height, inference.target_width):
-            raise ValueError(
-                "geometry_guidance_strength must match the inferred output size when provided to tile-graph."
-            )
-
-    return TileGraphModel(
+    base_model = TileGraphModel(
         candidate_rgba=candidate_rgba_np,
         candidate_coords=candidate_coords_np,
         candidate_area_ratio=candidate_area_ratio_np,
@@ -958,8 +1036,16 @@ def build_tile_graph_model(
         edge_density=edge_density,
         average_choices=average_choices,
         model_device=resolved_device,
+        geometry_reference_rgba=None,
+        geometry_strength=None,
+        cache_hit=False,
+    )
+    _store_cached_tile_graph_model(cache_key, base_model)
+    return replace(
+        base_model,
         geometry_reference_rgba=geometry_reference_np,
         geometry_strength=geometry_strength_np,
+        cache_hit=False,
     )
 
 
@@ -1394,6 +1480,7 @@ def optimize_tile_graph(
         "mode": "tile-graph",
         "tile_graph_model_device": model.model_device,
         "tile_graph_solver_device": resolved_device,
+        "tile_graph_model_cache_hit": model.cache_hit,
         "tile_graph_proposal_mode": "atomic-components",
         "tile_graph_component_count": model.component_count,
         "tile_graph_candidate_count": int(model.candidate_rgba.shape[0]),

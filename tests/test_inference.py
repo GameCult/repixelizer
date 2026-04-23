@@ -6,6 +6,7 @@ from repixelizer.inference import (
     _combine_axis_priors,
     _hint_target_sizes_from_spacing,
     _top_candidates_by_size,
+    infer_fixed_lattice,
     infer_lattice,
 )
 from repixelizer.types import InferenceCandidate
@@ -67,3 +68,37 @@ def test_infer_lattice_recovers_emblem_scale() -> None:
     assert result.target_width in range(28, 37)
     assert result.target_height in range(28, 37)
     assert result.confidence >= 0.0
+
+
+def test_infer_fixed_lattice_honors_exact_size_and_phase() -> None:
+    source = make_emblem(16, 16)
+    fake = fake_pixelize(source, upscale=10, phase_x=0.2, phase_y=-0.2, blur_radius=0.4, seed=9)
+    result = infer_fixed_lattice(
+        fake,
+        target_width=16,
+        target_height=16,
+        phase_x=0.2,
+        phase_y=-0.2,
+        device="cpu",
+    )
+    assert result.target_width == 16
+    assert result.target_height == 16
+    assert abs(result.phase_x - 0.2) <= 1e-6
+    assert abs(result.phase_y + 0.2) <= 1e-6
+    assert len(result.top_candidates) == 1
+
+
+def test_infer_fixed_lattice_searches_phase_within_pinned_size() -> None:
+    source = make_emblem(16, 16)
+    fake = fake_pixelize(source, upscale=8, phase_x=0.2, phase_y=0.25, blur_radius=0.45, seed=3)
+    result = infer_fixed_lattice(
+        fake,
+        target_width=16,
+        target_height=16,
+        device="cpu",
+    )
+    assert result.target_width == 16
+    assert result.target_height == 16
+    assert len(result.top_candidates) > 1
+    assert all(candidate.target_width == 16 for candidate in result.top_candidates)
+    assert all(candidate.target_height == 16 for candidate in result.top_candidates)

@@ -410,14 +410,15 @@ def _score_phase_group(
     prior_cell_x: float,
     prior_cell_y: float,
     prior_reliability: float,
-    phase_values: np.ndarray,
+    phase_x_values: np.ndarray,
+    phase_y_values: np.ndarray,
     device: str,
 ):
     torch, F = _require_torch()
     height, width = rgba.shape[:2]
     premult_rgba = premultiply(rgba)
     source_t = torch.from_numpy(premult_rgba.transpose(2, 0, 1)[None, ...]).to(device=device, dtype=torch.float32)
-    phase_xs, phase_ys = np.meshgrid(phase_values, phase_values, indexing="xy")
+    phase_xs, phase_ys = np.meshgrid(phase_x_values, phase_y_values, indexing="xy")
     phase_x_t = torch.from_numpy(phase_xs.reshape(-1).astype(np.float32)).to(device=device)
     phase_y_t = torch.from_numpy(phase_ys.reshape(-1).astype(np.float32)).to(device=device)
     batch = phase_x_t.shape[0]
@@ -489,7 +490,8 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
                 prior_cell_x=prior_cell_x,
                 prior_cell_y=prior_cell_y,
                 prior_reliability=prior_reliability,
-                phase_values=phase_values,
+                phase_x_values=phase_values,
+                phase_y_values=phase_values,
                 device=resolved_device,
             )
         )
@@ -501,6 +503,48 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
     second = reranked_candidates[1] if len(reranked_candidates) > 1 else best
     confidence = max(0.0, best.score - second.score)
     top_candidates = reranked_candidates[:8]
+    return InferenceResult(
+        target_width=best.target_width,
+        target_height=best.target_height,
+        phase_x=best.phase_x,
+        phase_y=best.phase_y,
+        confidence=confidence,
+        top_candidates=top_candidates,
+    )
+
+
+def infer_fixed_lattice(
+    rgba: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    phase_x: float | None = None,
+    phase_y: float | None = None,
+    device: str = "auto",
+) -> InferenceResult:
+    torch, _ = _require_torch()
+    resolved_device = _resolve_device(torch, device)
+    prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
+    phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
+    phase_x_values = np.asarray([phase_x], dtype=np.float32) if phase_x is not None else phase_values
+    phase_y_values = np.asarray([phase_y], dtype=np.float32) if phase_y is not None else phase_values
+
+    candidates = _score_phase_group(
+        rgba,
+        target_width=max(1, int(target_width)),
+        target_height=max(1, int(target_height)),
+        prior_cell_x=prior_cell_x,
+        prior_cell_y=prior_cell_y,
+        prior_reliability=prior_reliability,
+        phase_x_values=phase_x_values,
+        phase_y_values=phase_y_values,
+        device=resolved_device,
+    )
+    candidates.sort(key=lambda item: item.score, reverse=True)
+    best = candidates[0]
+    second = candidates[1] if len(candidates) > 1 else best
+    confidence = max(0.0, best.score - second.score)
+    top_candidates = candidates[:8]
     return InferenceResult(
         target_width=best.target_width,
         target_height=best.target_height,

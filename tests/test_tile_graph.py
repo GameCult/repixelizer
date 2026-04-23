@@ -12,7 +12,7 @@ from repixelizer.metrics import source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
 from repixelizer.pipeline import run_pipeline
 from repixelizer.synthetic import fake_pixelize, make_emblem
-from repixelizer.tile_graph import build_tile_graph_model, optimize_tile_graph
+from repixelizer.tile_graph import build_tile_graph_model, clear_tile_graph_model_cache, optimize_tile_graph
 from repixelizer.types import InferenceResult
 
 
@@ -361,6 +361,38 @@ def test_tile_graph_cuda_matches_cpu_on_small_case() -> None:
     assert np.allclose(cpu_artifacts.target_rgba, cuda_artifacts.target_rgba, atol=1e-5)
 
 
+def test_tile_graph_model_cache_reuses_fixed_lattice_build() -> None:
+    clear_tile_graph_model_cache()
+    source = make_emblem(16, 16)
+    fake = fake_pixelize(source, upscale=8, phase_x=0.1, phase_y=-0.05, blur_radius=0.4, warp_strength=0.15, warp_detail=4)
+    inference = InferenceResult(
+        target_width=16,
+        target_height=16,
+        phase_x=0.1,
+        phase_y=-0.05,
+        confidence=1.0,
+        top_candidates=[],
+    )
+    analysis = analyze_source(fake, seed=7, device="cpu")
+
+    first = build_tile_graph_model(
+        fake,
+        inference=inference,
+        analysis=analysis,
+        device="cpu",
+    )
+    second = build_tile_graph_model(
+        fake,
+        inference=inference,
+        analysis=analysis,
+        device="cpu",
+    )
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert np.array_equal(first.candidate_rgba, second.candidate_rgba)
+
+
 def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Path) -> None:
     source = make_emblem(24, 24)
     fake = fake_pixelize(source, upscale=10, phase_x=0.15, phase_y=0.2, blur_radius=0.6, warp_strength=0.2, warp_detail=5)
@@ -385,6 +417,7 @@ def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Pa
     assert run_json["settings"]["reconstruction_mode"] == "tile-graph"
     assert run_json["reconstruction"]["mode"] == "tile-graph"
     assert run_json["reconstruction"]["tile_graph_model_device"] == "cpu"
+    assert "tile_graph_model_cache_hit" in run_json["reconstruction"]
     assert run_json["reconstruction"]["tile_graph_candidate_count"] > 0
     assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
     assert result.diagnostics["reconstruction"]["mode"] == "tile-graph"

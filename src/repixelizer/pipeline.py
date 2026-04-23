@@ -17,7 +17,7 @@ from .diagnostics import (
     write_lattice_overlay,
 )
 from .discrete import cleanup_pixels
-from .inference import infer_lattice, inference_to_json
+from .inference import infer_fixed_lattice, infer_lattice, inference_to_json
 from .io import load_rgba, nearest_resize, save_rgba
 from .metrics import (
     foreground_edge_concentration,
@@ -41,6 +41,10 @@ def run_pipeline(
     output_path: str | Path,
     *,
     target_size: int | None = None,
+    target_width: int | None = None,
+    target_height: int | None = None,
+    phase_x: float | None = None,
+    phase_y: float | None = None,
     palette_path: str | Path | None = None,
     palette_mode: str = "off",
     diagnostics_dir: str | Path | None = None,
@@ -50,13 +54,35 @@ def run_pipeline(
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
     reconstruction_mode: str = "continuous",
+    enable_phase_rerank: bool = True,
 ) -> RunResult:
     started = time.perf_counter()
     solver_params = solver_params or SolverHyperParams()
     source = load_rgba(input_path)
     if strip_background:
         source = strip_edge_background(source)
-    inference = infer_lattice(source, target_size=target_size, device=device)
+    fixed_dims = _resolve_requested_target_dims(
+        source_width=source.shape[1],
+        source_height=source.shape[0],
+        target_size=target_size,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+    )
+    if fixed_dims is None:
+        inference = infer_lattice(source, target_size=target_size, device=device)
+        inference_mode = "searched"
+    else:
+        inference = infer_fixed_lattice(
+            source,
+            target_width=fixed_dims[0],
+            target_height=fixed_dims[1],
+            phase_x=phase_x,
+            phase_y=phase_y,
+            device=device,
+        )
+        inference_mode = "fixed"
     analysis = analyze_source(source, seed=seed, device=device if reconstruction_mode in {"tile-graph", "hybrid"} else None)
     inference, cached_reconstruction = _select_phase_candidate_with_reconstruction(
         source,
@@ -66,6 +92,7 @@ def run_pipeline(
         device=device,
         solver_params=solver_params,
         reconstruction_mode=reconstruction_mode,
+        enable_phase_rerank=enable_phase_rerank,
     )
     if cached_reconstruction is not None:
         solver, reconstruction_diagnostics = cached_reconstruction
@@ -121,12 +148,18 @@ def run_pipeline(
         run_json["inference"] = inference_to_json(inference)
         run_json["settings"] = {
             "target_size": target_size,
+            "target_width": target_width,
+            "target_height": target_height,
+            "phase_x": phase_x,
+            "phase_y": phase_y,
             "palette_mode": palette_mode,
             "seed": seed,
             "steps": steps,
             "device": device,
             "strip_background": strip_background,
             "reconstruction_mode": reconstruction_mode,
+            "enable_phase_rerank": enable_phase_rerank,
+            "inference_mode": inference_mode,
             "solver_params": solver_params.to_dict(),
         }
         if diagnostics.get("reconstruction"):
@@ -146,6 +179,7 @@ def _select_phase_candidate(
     device: str,
     solver_params: SolverHyperParams | None = None,
     reconstruction_mode: str = "continuous",
+    enable_phase_rerank: bool = True,
 ) -> InferenceResult:
     selected, _ = _select_phase_candidate_with_reconstruction(
         source,
@@ -155,6 +189,7 @@ def _select_phase_candidate(
         device=device,
         solver_params=solver_params,
         reconstruction_mode=reconstruction_mode,
+        enable_phase_rerank=enable_phase_rerank,
     )
     return selected
 
@@ -168,8 +203,11 @@ def _select_phase_candidate_with_reconstruction(
     device: str,
     solver_params: SolverHyperParams | None = None,
     reconstruction_mode: str = "continuous",
+    enable_phase_rerank: bool = True,
 ):
     solver_params = solver_params or SolverHyperParams()
+    if not enable_phase_rerank:
+        return inference, None
     if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
         return inference, None
 
@@ -304,6 +342,41 @@ def _select_phase_candidate_with_reconstruction(
         return inference, None
     cached = best_cached_reconstruction if _reuse_phase_probe_reconstruction(reconstruction_mode) else None
     return best_candidate, cached
+
+
+def _resolve_requested_target_dims(
+    *,
+    source_width: int,
+    source_height: int,
+    target_size: int | None,
+    target_width: int | None,
+    target_height: int | None,
+    phase_x: float | None,
+    phase_y: float | None,
+) -> tuple[int, int] | None:
+    explicit_size = target_width is not None or target_height is not None
+    explicit_phase = phase_x is not None or phase_y is not None
+    if not explicit_size and target_size is None:
+        if explicit_phase:
+            raise ValueError("phase_x/phase_y require target_size or target_width/target_height so the lattice can be fixed explicitly.")
+        return None
+    if target_size is not None and explicit_size:
+        raise ValueError("target_size cannot be combined with target_width or target_height.")
+    if target_size is not None:
+        if source_width >= source_height:
+            return int(target_size), max(1, round(source_height * int(target_size) / max(1, source_width)))
+        return max(1, round(source_width * int(target_size) / max(1, source_height))), int(target_size)
+    if target_width is None and target_height is None:
+        return None
+    if target_width is None:
+        resolved_height = int(target_height)
+        resolved_width = max(1, round(source_width * resolved_height / max(1, source_height)))
+        return resolved_width, resolved_height
+    if target_height is None:
+        resolved_width = int(target_width)
+        resolved_height = max(1, round(source_height * resolved_width / max(1, source_width)))
+        return resolved_width, resolved_height
+    return int(target_width), int(target_height)
 
 
 def _normalize_penalty(values, *, higher_is_better: bool = False) -> list[float]:

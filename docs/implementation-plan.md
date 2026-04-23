@@ -20,7 +20,7 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing (`60 passed`)
+- full test suite currently passing (`66 passed`)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
@@ -57,17 +57,19 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass focused on iteration speed for `tile-graph`, because the current badge loop had become too slow to support quick debugging.
+This pass focused on direct control and iteration speed for `tile-graph` and `hybrid`, so the pipeline can run exact user-chosen lattices instead of always paying for the full search-and-rerank path.
 
 What landed:
-- `pipeline.py` now reuses the chosen low-confidence phase-rerank reconstruction for `tile-graph` and `hybrid` instead of rebuilding the same selected candidate again after selection
-- `tests/test_pipeline.py` now has a regression that locks in that reuse behavior for low-confidence `tile-graph` runs
+- `pipeline.py` now accepts pinned `target_width` / `target_height` plus optional `phase_x` / `phase_y` so the pipeline can construct a fixed inference result directly
+- `inference.py` now exposes `infer_fixed_lattice(...)`, which searches only the requested phase space for one fixed lattice instead of paying the full size search
+- `cli.py` and `compare.py` now expose those controls plus `--skip-phase-rerank`
+- `tile_graph.py` now has a process-local model cache keyed by source content, lattice choice, device, and build-affecting tile-graph params
+- `tests/test_inference.py`, `tests/test_pipeline.py`, `tests/test_tile_graph.py`, and `tests/test_cli.py` now cover fixed-lattice inference, rerank disabling, and cache reuse
 
 Current implementation note:
-- on the cleaned badge, the current `tile-graph` end-to-end run now lands at about `270.8s` on this machine after reuse, down from about `443.1s` for the earlier stroke-aware badge run
-- profiling the selected badge candidate shows that the solver loop is not the problem: the final `tile-graph` reconstruction used about `142.3s`, and about `131.2s` of that sat inside `_extract_source_region_tiles(...)`
-- the low-confidence badge rerank is the other major cost center: `_select_phase_candidate(...)` took about `223.9s` on the same fixture, with about `208.1s` of that spent inside reconstruction probes
-- `infer_lattice(...)` still takes about `44.1s` on that fixture, so iteration work that does not change the lattice itself should eventually be able to reuse or pin inference too
+- the earlier profiling result still stands: on the searched badge path, the solver loop is not the problem; the heavy costs are `infer_lattice(...)`, low-confidence phase rerank probes, and `_extract_source_region_tiles(...)`
+- the new direct-control path is specifically for dodging those costs during iteration when we already know which lattice we want to inspect
+- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, a fixed-lattice CUDA `tile-graph` run now took about `10.2s` on the first same-process run and about `2.1s` on the cached rerun, with the same output and a reported `tile_graph_model_cache_hit` on the second pass
 - the hybrid remains intentionally conservative: it only biases tile-graph's unary cost with the continuous prepass layout and does not yet replace the pairwise objective or the source-region builder
 - on the cleaned badge, that conservative hybrid still helps: the latest run under `artifacts/badge-hybrid-v2-cuda/` lands at `0.1785`, improving on the current tile-graph badge baseline at `0.1832`
 - the hybrid is still far behind the stronger continuous badge result (`0.0832`), so the seam looks promising but it is not yet enough to solve the real contour problem by itself
@@ -76,7 +78,7 @@ Current implementation note:
 
 Next after that:
 - split tile-graph iteration into a cached model-build phase and a near-free solve phase so weight tuning does not keep paying the `~131s` source-region cutting bill
-- add an explicit fast-iteration path that reuses or pins lattice inference when the experiment is only changing tile-graph internals
+- extend the current fixed-lattice path so repeated CLI runs can reuse cached model artifacts across processes instead of only within one Python process
 - port or reformulate `_extract_source_region_tiles(...)` so it no longer spends most of the badge runtime in Python/NumPy window cutting
 - reduce rerank probe cost by using cached candidate builds where possible or by using a cheaper rerank proxy before full tile-graph reconstruction
 - decide whether the next hybrid pass should add geometry-aware pairwise terms before changing the source-region builder again

@@ -322,6 +322,35 @@ def test_pipeline_hybrid_mode_writes_reconstruction_diagnostics(tmp_path: Path) 
     assert result.diagnostics["reconstruction"]["mode"] == "hybrid"
 
 
+def test_select_phase_candidate_can_skip_phase_rerank(monkeypatch) -> None:
+    source = np.zeros((8, 8, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
+    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
+    inference = InferenceResult(
+        target_width=8,
+        target_height=8,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("phase rerank probe should not run when disabled")
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fail)
+    selected = _select_phase_candidate(
+        source,
+        inference,
+        analysis=object(),
+        seed=7,
+        device="cpu",
+        enable_phase_rerank=False,
+    )
+    assert selected.target_width == candidate_a.target_width
+    assert selected.target_height == candidate_a.target_height
+
+
 def test_pipeline_reuses_phase_probe_reconstruction_for_tile_graph(tmp_path: Path, monkeypatch) -> None:
     source = np.zeros((6, 6, 4), dtype=np.float32)
     source[..., 3] = 1.0
@@ -399,6 +428,69 @@ def test_pipeline_reuses_phase_probe_reconstruction_for_tile_graph(tmp_path: Pat
     assert call_count["tile_graph"] == 2
     assert result.diagnostics["reconstruction"]["reused_phase_probe_reconstruction"] is True
     assert result.output_rgba.shape[:2] == (3, 3)
+
+
+def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, monkeypatch) -> None:
+    source = np.zeros((6, 6, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, source)
+
+    inference = InferenceResult(
+        target_width=3,
+        target_height=3,
+        phase_x=0.2,
+        phase_y=-0.2,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    class DummyAnalysis:
+        cluster_preview = np.zeros((6, 6, 4), dtype=np.float32)
+
+    def fail_infer(*args, **kwargs):
+        raise AssertionError("full lattice search should not run for fixed target/phase")
+
+    def fake_infer_fixed(*args, **kwargs):
+        return inference
+
+    def fake_optimize_uv_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
+        rgba[..., 3] = 1.0
+        return SolverArtifacts(
+            target_rgba=rgba,
+            uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
+            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            initial_rgba=rgba.copy(),
+            loss_history=[],
+        )
+
+    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", fail_infer)
+    monkeypatch.setattr("repixelizer.pipeline.infer_fixed_lattice", fake_infer_fixed)
+    monkeypatch.setattr("repixelizer.pipeline.analyze_source", lambda *args, **kwargs: DummyAnalysis())
+    monkeypatch.setattr("repixelizer.pipeline.optimize_uv_field", fake_optimize_uv_field)
+
+    result = run_pipeline(
+        input_path,
+        output_path,
+        target_width=3,
+        target_height=3,
+        phase_x=0.2,
+        phase_y=-0.2,
+        enable_phase_rerank=False,
+        steps=0,
+        device="cpu",
+    )
+
+    assert output_path.exists()
+    assert result.inference.target_width == 3
+    assert result.inference.target_height == 3
+    assert result.inference.phase_x == 0.2
+    assert result.inference.phase_y == -0.2
 
 
 def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
