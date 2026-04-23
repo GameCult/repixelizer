@@ -1,0 +1,11 @@
+{
+  "description": "Sword-tip focus crop for the pinned phase-field badge run. Use this when testing the widened dark contour / stroke blemish near the tip.",
+  "input": "tests/fixtures/real/ai-badge-cleaned.png",
+  "reconstruction_mode": "phase-field",
+  "target_width": 126,
+  "target_height": 126,
+  "phase_x": 0.0,
+  "phase_y": -0.2,
+  "steps": 48,
+  "cell_bbox": [67, 90, 97, 122]
+}

@@ -258,6 +258,7 @@ Current failure modes:
 - thin oblique outline features can still collapse into mushy transitions
 - the right-hand guard wing can still lose short dark-light-dark adjacency motifs
 - on tile-graph specifically, the remaining failure is less about wrong colors entering the candidate pool and more about the propagation step preferring a smoother local arrangement than the sharper initial assignment
+- the new phase-field path has one obvious blemish on the pinned badge: the dark contour along the sword tip widens too much in a localized patch now recorded in `tests/fixtures/real/ai-badge-tip-focus.json`
 
 Current status:
 - on the cleaned fixture, the continuous path now lands at `0.0832` source-fidelity in the reproducible probe under `artifacts/badge-final-probe/`, which is materially better than the older documented `0.1494` result and better than naive resize under the same lattice
