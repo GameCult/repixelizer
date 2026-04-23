@@ -45,15 +45,6 @@ def _make_regular_uv(height: int, width: int, target_height: int, target_width: 
     return uv.astype(np.float32)
 
 
-def _cluster_boundary_map(cluster_map: np.ndarray) -> np.ndarray:
-    if cluster_map.size == 0:
-        return np.zeros_like(cluster_map, dtype=np.float32)
-    boundary = np.zeros(cluster_map.shape, dtype=np.float32)
-    boundary[:, 1:] = np.maximum(boundary[:, 1:], (cluster_map[:, 1:] != cluster_map[:, :-1]).astype(np.float32))
-    boundary[1:, :] = np.maximum(boundary[1:, :], (cluster_map[1:, :] != cluster_map[:-1, :]).astype(np.float32))
-    return boundary
-
-
 def _edge_gradient_maps(edge_map: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     grad_x = np.zeros_like(edge_map, dtype=np.float32)
     grad_y = np.zeros_like(edge_map, dtype=np.float32)
@@ -107,16 +98,6 @@ def _representative_colors(patches, solver_params: SolverHyperParams):
     representative = (patches * weights[..., None]).sum(dim=3)
     coherence = (patches - representative[:, :, :, None, :]).abs().mean()
     return representative, coherence
-
-
-def _exemplar_colors(patches):
-    patch_mean = patches.mean(dim=3, keepdim=True)
-    distances = (patches - patch_mean).abs().mean(dim=-1)
-    selected = distances.argmin(dim=3)
-    return patches.gather(
-        dim=3,
-        index=selected[..., None, None].expand(*selected.shape, 1, patches.shape[-1]),
-    ).squeeze(3)
 
 
 def _source_boundary_deltas(F, source_t, uv, axis: str, probe_scale: float = 0.22):
@@ -1355,7 +1336,7 @@ def _discrete_refine_output(
     return _finalize_output_rgba(best_colors, use_opaque, use_transparent), loss_history
 
 
-def optimize_uv_field(
+def optimize_lattice_pixels(
     rgba: np.ndarray,
     inference: InferenceResult,
     analysis: ContinuousSourceAnalysis,
@@ -1377,8 +1358,7 @@ def optimize_uv_field(
     source_t = torch.from_numpy(source.transpose(2, 0, 1)[None, ...]).to(device=device, dtype=torch.float32)
     source_edge = analysis.edge_map.astype(np.float32)
     edge_grad_x, edge_grad_y = _edge_gradient_maps(source_edge)
-    guide_edge = np.maximum(source_edge, _cluster_boundary_map(analysis.cluster_map))
-    edge_t = torch.from_numpy(guide_edge[None, None, ...]).to(device=device, dtype=torch.float32)
+    edge_t = torch.from_numpy(source_edge[None, None, ...]).to(device=device, dtype=torch.float32)
     uv0 = _make_regular_uv(
         height=height,
         width=width,

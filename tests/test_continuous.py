@@ -7,10 +7,9 @@ from repixelizer.analysis import analyze_continuous_source
 from repixelizer.continuous import (
     _build_candidate_positions,
     _build_source_reliability,
-    _exemplar_colors,
     _line_pattern_loss,
     _make_regular_uv,
-    optimize_uv_field,
+    optimize_lattice_pixels,
 )
 from repixelizer.metrics import source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
@@ -33,28 +32,6 @@ def test_line_pattern_loss_penalizes_wobbling_line() -> None:
 
     assert good_loss <= 1e-6
     assert bad_loss > good_loss + 0.01
-
-
-def test_exemplar_colors_selects_an_actual_patch_sample() -> None:
-    patches = torch.tensor(
-        [
-            [
-                [
-                    [
-                        [0.0, 0.0, 0.0, 1.0],
-                        [0.8, 0.7, 0.1, 1.0],
-                        [0.2, 0.3, 0.9, 1.0],
-                    ]
-                ]
-            ]
-        ],
-        dtype=torch.float32,
-    )
-
-    exemplar = _exemplar_colors(patches)[0, 0, 0]
-    options = patches[0, 0, 0]
-
-    assert any(torch.allclose(exemplar, option) for option in options)
 
 
 def test_source_reliability_stays_high_for_high_contrast_edge_cells() -> None:
@@ -125,7 +102,7 @@ def test_candidate_positions_include_sharp_and_edge_guided_samples() -> None:
     assert len(cell_candidates) > 2
 
 
-def test_optimize_uv_field_does_not_regress_from_snap_on_thin_feature_case() -> None:
+def test_optimize_lattice_pixels_does_not_regress_from_snap_on_thin_feature_case() -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
     source[4:12, 8] = np.asarray([0.95, 0.95, 0.95, 1.0], dtype=np.float32)
     source[4, 7:10] = np.asarray([0.95, 0.95, 0.95, 1.0], dtype=np.float32)
@@ -151,7 +128,7 @@ def test_optimize_uv_field_does_not_regress_from_snap_on_thin_feature_case() -> 
         confidence=1.0,
         top_candidates=[],
     )
-    artifacts = optimize_uv_field(
+    artifacts = optimize_lattice_pixels(
         fake,
         inference=inference,
         analysis=analyze_continuous_source(fake, seed=7),

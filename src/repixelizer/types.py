@@ -30,7 +30,6 @@ class InferenceResult:
 @dataclass(slots=True)
 class ContinuousSourceAnalysis:
     edge_map: np.ndarray
-    cluster_map: np.ndarray
 
 
 @dataclass(slots=True)

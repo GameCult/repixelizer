@@ -65,7 +65,7 @@ What landed:
 - the experimental `hybrid` path and its geometry-prior wiring have been removed
 - `tile_graph.py` no longer carries geometry-prior fields through `TileGraphModel` or tile-graph unary scoring
 - `tile-graph` now skips source clustering entirely and uses only edge analysis plus direct per-cell source summaries during unary scoring
-- `analysis.py` now has separate prep paths: continuous gets edge plus cluster analysis, while tile-graph gets an edge-only scout report
+- `analysis.py` now has separate prep paths, but both are edge-only after the first optimizer cut; the continuous k-means cluster scout was removed because its only production job was turning coarse color partitions into fake edge guidance
 - `source_reference.py` was split so tile-graph could have its own lean prep contract, but the next cut removed tile-graph's need for any separate source-reference object at all
 - `TileGraphModel` is now solver-only state; cache metadata and build diagnostics live in a separate `TileGraphBuildStats` sidecar
 - `cli.py` now exposes only `continuous` and `tile-graph` as reconstruction engines
@@ -110,10 +110,16 @@ The new map does for `continuous.py` what `docs/tile-graph-algorithm-map.md` doe
 - names the real state variables the machine carries (`uv0_t`, `initial_representative_t`, `source_lattice_reference`, `source_reliability_t`, `snap_t`)
 - explains the regular UV lattice, representative portrait, source lattice portrait, source-first snap, relaxed handoff, and discrete refine stages in plain language
 - identifies the main contradictions still living in the optimizer, especially:
-  - `optimize_uv_field(...)` no longer actually optimizing the UV field
   - the machine maintaining two overlapping portraits of the same lattice and spending much of its complexity mediating between them
-  - real edge evidence still being mixed with coarse k-means cluster boundaries
   - adjacency / motif / line structure being expressed repeatedly in several slightly different dialects
+
+The first optimizer cut landed immediately after that map:
+
+- `optimize_uv_field(...)` was renamed to `optimize_lattice_pixels(...)`
+- the unused `_exemplar_colors(...)` helper and its test were removed
+- continuous analysis stopped building a k-means `cluster_map`
+- `continuous.py` now uses only real source edges for guidance instead of blending in coarse cluster boundaries
+- the pinned cleaned-badge continuous smoke run under `artifacts/optimizer-cut-v1-badge-126/` still behaves coherently after the cut: snap scores `0.08100`, final scores `0.07535`, and the generated preview is `diagnostics/output-preview.png`
 
 The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
 

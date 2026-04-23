@@ -14,8 +14,7 @@ def test_continuous_source_analysis_cpu_device_matches_default_path() -> None:
     accelerated = analyze_continuous_source(source, seed=7, device="cpu")
 
     assert np.allclose(accelerated.edge_map, default.edge_map, atol=1e-5)
-    assert accelerated.cluster_map.shape == default.cluster_map.shape
-    assert np.array_equal(accelerated.cluster_map, default.cluster_map)
+    assert not hasattr(accelerated, "cluster_map")
 
 
 def test_tile_graph_source_analysis_is_edge_only() -> None:

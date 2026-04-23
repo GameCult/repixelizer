@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 
 from .analysis import analyze_continuous_source, analyze_tile_graph_source
-from .continuous import optimize_uv_field
+from .continuous import optimize_lattice_pixels
 from .diagnostics import (
     summarize_run,
     write_alpha_preview,
@@ -421,7 +421,7 @@ def _run_reconstruction(
             device=device,
             solver_params=solver_params,
         )
-    solver = optimize_uv_field(
+    solver = optimize_lattice_pixels(
         source,
         inference=inference,
         analysis=analysis,

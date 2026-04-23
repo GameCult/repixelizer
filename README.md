@@ -59,7 +59,7 @@ Current tile-graph status:
 - repeated fixed-lattice `tile-graph` runs in the same Python process now reuse the expensive model build; on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the first CUDA run took about `10.2s` and the second cached rerun took about `2.1s`
 - the latest reduce-by-key pinned badge probe under `artifacts/tile-graph-reducebykey-v1-badge-126/` finishes in about `16.1s` cold and `6.0s` warm on CUDA, versus the previous full-resolution cut at about `96.9s` cold and `5.4s` warm
 - that speed pass is a real throughput win but a small quality regression: the same pinned badge case moves from `0.1814` to `0.2036` source-fidelity
-- the optimizer now has its own deep-dive map in `docs/optimizer-algorithm-map.md`, which documents the current continuous path as it actually exists: a fixed-lattice, source-first discrete chooser wearing some continuous-era names
+- the optimizer now has its own deep-dive map in `docs/optimizer-algorithm-map.md`, and the first cut from that map removed the old UV-optimizer name plus the continuous k-means cluster-boundary scout; the continuous path is now a fixed-lattice, source-first discrete chooser guided by real edge evidence
 - after the first pruning pass, tile-graph no longer participates in pipeline phase-rerank probes and no longer carries hybrid geometry priors through its unary cost; the path is now one lattice-conditioned candidate generator plus one local discrete solver
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine

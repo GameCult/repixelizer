@@ -16,7 +16,7 @@ Where did the machine start negotiating with itself too much?
 
 The current optimizer machine is:
 
-`source image -> edge/cluster scout -> regular UV grid -> soft representative portrait + hard source lattice portrait -> source-first snap -> relaxed candidate field -> greedy discrete refine -> keep snap if refine made things worse`
+`source image -> edge scout -> regular UV grid -> soft representative portrait + hard source lattice portrait -> source-first snap -> relaxed candidate field -> greedy discrete refine -> keep snap if refine made things worse`
 
 Or, in pictures:
 
@@ -67,37 +67,32 @@ This fixes:
 
 Every later judgment is conditioned on that ruler. If it is wrong, the optimizer is making careful decisions against the wrong graph paper.
 
-## Stage 1: The scouts walk the mural
+## Stage 1: The edge scout walks the mural
 
 Functions:
 
 - `analyze_continuous_source(...)` in `src/repixelizer/analysis.py`
 - `_compute_edge_map(...)`
-- `_kmeans(...)`
 
 Output:
 
 - `ContinuousSourceAnalysis.edge_map`
-- `ContinuousSourceAnalysis.cluster_map`
 
 Meaning:
 
-The optimizer sends out two scouts:
+The optimizer sends out one scout:
 
-- one chalks the cliff faces where luminance or alpha changes sharply
-- one throws a coarse paint-by-number veil over the opaque pixels
+- it chalks the cliff faces where luminance or alpha changes sharply
 
 Important variables:
 
 - `edge_map[y, x]`
-- `cluster_map[y, x]`
 
 Natural-language picture:
 
 The edge scout is looking for cracks and ridges.  
-The cluster scout is painting broad neighborhoods in different colors so the optimizer can later tell when it crossed from one country into another.
 
-This is already one place where the machine speaks in two voices: one scout sees real local edges, the other sees a rough k-means abstraction.
+The old k-means paint-by-number scout has been cut. It was letting coarse color partitions masquerade as geometry, and that did not fit the optimizer's core story.
 
 ## Stage 2: The optimizer lays down a regular UV grid
 
@@ -128,7 +123,7 @@ Then `_make_patch_offsets(...)` builds a little stencil of nearby offsets around
 
 Important truth:
 
-Despite the name `optimize_uv_field(...)`, the current path never actually moves the UV field. It lays down a regular grid and keeps it.
+Despite the old name `optimize_uv_field(...)`, the current path never actually moves the UV field. It lays down a regular grid and keeps it.
 
 ## Stage 3: The machine paints a soft portrait of the lattice
 
@@ -136,7 +131,6 @@ Functions:
 
 - `_sample_cell_patches(...)`
 - `_representative_colors(...)`
-- `_exemplar_colors(...)` (helper only; not used in the current main path)
 
 Key variables:
 
@@ -176,7 +170,6 @@ Functions:
 - `_build_source_detail_reference(...)`
 - `_build_source_reliability(...)`
 - `_edge_gradient_maps(...)`
-- `_cluster_boundary_map(...)`
 
 Key outputs:
 
@@ -432,7 +425,7 @@ Then it hardens alpha again before producing the final `target_rgba`.
 Functions:
 
 - `source_lattice_consistency_breakdown(...)`
-- final guardrail in `optimize_uv_field(...)`
+- final guardrail in `optimize_lattice_pixels(...)`
 
 Key variables:
 
@@ -472,11 +465,10 @@ Those are coherent. They all serve the same broad goal: make one global lattice 
 
 These are the places where the optimizer still speaks in an overly complicated or self-contradictory voice:
 
-- `optimize_uv_field(...)` no longer optimizes the UV field at all. The UV grid is regular and fixed. The name is a historical fossil.
 - the machine still maintains two overlapping portraits of the same lattice and spends much of its complexity mediating the argument between them
-- `guide_edge` mixes the real `edge_map` with `_cluster_boundary_map(cluster_map)`, which means a coarse k-means partition is still allowed to masquerade as geometric structure
 - snap, relax, and refine all carry slightly different versions of adjacency, motif, line, and delta agreement; the same idea is being said three times with different accents
 - the candidate generator is local and the solver is discrete, but the vocabulary around it still sounds like a continuous deformation engine
+- the main entry point is now honestly named `optimize_lattice_pixels(...)`, and the k-means boundary scout is gone; those cuts removed two contradictions from the previous map
 
 This is probably the real cutting checklist for the next optimizer pass.
 
@@ -484,7 +476,7 @@ This is probably the real cutting checklist for the next optimizer pass.
 
 If we strip the optimizer down to what it is really doing today, the machine is:
 
-`source image -> edge/cluster scout -> fixed lattice centers -> soft portrait + hard portrait -> source-first snap -> soft neighborhood relax -> greedy discrete refine -> keep snap if refine lied`
+`source image -> edge scout -> fixed lattice centers -> soft portrait + hard portrait -> source-first snap -> soft neighborhood relax -> greedy discrete refine -> keep snap if refine lied`
 
 That is much simpler than the surrounding names make it sound.
 
@@ -492,13 +484,11 @@ That is much simpler than the surrounding names make it sound.
 
 If we keep pruning, the highest-value cuts look like this:
 
-1. Rename `optimize_uv_field(...)` to match reality.
-   It is a lattice-conditioned discrete pixel chooser now, not a UV optimizer.
-2. Separate preparation from decision-making.
+1. Separate preparation from decision-making.
    The edge scout, portraits, reliability maps, and delta maps want to be a clear prep stage instead of being braided through one giant function.
-3. Decide whether the representative portrait still earns its keep everywhere.
+2. Decide whether the representative portrait still earns its keep everywhere.
    If the source-first path is now strong enough, some of that arbitration machinery may be removable.
-4. Collapse duplicate structure voices.
+3. Collapse duplicate structure voices.
    Adjacency, motif, and line are important, but they should not need three near-parallel dialects unless they are truly doing different work.
 
 That is the next place to swing the axe.
