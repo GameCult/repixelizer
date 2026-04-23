@@ -56,7 +56,7 @@ The machine has one honest variable: the displacement field.
 - `disp_t` is optimized
 - the final image comes from rounding `uv0_px + disp_t` to real source pixels
 
-That means the solver is not choosing from trays, not blending portraits, and not negotiating among rival subsolvers. It is one field moving under one loss, with projection after each step to stop it from folding into paste.
+That means the solver is not maintaining alternate per-cell candidate sets or separate reference images during optimization. It is one field moving under one loss, with projection after each step to stop it from folding into paste.
 
 ## Stage 0: The pipeline chooses the ruler
 
@@ -135,7 +135,7 @@ The analysis stage computes a single normalized `edge_map`:
 - those differences are combined into a magnitude map
 - the map is normalized to `[0, 1]`
 
-That is all. No clusters, no portraits, no local exemplars. Just one scout report about where the source is calm and where it is breaking into edges.
+That is all. The analysis output for this solver is only one edge map: a report about where the source is calm and where it is breaking into edges.
 
 The map is used in two places later:
 
@@ -245,7 +245,7 @@ This is the zero-displacement output. Diagnostics still call this `snap_initial`
 
 Every output cell begins with its boots directly under its shoulders.
 
-No clairvoyance. No tray of options. Just a line of workers standing on the scaffold and pointing straight down at the source where the ruler says they ought to start.
+Each cell starts from the lattice center and only moves if the loss gives it a reason to move.
 
 ## Stage 4: The loss samples the current hypothesis
 
@@ -513,12 +513,12 @@ The main machine is done. This stage is just sweeping the floor, labeling the cr
 The repo keeps two families of score now:
 
 - `source_fidelity`
-  - compares the output against a lattice-derived portrait of the source
-  - useful, but willing to lie if the portrait itself misses visible structure
+  - compares the output against a lattice-derived reference raster built from the source
+  - useful, but limited by the quality of that reference
 
 - `source_structure`
   - cares about foreground reconstruction, edge placement, wobble, edge support, and exact matches
-  - closer to what human eyes were screaming about the whole time
+  - closer to visible structure in the source image
 
 The solver also reports displacement statistics like:
 
@@ -535,10 +535,8 @@ This is the coroner's table.
 
 The machine gets judged two ways:
 
-- by the lattice accountant, who cares whether it matches the inferred ledger
-- by the eye doctor, who cares whether the visible linework survived the trip
-
-We learned the hard way that the accountant can be a liar.
+- by a lattice-derived reference, which measures agreement with the inferred grid interpretation
+- by a structure-oriented view, which measures whether visible linework and edges survived the trip
 
 ## Stable core
 
@@ -562,10 +560,10 @@ These are the places where the current implementation is still a little awkward 
 
 These are the categories of complexity that would change the nature of the solver if they came back:
 
-- representative portraits
-- source-reference portraits driving the optimizer
-- candidate trays
-- snap / relax / refine subsolver theology
-- duplicated motif / line / boundary dialects
+- extra per-cell reference rasters used during optimization
+- source-derived reference images that steer the field directly
+- candidate sets or candidate trays for each cell
+- multiple sequential solver stages with separate objectives
+- repeated structural score families that appear in more than one stage
 
 The whole point of this machine is that it stays one field, one loss, one final sample.
