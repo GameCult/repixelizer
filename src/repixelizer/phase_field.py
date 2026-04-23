@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .io import premultiply
-from .types import ContinuousSourceAnalysis, InferenceResult, SolverArtifacts
+from .types import InferenceResult, PhaseFieldSourceAnalysis, SolverArtifacts
 from .params import SolverHyperParams
 
 
@@ -222,7 +222,7 @@ def _prepare_phase_field(
     F,
     rgba: np.ndarray,
     inference: InferenceResult,
-    analysis: ContinuousSourceAnalysis,
+    analysis: PhaseFieldSourceAnalysis,
     solver_params: SolverHyperParams,
     *,
     device: str,
@@ -379,7 +379,7 @@ def _nearest_source_rgba(source_rgba: np.ndarray, sample_x: np.ndarray, sample_y
 def optimize_phase_field(
     rgba: np.ndarray,
     inference: InferenceResult,
-    analysis: ContinuousSourceAnalysis,
+    analysis: PhaseFieldSourceAnalysis,
     steps: int,
     seed: int,
     device: str,

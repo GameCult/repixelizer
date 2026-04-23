@@ -35,8 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"), help="Torch device")
         target.add_argument(
             "--reconstruction-mode",
-            default="continuous",
-            choices=("continuous", "phase-field", "tile-graph"),
+            default="phase-field",
+            choices=("phase-field", "tile-graph"),
             help="Reconstruction engine to run after lattice estimation",
         )
         target.add_argument(

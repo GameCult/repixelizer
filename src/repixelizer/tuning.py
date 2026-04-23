@@ -38,17 +38,6 @@ def _score_summary(summary: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def _normalize_group(values: np.ndarray) -> np.ndarray:
-    values = np.clip(values.astype(np.float64), 1e-4, None)
-    return values / np.sum(values)
-
-
-def _mutate_group(rng: np.random.Generator, values: list[float], scale: float) -> np.ndarray:
-    base = np.asarray(values, dtype=np.float64)
-    noise = np.exp(rng.normal(0.0, 0.28 * scale, size=base.shape))
-    return _normalize_group(base * noise)
-
-
 def _mutate_positive(
     rng: np.random.Generator,
     value: float,
@@ -75,162 +64,160 @@ def _mutate_linear(
 
 
 def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: float) -> SolverHyperParams:
-    refine_group = _mutate_group(
-        rng,
-        [
-            base.refine_anchor_weight,
-            base.refine_source_weight,
-            base.refine_alpha_weight,
-            base.refine_distance_weight,
-        ],
-        scale,
-    )
-    structure_group = _mutate_group(
-        rng,
-        [
-            base.structure_boundary_weight,
-            base.structure_anchor_adjacency_weight,
-            base.structure_anchor_motif_weight,
-            base.structure_anchor_line_weight,
-        ],
-        scale,
-    )
     return replace(
         base,
-        representative_softmax_scale=_mutate_positive(
+        phase_field_patch_extent=_mutate_linear(
             rng,
-            base.representative_softmax_scale,
+            base.phase_field_patch_extent,
             scale=scale,
-            low=8.0,
-            high=36.0,
-        ),
-        boundary_probe_scale=_mutate_linear(
-            rng,
-            base.boundary_probe_scale,
-            scale=scale,
-            sigma=0.03,
-            low=0.14,
-            high=0.32,
-        ),
-        refine_anchor_weight=float(refine_group[0]),
-        refine_source_weight=float(refine_group[1]),
-        refine_alpha_weight=float(refine_group[2]),
-        refine_distance_weight=float(refine_group[3]),
-        refine_source_delta_weight=_mutate_linear(
-            rng,
-            base.refine_source_delta_weight,
-            scale=scale,
-            sigma=0.08,
+            sigma=0.035,
             low=0.05,
-            high=0.45,
-        ),
-        refine_orthogonal_weight=_mutate_linear(
-            rng,
-            base.refine_orthogonal_weight,
-            scale=scale,
-            sigma=0.05,
-            low=0.10,
-            high=0.40,
-        ),
-        refine_diagonal_weight=_mutate_linear(
-            rng,
-            base.refine_diagonal_weight,
-            scale=scale,
-            sigma=0.025,
-            low=0.02,
-            high=0.18,
-        ),
-        refine_motif_weight=_mutate_linear(
-            rng,
-            base.refine_motif_weight,
-            scale=scale,
-            sigma=0.05,
-            low=0.02,
-            high=0.40,
-        ),
-        refine_line_weight=_mutate_linear(
-            rng,
-            base.refine_line_weight,
-            scale=scale,
-            sigma=0.04,
-            low=0.02,
-            high=0.30,
-        ),
-        relax_anchor_scale=_mutate_linear(
-            rng,
-            base.relax_anchor_scale,
-            scale=scale,
-            sigma=0.16,
-            low=0.15,
-            high=1.0,
-        ),
-        relax_orthogonal_weight=_mutate_linear(
-            rng,
-            base.relax_orthogonal_weight,
-            scale=scale,
-            sigma=0.08,
-            low=0.10,
-            high=0.70,
-        ),
-        relax_diagonal_weight=_mutate_linear(
-            rng,
-            base.relax_diagonal_weight,
-            scale=scale,
-            sigma=0.05,
-            low=0.02,
             high=0.35,
         ),
-        relax_source_adjacency_weight=_mutate_linear(
+        phase_field_data_coherence_weight=_mutate_positive(
             rng,
-            base.relax_source_adjacency_weight,
+            base.phase_field_data_coherence_weight,
             scale=scale,
-            sigma=0.10,
-            low=0.05,
-            high=0.80,
+            low=0.15,
+            high=3.0,
         ),
-        relax_source_motif_weight=_mutate_linear(
+        phase_field_data_edge_weight=_mutate_positive(
             rng,
-            base.relax_source_motif_weight,
+            base.phase_field_data_edge_weight,
             scale=scale,
-            sigma=0.10,
             low=0.05,
-            high=0.80,
+            high=2.5,
         ),
-        relax_source_line_weight=_mutate_linear(
+        phase_field_data_center_edge_weight=_mutate_positive(
             rng,
-            base.relax_source_line_weight,
+            base.phase_field_data_center_edge_weight,
             scale=scale,
-            sigma=0.08,
-            low=0.02,
+            low=0.10,
+            high=3.0,
+        ),
+        phase_field_spacing_weight=_mutate_positive(
+            rng,
+            base.phase_field_spacing_weight,
+            scale=scale,
+            low=0.01,
+            high=1.0,
+        ),
+        phase_field_smoothness_weight=_mutate_positive(
+            rng,
+            base.phase_field_smoothness_weight,
+            scale=scale,
+            low=0.01,
+            high=1.2,
+        ),
+        phase_field_edge_gate_strength=_mutate_positive(
+            rng,
+            base.phase_field_edge_gate_strength,
+            scale=scale,
+            low=1.0,
+            high=30.0,
+        ),
+        phase_field_collapse_weight=_mutate_positive(
+            rng,
+            base.phase_field_collapse_weight,
+            scale=scale,
+            low=0.05,
+            high=4.0,
+        ),
+        phase_field_min_spacing_ratio=_mutate_linear(
+            rng,
+            base.phase_field_min_spacing_ratio,
+            scale=scale,
+            sigma=0.05,
+            low=0.01,
             high=0.45,
         ),
-        structure_boundary_weight=float(structure_group[0]),
-        structure_anchor_adjacency_weight=float(structure_group[1]),
-        structure_anchor_motif_weight=float(structure_group[2]),
-        structure_anchor_line_weight=float(structure_group[3]),
-        structure_source_adjacency_weight=_mutate_linear(
+        phase_field_max_spacing_ratio=_mutate_linear(
             rng,
-            base.structure_source_adjacency_weight,
+            base.phase_field_max_spacing_ratio,
             scale=scale,
             sigma=0.12,
-            low=0.05,
-            high=0.90,
+            low=0.8,
+            high=1.8,
         ),
-        structure_source_motif_weight=_mutate_linear(
+        phase_field_magnitude_weight=_mutate_positive(
             rng,
-            base.structure_source_motif_weight,
+            base.phase_field_magnitude_weight,
             scale=scale,
-            sigma=0.12,
-            low=0.05,
-            high=0.90,
+            low=0.001,
+            high=0.5,
         ),
-        structure_source_line_weight=_mutate_linear(
+        phase_field_learning_rate=_mutate_positive(
             rng,
-            base.structure_source_line_weight,
+            base.phase_field_learning_rate,
+            scale=scale,
+            low=0.005,
+            high=0.5,
+        ),
+        phase_field_max_displacement_ratio=_mutate_linear(
+            rng,
+            base.phase_field_max_displacement_ratio,
             scale=scale,
             sigma=0.08,
-            low=0.02,
-            high=0.50,
+            low=0.10,
+            high=1.0,
+        ),
+        phase_rerank_support_weight=_mutate_positive(
+            rng,
+            base.phase_rerank_support_weight,
+            scale=scale,
+            low=0.05,
+            high=1.5,
+        ),
+        phase_rerank_edge_position_weight=_mutate_positive(
+            rng,
+            base.phase_rerank_edge_position_weight,
+            scale=scale,
+            low=0.01,
+            high=1.0,
+        ),
+        phase_rerank_wobble_weight=_mutate_positive(
+            rng,
+            base.phase_rerank_wobble_weight,
+            scale=scale,
+            low=0.01,
+            high=1.0,
+        ),
+        phase_rerank_edge_concentration_weight=_mutate_positive(
+            rng,
+            base.phase_rerank_edge_concentration_weight,
+            scale=scale,
+            low=0.01,
+            high=1.0,
+        ),
+        phase_rerank_size_penalty_weight=_mutate_positive(
+            rng,
+            base.phase_rerank_size_penalty_weight,
+            scale=scale,
+            low=0.01,
+            high=1.0,
+        ),
+        phase_rerank_inference_penalty_weight=_mutate_positive(
+            rng,
+            base.phase_rerank_inference_penalty_weight,
+            scale=scale,
+            low=0.0,
+            high=0.5,
+        ),
+        phase_rerank_confidence_threshold=_mutate_linear(
+            rng,
+            base.phase_rerank_confidence_threshold,
+            scale=scale,
+            sigma=0.035,
+            low=0.0,
+            high=0.5,
+        ),
+        phase_rerank_max_size_delta_ratio=_mutate_linear(
+            rng,
+            base.phase_rerank_max_size_delta_ratio,
+            scale=scale,
+            sigma=0.08,
+            low=0.05,
+            high=1.0,
         ),
         phase_rerank_margin=_mutate_linear(
             rng,

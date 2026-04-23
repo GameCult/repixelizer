@@ -10,7 +10,7 @@ The project exists because generated imagery often creates appealing pixel-like 
 - noisy highlights and outlines
 - fake micro-detail that collapses when downsampled
 
-Repixelizer treats this as an optimization and reconstruction problem rather than a resizing problem.
+Repixelizer treats this as lattice inference plus reconstruction rather than a resize problem.
 
 ## Goals
 
@@ -59,7 +59,7 @@ The default workflow should be fully automatic:
 1. load the source image
 2. infer lattice size and phase
 3. analyze source structure
-4. optimize a continuous UV/sample field
+4. optimize a displacement field over the inferred lattice
 5. project that result to a real pixel grid
 6. clean up obvious discrete-grid artifacts
 7. optionally quantize to a palette
@@ -117,32 +117,30 @@ Scoring goals:
 ### 2. Source analysis
 
 The solver should derive automatic guidance from the image itself:
-- alpha map
 - edge map
-- coarse material/color clustering
+- alpha-aware source structure
 
-This guidance is used to preserve important boundaries while allowing smoother regions to collapse into cleaner pixel clusters.
+This guidance is used to preserve important boundaries while allowing smoother regions to settle into cleaner pixel clusters.
 
-### 3. Continuous optimization
+### 3. Phase-field optimization
 
-The continuous stage represents each output pixel by a source UV/sample coordinate.
+The optimizer represents each output pixel by a base lattice center plus one learned displacement vector.
 
 Requirements:
 - operate in premultiplied RGBA space
 - use PyTorch autograd
-- optimize a UV field initialized from the inferred lattice
-- preserve local adjacency instead of letting the sample field scramble neighborhoods
+- optimize a displacement field initialized at zero from the inferred lattice
+- preserve local adjacency instead of letting the sample field collapse or fold
 
 Loss components should include:
-- reconstruction loss against the source image
-- low-distortion regularization against the initialized UV grid
+- local coherence / solidity so samples settle inside fake-pixel interiors
 - edge-aware smoothing so hard boundaries stay crisp
-- anti-speckle pressure to reduce isolated outlier pixels
-- alpha regularization to avoid muddy semi-transparent edges
+- anti-collapse spacing so neighboring cells do not stack onto the same source pixel
+- bounded displacement so the field does not wander off into the weeds
 
 ### 4. Discrete projection and cleanup
 
-After the continuous stage, the result must be treated as a true pixel grid.
+After the phase-field stage, the result must be treated as a true pixel grid.
 
 The discrete stage should:
 - evaluate local neighborhoods
@@ -177,7 +175,6 @@ Required artifacts:
 - `comparison.png`
 - `alpha-preview.png`
 - `noise-heatmap.png`
-- `cluster-preview.png`
 
 Compare mode should additionally write:
 - `compare.json`

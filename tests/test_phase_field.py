@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from repixelizer.analysis import analyze_continuous_source
+from repixelizer.analysis import analyze_phase_field_source
 from repixelizer.phase_field import optimize_phase_field
 from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.types import InferenceResult
@@ -25,7 +25,7 @@ def test_optimize_phase_field_emits_displacement_diagnostics_and_source_colors()
     artifacts = optimize_phase_field(
         source,
         inference=inference,
-        analysis=analyze_continuous_source(source, seed=7),
+        analysis=analyze_phase_field_source(source, seed=7),
         steps=4,
         seed=7,
         device="cpu",
@@ -65,7 +65,7 @@ def test_optimize_phase_field_moves_off_zero_when_phase_is_wrong() -> None:
     artifacts = optimize_phase_field(
         fake,
         inference=inference,
-        analysis=analyze_continuous_source(fake, seed=7),
+        analysis=analyze_phase_field_source(fake, seed=7),
         steps=6,
         seed=7,
         device="cpu",

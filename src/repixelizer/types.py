@@ -28,7 +28,7 @@ class InferenceResult:
 
 
 @dataclass(slots=True)
-class ContinuousSourceAnalysis:
+class PhaseFieldSourceAnalysis:
     edge_map: np.ndarray
 
 
@@ -37,7 +37,7 @@ class TileGraphSourceAnalysis:
     edge_map: np.ndarray
 
 
-SourceAnalysis = ContinuousSourceAnalysis | TileGraphSourceAnalysis
+SourceAnalysis = PhaseFieldSourceAnalysis | TileGraphSourceAnalysis
 
 
 @dataclass(slots=True)
@@ -86,7 +86,7 @@ class RunResult:
     source_rgba: np.ndarray
     output_rgba: np.ndarray
     inference: InferenceResult
-    analysis: ContinuousSourceAnalysis | TileGraphSourceAnalysis
+    analysis: PhaseFieldSourceAnalysis | TileGraphSourceAnalysis
     solver: SolverArtifacts
     cleanup: CleanupArtifacts
     palette_result: PaletteResult | None

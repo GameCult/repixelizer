@@ -6,8 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from .analysis import analyze_continuous_source, analyze_tile_graph_source
-from .continuous import optimize_lattice_pixels
+from .analysis import analyze_phase_field_source, analyze_tile_graph_source
 from .diagnostics import (
     summarize_run,
     write_alpha_preview,
@@ -31,7 +30,7 @@ from .phase_field import optimize_phase_field
 from .palette import load_palette, quantize_rgba, save_palette_report
 from .preprocess import strip_edge_background
 from .tile_graph import optimize_tile_graph
-from .types import ContinuousSourceAnalysis, InferenceResult, RunResult, TileGraphSourceAnalysis
+from .types import InferenceResult, PhaseFieldSourceAnalysis, RunResult, TileGraphSourceAnalysis
 
 
 def run_pipeline(
@@ -51,7 +50,7 @@ def run_pipeline(
     device: str = "auto",
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
-    reconstruction_mode: str = "continuous",
+    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> RunResult:
     started = time.perf_counter()
@@ -191,10 +190,10 @@ def _prepare_analysis(
     seed: int,
     device: str,
     reconstruction_mode: str,
-) -> ContinuousSourceAnalysis | TileGraphSourceAnalysis:
+) -> PhaseFieldSourceAnalysis | TileGraphSourceAnalysis:
     if reconstruction_mode == "tile-graph":
         return analyze_tile_graph_source(source, device=device)
-    return analyze_continuous_source(source, seed=seed)
+    return analyze_phase_field_source(source, seed=seed, device=device)
 
 
 def _select_phase_candidate(
@@ -205,7 +204,7 @@ def _select_phase_candidate(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    reconstruction_mode: str = "continuous",
+    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> InferenceResult:
     return _select_phase_candidate_with_reconstruction(
@@ -228,13 +227,13 @@ def _select_phase_candidate_with_reconstruction(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    reconstruction_mode: str = "continuous",
+    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> InferenceResult:
     solver_params = solver_params or SolverHyperParams()
     if not enable_phase_rerank:
         return inference
-    if reconstruction_mode != "continuous":
+    if reconstruction_mode != "phase-field":
         return inference
     if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
         return inference
@@ -451,20 +450,12 @@ def _run_reconstruction(
             device=device,
             solver_params=solver_params,
         )
+        phase_field_metrics = getattr(solver, "stage_diagnostics", {}).get("phase_field", {})
         return solver, {
             "mode": "phase-field",
             **{
                 f"phase_field_{key}": value
-                for key, value in solver.stage_diagnostics.get("phase_field", {}).items()
+                for key, value in phase_field_metrics.items()
             },
         }
-    solver = optimize_lattice_pixels(
-        source,
-        inference=inference,
-        analysis=analysis,
-        steps=steps,
-        seed=seed,
-        device=device,
-        solver_params=solver_params,
-    )
-    return solver, {"mode": "continuous"}
+    raise ValueError(f"Unknown reconstruction mode: {reconstruction_mode}")

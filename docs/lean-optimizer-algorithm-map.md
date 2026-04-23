@@ -1,4 +1,4 @@
-# Lean Optimizer Replacement Map
+# Lean Optimizer Algorithm Map
 
 ## Why this map exists
 
@@ -14,7 +14,7 @@ It is a map of the optimizer we should replace it with:
 
 That is the whole dream. No watercolor portrait. No accountant's ledger. No snap religion and refine religion living in the same cathedral. Just one field, one objective, one final sample.
 
-The first implementation of this restart now exists in `src/repixelizer/phase_field.py` behind `--reconstruction-mode phase-field`.
+The live implementation now exists in `src/repixelizer/phase_field.py` and is the default optimizer path.
 
 That implementation is intentionally small and slightly stupid:
 
@@ -25,7 +25,7 @@ That implementation is intentionally small and slightly stupid:
 - one displacement magnitude prior
 - one final nearest source sample
 
-It is not yet beating the old continuous optimizer on the pinned badge stress case, but it is finally the right kind of machine to improve.
+It is already the right kind of machine, and it now owns the main optimizer path. The remaining work is quality tuning, not architectural self-deception.
 
 ## One-sentence machine
 
@@ -42,7 +42,7 @@ Or, in pictures:
 
 ## How to read this machine
 
-The replacement optimizer should carry only four important pieces of cargo:
+The optimizer should carry only four important pieces of cargo:
 
 - `uv0`: the fixed lattice centers chosen by inference
 - `d`: one displacement vector `(dx, dy)` per output cell, initialized to zero
@@ -61,7 +61,6 @@ These existing pieces are still worth keeping:
 - edge analysis in `src/repixelizer/analysis.py`
 - source-lattice consistency metrics in `src/repixelizer/metrics.py`
 - diagnostics and compare-mode output in `src/repixelizer/pipeline.py` and `src/repixelizer/diagnostics.py`
-- the current optimizer in `src/repixelizer/continuous.py` as a benchmark and fallback during the replacement
 
 These pieces should **not** be part of the new core:
 
@@ -103,7 +102,7 @@ After that, the new optimizer is not a politician. It is a field crew. It works 
 
 Current source to reuse:
 
-- `_make_regular_uv(...)` in `src/repixelizer/continuous.py`
+- `_make_regular_uv_px(...)` in `src/repixelizer/phase_field.py`
 
 New state:
 
@@ -246,7 +245,7 @@ Hard invariants:
 
 Meaning:
 
-This is the heart of the replacement.
+This is the heart of the machine.
 
 The field should move directly under one unified objective, not by:
 
@@ -275,7 +274,7 @@ Meaning:
 
 Once the field has settled, the image comes from one final honest sampling step.
 
-This is where the current machine keeps cheating by spending most of its life as a discrete chooser. The replacement should do the opposite:
+This is where the current machine must keep its hands clean. The field should do the hard thinking first:
 
 - optimize a field first
 - discretize once at the end
@@ -298,15 +297,13 @@ Meaning:
 
 The new machine still needs adult supervision.
 
-But the supervision should judge one coherent pipeline, not referee a knife fight between three subsolvers. The important diagnostics for the replacement should be:
+But the supervision should judge one coherent pipeline, not referee a knife fight between three subsolvers. The important diagnostics for this machine are:
 
 - source-lattice fidelity
 - displacement magnitude statistics
 - displacement smoothness / jitter
 - topology violations prevented or projected away
 - maybe edge-crossing counts if we make that measurable
-
-If the replacement loses badly to the old optimizer, we keep the old optimizer. No romance.
 
 ### Metaphor
 
@@ -338,9 +335,9 @@ These things should be treated as suspicious imports from the old religion:
 
 If one of those comes back, it should have to win a public trial.
 
-## The current replacement plan
+## The current plan
 
-The lean optimizer should be built beside the current one, not by mutating the old whale in place.
+The lean optimizer is now the live optimizer. The job is no longer to justify its existence. The job is to improve it without letting it mutate back into a tray cult.
 
 Recommended build order:
 
@@ -353,12 +350,12 @@ Recommended build order:
    - anti-collapse
    - displacement magnitude prior
 4. Add diagnostics for displacement magnitude, smoothness, and topology health.
-5. Compare against the current optimizer on pinned badge and emblem cases.
-6. Only port any old "fancy" idea if it clearly improves the real outputs.
+5. Compare against pinned badge and emblem cases.
+6. Only port any old "fancy" idea if it clearly improves the real outputs and still fits the one-field mental model.
 
 ## The diamond test
 
-The replacement is worth keeping only if it passes this crude, necessary test:
+The optimizer is worth keeping only if it passes this crude, necessary test:
 
 Can a new reader describe the whole machine without sounding like they are defending a tax code?
 
