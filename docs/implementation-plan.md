@@ -20,7 +20,7 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing (`59 passed`)
+- full test suite currently passing (`60 passed`)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
@@ -57,29 +57,29 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass adds the first low-risk hybrid path between the continuous solver and tile-graph instead of treating them as completely separate experiments.
+This pass focused on iteration speed for `tile-graph`, because the current badge loop had become too slow to support quick debugging.
 
 What landed:
-- `pipeline.py` now supports `reconstruction_mode="hybrid"` and runs a zero-step continuous prepass before tile-graph
-- `tile_graph.py` now accepts an optional geometry reference image plus guidance map and adds a geometry-match term to the tile-graph unary cost
-- `cli.py` now exposes `--reconstruction-mode hybrid`
-- `tests/test_pipeline.py` now covers both the direct hybrid handoff seam and an actual end-to-end hybrid smoke run
+- `pipeline.py` now reuses the chosen low-confidence phase-rerank reconstruction for `tile-graph` and `hybrid` instead of rebuilding the same selected candidate again after selection
+- `tests/test_pipeline.py` now has a regression that locks in that reuse behavior for low-confidence `tile-graph` runs
 
 Current implementation note:
-- source-region labeling is still device-backed, but the one-cell window cutting pass remains CPU-side and still dominates large-fixture runtime
-- the hybrid is intentionally conservative for this first pass: it only biases tile-graph's unary cost with the continuous prepass layout and does not yet replace the pairwise objective or the source-region builder
+- on the cleaned badge, the current `tile-graph` end-to-end run now lands at about `270.8s` on this machine after reuse, down from about `443.1s` for the earlier stroke-aware badge run
+- profiling the selected badge candidate shows that the solver loop is not the problem: the final `tile-graph` reconstruction used about `142.3s`, and about `131.2s` of that sat inside `_extract_source_region_tiles(...)`
+- the low-confidence badge rerank is the other major cost center: `_select_phase_candidate(...)` took about `223.9s` on the same fixture, with about `208.1s` of that spent inside reconstruction probes
+- `infer_lattice(...)` still takes about `44.1s` on that fixture, so iteration work that does not change the lattice itself should eventually be able to reuse or pin inference too
+- the hybrid remains intentionally conservative: it only biases tile-graph's unary cost with the continuous prepass layout and does not yet replace the pairwise objective or the source-region builder
 - on the cleaned badge, that conservative hybrid still helps: the latest run under `artifacts/badge-hybrid-v2-cuda/` lands at `0.1785`, improving on the current tile-graph badge baseline at `0.1832`
 - the hybrid is still far behind the stronger continuous badge result (`0.0832`), so the seam looks promising but it is not yet enough to solve the real contour problem by itself
-- the runtime overhead is modest relative to the current stroke-aware tile-graph pass: about `460.7s` for the hybrid badge probe versus about `443.1s` for the current non-hybrid tile-graph badge probe on this machine
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
 
 Next after that:
+- split tile-graph iteration into a cached model-build phase and a near-free solve phase so weight tuning does not keep paying the `~131s` source-region cutting bill
+- add an explicit fast-iteration path that reuses or pins lattice inference when the experiment is only changing tile-graph internals
+- port or reformulate `_extract_source_region_tiles(...)` so it no longer spends most of the badge runtime in Python/NumPy window cutting
+- reduce rerank probe cost by using cached candidate builds where possible or by using a cheaper rerank proxy before full tile-graph reconstruction
 - decide whether the next hybrid pass should add geometry-aware pairwise terms before changing the source-region builder again
-- keep pushing the initial candidate builder toward true source-side stroke ownership instead of only better stroke slicing within the same builder
-- port the per-component window cutting pass back toward a fully device-friendly formulation instead of only accelerating the labeling step
-- decide whether the next stroke pass should use a real contour/skeleton trace instead of only a principal-axis approximation
-- rerank low-confidence top lattice candidates with short real solver probes instead of relying only on the cheapest preview
 - evaluate whether the tile-graph propagation loop should become more contour-aware or simply stay more conservative now that the initial assignment is stronger
 - rerun tuning after the tile-graph objective and candidate sets stabilize
 - decide whether the tile-graph path should stay an alternate solver or become a candidate generator for the continuous refine stage
@@ -108,6 +108,7 @@ Current status:
 - on the cleaned badge, the new CCL-backed tile-graph run under `artifacts/badge-tile-graph-ccl-cuda/` still lands at a weak `0.1800`, so the current CCL work should be treated as an infrastructure/performance step rather than a visual-quality fix
 - the new stroke-aware badge run under `artifacts/badge-tile-graph-stroke-v2-cuda/` still does not solve the guard-contour problem and slightly regresses to `0.1832`, so the next stroke pass should be judged on whether it changes the source-side path model more fundamentally
 - the first hybrid badge run under `artifacts/badge-hybrid-v2-cuda/` improves that tile-graph baseline to `0.1785`, which is modest but real progress in the combined direction
+- on the cleaned badge, iteration is still dominated by preprocessing work rather than the tile-graph parity solver: about `44.1s` in inference, `223.9s` in low-confidence rerank probes, and `142.3s` in the final selected-candidate build before this pass started reusing the chosen phase probe
 
 Important note:
 - the checkerboard is baked into the source image, not transparency

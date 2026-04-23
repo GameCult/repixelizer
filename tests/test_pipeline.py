@@ -322,6 +322,85 @@ def test_pipeline_hybrid_mode_writes_reconstruction_diagnostics(tmp_path: Path) 
     assert result.diagnostics["reconstruction"]["mode"] == "hybrid"
 
 
+def test_pipeline_reuses_phase_probe_reconstruction_for_tile_graph(tmp_path: Path, monkeypatch) -> None:
+    source = np.zeros((6, 6, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, source)
+
+    candidate_a = InferenceCandidate(target_width=3, target_height=3, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=4, target_height=4, phase_x=0.2, phase_y=-0.2, score=0.90, breakdown={})
+    inference = InferenceResult(
+        target_width=3,
+        target_height=3,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=0.0,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class DummyAnalysis:
+        cluster_preview = np.zeros((6, 6, 4), dtype=np.float32)
+
+    call_count = {"tile_graph": 0}
+
+    def fake_optimize_tile_graph(
+        source_rgba,
+        inference,
+        analysis,
+        steps,
+        seed,
+        device,
+        solver_params=None,
+        geometry_reference_rgba=None,
+        geometry_guidance_strength=None,
+    ):
+        del source_rgba, analysis, steps, seed, device, solver_params, geometry_reference_rgba, geometry_guidance_strength
+        call_count["tile_graph"] += 1
+        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
+        rgba[..., 3] = 1.0
+        rgba[..., 0] = 0.2 if inference.target_width == 3 else 0.8
+        return (
+            SolverArtifacts(
+                target_rgba=rgba,
+                uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
+                guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+                initial_rgba=rgba.copy(),
+                loss_history=[],
+            ),
+            {"mode": "tile-graph", "tile_graph_candidate_count": 1},
+        )
+
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+        del source_rgba, output_rgba, target_height, phase_x, phase_y
+        return {"score": 0.05 if target_width == 3 else 0.15}
+
+    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", lambda *args, **kwargs: inference)
+    monkeypatch.setattr("repixelizer.pipeline.analyze_source", lambda *args, **kwargs: DummyAnalysis())
+    monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fake_optimize_tile_graph)
+    monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_position_error", lambda *args, **kwargs: 0.1)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", lambda *args, **kwargs: 0.5)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", lambda *args, **kwargs: 0.2)
+
+    result = run_pipeline(
+        input_path,
+        output_path,
+        reconstruction_mode="tile-graph",
+        steps=200,
+        device="cpu",
+    )
+
+    assert output_path.exists()
+    assert call_count["tile_graph"] == 2
+    assert result.diagnostics["reconstruction"]["reused_phase_probe_reconstruction"] is True
+    assert result.output_rgba.shape[:2] == (3, 3)
+
+
 def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
     candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})

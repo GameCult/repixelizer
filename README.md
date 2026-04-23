@@ -45,8 +45,10 @@ Current tile-graph status:
 - tile-graph now falls back to its initial assignment when the propagation loop would make source-lattice fidelity worse, which is currently important for preserving sharp internal contour cells
 - it still beats naive resize on the repo's synthetic thin-feature regression and now does so without letting the final propagation step blur past the initial placement
 - source-region connected-components now have a device-side Torch path, so the expensive labeling step no longer depends on Python flood fill
-- on the real cleaned badge, the current tile-graph model build now takes about `9.48s` on CPU versus `6.37s` on CUDA while producing the same `2499` source regions and `23223` candidates
-- the remaining large-fixture bottleneck is the per-component one-cell window cutting pass, which still hops back to CPU after labeling
+- on the real cleaned badge, the current end-to-end `tile-graph` pipeline now lands at about `270.8s` on this machine after reusing the chosen phase-rerank probe instead of rebuilding the same selected candidate a second time; the older stroke-aware badge run was about `443.1s`
+- profiling the selected badge candidate shows the main remaining bottleneck is model construction, not the solver loop: `build_tile_graph_model(...)` takes about `142.3s`, and about `131.2s` of that is `_extract_source_region_tiles(...)`
+- the low-confidence badge rerank is also expensive because it still probes eight lattice candidates before the final pick; on the same fixture that phase takes about `223.9s`, of which about `208.1s` is reconstruction work
+- the remaining large-fixture bottleneck is the per-component one-cell window cutting pass inside source-region extraction, which is still Python/NumPy-heavy after the GPU CCL stage
 - elongated source regions now get a stroke-aware slicing pass that follows their principal axis instead of only marching with cardinal queue steps, and the repo now has a shallow-stroke regression that checks for fan-out on that kind of component
 - that stroke-aware slicer is a real synthetic improvement but not a real-badge win yet: the latest badge probe under `artifacts/badge-tile-graph-stroke-v2-cuda/` still keeps the initial assignment and slightly regresses source-fidelity (`0.1832` vs `0.1800`)
 - the new low-risk hybrid mode keeps tile-graph's source-owned candidates but scores them against a continuous-optimizer geometry prepass; on the cleaned badge it improves tile-graph from `0.1832` to `0.1785` under `artifacts/badge-hybrid-v2-cuda/`

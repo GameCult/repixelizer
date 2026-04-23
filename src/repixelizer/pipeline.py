@@ -32,6 +32,10 @@ from .tile_graph import optimize_tile_graph
 from .types import InferenceResult, RunResult
 
 
+def _reuse_phase_probe_reconstruction(reconstruction_mode: str) -> bool:
+    return reconstruction_mode in {"tile-graph", "hybrid"}
+
+
 def run_pipeline(
     input_path: str | Path,
     output_path: str | Path,
@@ -54,7 +58,7 @@ def run_pipeline(
         source = strip_edge_background(source)
     inference = infer_lattice(source, target_size=target_size, device=device)
     analysis = analyze_source(source, seed=seed, device=device if reconstruction_mode in {"tile-graph", "hybrid"} else None)
-    inference = _select_phase_candidate(
+    inference, cached_reconstruction = _select_phase_candidate_with_reconstruction(
         source,
         inference,
         analysis=analysis,
@@ -63,16 +67,21 @@ def run_pipeline(
         solver_params=solver_params,
         reconstruction_mode=reconstruction_mode,
     )
-    solver, reconstruction_diagnostics = _run_reconstruction(
-        source,
-        inference=inference,
-        analysis=analysis,
-        steps=steps,
-        seed=seed,
-        device=device,
-        solver_params=solver_params,
-        reconstruction_mode=reconstruction_mode,
-    )
+    if cached_reconstruction is not None:
+        solver, reconstruction_diagnostics = cached_reconstruction
+        reconstruction_diagnostics = dict(reconstruction_diagnostics)
+        reconstruction_diagnostics["reused_phase_probe_reconstruction"] = True
+    else:
+        solver, reconstruction_diagnostics = _run_reconstruction(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=steps,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+            reconstruction_mode=reconstruction_mode,
+        )
     cleanup = cleanup_pixels(solver.target_rgba, source_guidance=solver.guidance_strength)
     palette = load_palette(palette_path) if palette_path else None
     palette_result = quantize_rgba(cleanup.cleaned_rgba, mode=palette_mode, palette=palette)
@@ -138,9 +147,31 @@ def _select_phase_candidate(
     solver_params: SolverHyperParams | None = None,
     reconstruction_mode: str = "continuous",
 ) -> InferenceResult:
+    selected, _ = _select_phase_candidate_with_reconstruction(
+        source,
+        inference,
+        analysis=analysis,
+        seed=seed,
+        device=device,
+        solver_params=solver_params,
+        reconstruction_mode=reconstruction_mode,
+    )
+    return selected
+
+
+def _select_phase_candidate_with_reconstruction(
+    source: np.ndarray,
+    inference: InferenceResult,
+    *,
+    analysis,
+    seed: int,
+    device: str,
+    solver_params: SolverHyperParams | None = None,
+    reconstruction_mode: str = "continuous",
+):
     solver_params = solver_params or SolverHyperParams()
     if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
-        return inference
+        return inference, None
 
     top_score = float(inference.top_candidates[0].score)
     candidate_records: list[dict[str, float | InferenceResult]] = []
@@ -153,7 +184,7 @@ def _select_phase_candidate(
             confidence=inference.confidence,
             top_candidates=inference.top_candidates,
         )
-        candidate_artifacts, _ = _run_reconstruction(
+        candidate_artifacts, candidate_diagnostics = _run_reconstruction(
             source,
             inference=candidate_inference,
             analysis=analysis,
@@ -181,11 +212,12 @@ def _select_phase_candidate(
                 "edge_concentration": foreground_edge_concentration(candidate_artifacts.target_rgba),
                 "inference_penalty": top_score - float(candidate.score),
                 "size_delta_ratio": _size_delta_ratio(inference, candidate_inference),
+                "cached_reconstruction": (candidate_artifacts, candidate_diagnostics),
             }
         )
 
     if not candidate_records:
-        return inference
+        return inference, None
 
     support_penalty = _normalize_penalty(record["support_score"] for record in candidate_records)
     edge_position_penalty = _normalize_penalty(record["edge_position_error"] for record in candidate_records)
@@ -203,6 +235,8 @@ def _select_phase_candidate(
     baseline_rank: float | None = None
     best_rank = float("inf")
     best_candidate = inference
+    best_cached_reconstruction = None
+    baseline_cached_reconstruction = None
     annotated_candidates = []
     for index, record in enumerate(candidate_records):
         candidate_inference = record["inference"]
@@ -238,9 +272,11 @@ def _select_phase_candidate(
         )
         if baseline_rank is None:
             baseline_rank = rank
+            baseline_cached_reconstruction = record.get("cached_reconstruction")
         if rank < best_rank:
             best_rank = rank
             best_candidate = record["inference"]
+            best_cached_reconstruction = record.get("cached_reconstruction")
     annotated_candidates.sort(key=lambda candidate: float(candidate.breakdown.get("phase_rerank_score", float("inf"))))
     for rank, candidate in enumerate(annotated_candidates, start=1):
         candidate.breakdown["phase_rerank_rank"] = float(rank)
@@ -255,7 +291,7 @@ def _select_phase_candidate(
         )
     if baseline_rank is None or best_rank > baseline_rank - solver_params.phase_rerank_margin:
         if annotated_candidates:
-            return InferenceResult(
+            selected = InferenceResult(
                 target_width=inference.target_width,
                 target_height=inference.target_height,
                 phase_x=inference.phase_x,
@@ -263,8 +299,11 @@ def _select_phase_candidate(
                 confidence=inference.confidence,
                 top_candidates=annotated_candidates,
             )
-        return inference
-    return best_candidate
+            cached = baseline_cached_reconstruction if _reuse_phase_probe_reconstruction(reconstruction_mode) else None
+            return selected, cached
+        return inference, None
+    cached = best_cached_reconstruction if _reuse_phase_probe_reconstruction(reconstruction_mode) else None
+    return best_candidate, cached
 
 
 def _normalize_penalty(values, *, higher_is_better: bool = False) -> list[float]:
