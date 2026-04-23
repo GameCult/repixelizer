@@ -113,25 +113,34 @@ def _colorize_clusters(cluster_map: np.ndarray, centers: np.ndarray) -> np.ndarr
     return np.concatenate([preview, alpha], axis=-1)
 
 
-def analyze_source(rgba: np.ndarray, seed: int, cluster_count: int = 6, device: str | None = None) -> SourceAnalysis:
+def analyze_source(
+    rgba: np.ndarray,
+    seed: int,
+    cluster_count: int = 6,
+    device: str | None = None,
+    *,
+    include_clusters: bool = True,
+) -> SourceAnalysis:
     if device is not None:
         torch = _require_torch()
         resolved_device = _resolve_device(torch, device)
         rgba_t = torch.from_numpy(rgba).to(device=resolved_device, dtype=torch.float32)
         edge_map_t = _compute_edge_map_torch(torch, rgba_t)
         alpha_t = rgba_t[..., 3]
-        opaque_t = alpha_t > 0.05
         cluster_map_t = torch.full(alpha_t.shape, -1, device=resolved_device, dtype=torch.long)
         centers_t = torch.zeros((0, 4), device=resolved_device, dtype=torch.float32)
-        if bool(torch.any(opaque_t).item()):
-            samples_t = rgba_t[opaque_t]
-            k = min(cluster_count, max(2, int(np.sqrt(int(samples_t.shape[0]) // 64 + 1))))
-            centers_t, labels_t = _kmeans_torch(torch, samples_t, k=k, seed=seed)
-            cluster_map_t[opaque_t] = labels_t
-        preview_palette_t = centers_t[:, :3].clamp(0.0, 1.0) if centers_t.numel() else torch.zeros((1, 3), device=resolved_device, dtype=torch.float32)
-        preview_indices_t = torch.clamp(cluster_map_t, 0, max(0, preview_palette_t.shape[0] - 1))
-        preview_t = preview_palette_t[preview_indices_t]
-        preview_t = torch.cat([preview_t, alpha_t[..., None]], dim=-1)
+        preview_t = torch.zeros((*alpha_t.shape, 4), device=resolved_device, dtype=torch.float32)
+        if include_clusters:
+            opaque_t = alpha_t > 0.05
+            if bool(torch.any(opaque_t).item()):
+                samples_t = rgba_t[opaque_t]
+                k = min(cluster_count, max(2, int(np.sqrt(int(samples_t.shape[0]) // 64 + 1))))
+                centers_t, labels_t = _kmeans_torch(torch, samples_t, k=k, seed=seed)
+                cluster_map_t[opaque_t] = labels_t
+            preview_palette_t = centers_t[:, :3].clamp(0.0, 1.0) if centers_t.numel() else torch.zeros((1, 3), device=resolved_device, dtype=torch.float32)
+            preview_indices_t = torch.clamp(cluster_map_t, 0, max(0, preview_palette_t.shape[0] - 1))
+            preview_t = preview_palette_t[preview_indices_t]
+            preview_t = torch.cat([preview_t, alpha_t[..., None]], dim=-1)
         return SourceAnalysis(
             edge_map=edge_map_t.detach().cpu().numpy().astype(np.float32),
             cluster_map=cluster_map_t.detach().cpu().numpy().astype(np.int32),
@@ -142,16 +151,18 @@ def analyze_source(rgba: np.ndarray, seed: int, cluster_count: int = 6, device: 
 
     edge_map = _compute_edge_map(rgba)
     alpha = rgba[..., 3]
-    opaque = alpha > 0.05
     cluster_map = np.full(alpha.shape, -1, dtype=np.int32)
     centers = np.zeros((0, 4), dtype=np.float32)
-    if np.any(opaque):
-        samples = rgba[opaque]
-        k = min(cluster_count, max(2, int(np.sqrt(samples.shape[0] // 64 + 1))))
-        centers, labels = _kmeans(samples, k=k, seed=seed)
-        cluster_map[opaque] = labels
-    preview = _colorize_clusters(np.maximum(cluster_map, 0), centers if centers.size else np.zeros((1, 4), dtype=np.float32))
-    preview[..., 3] = alpha
+    preview = np.zeros((*alpha.shape, 4), dtype=np.float32)
+    if include_clusters:
+        opaque = alpha > 0.05
+        if np.any(opaque):
+            samples = rgba[opaque]
+            k = min(cluster_count, max(2, int(np.sqrt(samples.shape[0] // 64 + 1))))
+            centers, labels = _kmeans(samples, k=k, seed=seed)
+            cluster_map[opaque] = labels
+        preview = _colorize_clusters(np.maximum(cluster_map, 0), centers if centers.size else np.zeros((1, 4), dtype=np.float32))
+        preview[..., 3] = alpha
     return SourceAnalysis(
         edge_map=edge_map,
         cluster_map=cluster_map,

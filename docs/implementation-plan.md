@@ -63,8 +63,10 @@ What landed:
 - `tile-graph` no longer participates in pipeline phase rerank probes; rerank is now a continuous-only wrapper
 - the experimental `hybrid` path and its geometry-prior wiring have been removed
 - `tile_graph.py` no longer carries geometry-prior fields through `TileGraphModel` or tile-graph unary scoring
+- `tile-graph` now skips source clustering entirely and uses only edge analysis plus sharp/edge lattice references during unary scoring
 - `cli.py` now exposes only `continuous` and `tile-graph` as reconstruction engines
 - `tests/test_pipeline.py` now checks that low-confidence tile-graph runs skip rerank probes instead of rebuilding probe candidates
+- `tests/test_analysis.py` and `tests/test_tile_graph.py` now cover the new edge-only analysis path
 - `docs/tile-graph-algorithm-map.md` now describes the smaller machine directly rather than documenting the removed hybrid sidecar path
 
 Current implementation note:

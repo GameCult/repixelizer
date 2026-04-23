@@ -47,6 +47,31 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_lattice_proposa
     assert model.model_device == "cpu"
 
 
+def test_tile_graph_model_works_with_edge_only_analysis() -> None:
+    lowres = np.zeros((4, 4, 4), dtype=np.float32)
+    lowres[..., 3] = 1.0
+    lowres[1:3, 1:3] = np.asarray([1.0, 0.7, 0.2, 1.0], dtype=np.float32)
+    source = np.repeat(np.repeat(lowres, 8, axis=0), 8, axis=1)
+    inference = InferenceResult(
+        target_width=4,
+        target_height=4,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    model = build_tile_graph_model(
+        source,
+        inference=inference,
+        analysis=analyze_source(source, seed=5, device="cpu", include_clusters=False),
+        device="cpu",
+    )
+
+    assert model.candidate_rgba.shape[0] > 0
+    assert model.model_device == "cpu"
+
+
 def test_tile_graph_candidates_use_literal_source_pixel_colors() -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
     source[..., 3] = 1.0

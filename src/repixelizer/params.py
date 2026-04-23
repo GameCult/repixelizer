@@ -85,8 +85,6 @@ class SolverHyperParams:
     tile_graph_stroke_step_scale: float = 0.95
     tile_graph_stroke_minor_limit_scale: float = 0.55
     tile_graph_nonedge_sharp_weight: float = 0.85
-    tile_graph_nonedge_mean_weight: float = 0.15
-    tile_graph_edge_mean_weight: float = 0.03
     tile_graph_area_weight: float = 0.03
     tile_graph_alpha_weight: float = 0.25
     tile_graph_coverage_weight: float = 0.05

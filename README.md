@@ -48,6 +48,7 @@ Current tile-graph status:
 - source-region connected-components now have a device-side Torch path, so the expensive labeling step no longer depends on Python flood fill
 - profiling the selected badge candidate shows the main remaining bottleneck is model construction, not the solver loop: `build_tile_graph_model(...)` takes about `142.3s`, and about `131.2s` of that is `_extract_source_region_tiles(...)`
 - after the first pruning pass, tile-graph no longer spends iteration time on pipeline rerank probes at all; it now runs the chosen or pinned lattice directly
+- tile-graph now also skips cluster analysis entirely and no longer uses the per-cell mean-color pull in unary scoring; the path keeps only edge scouting plus sharp/edge lattice references
 - the remaining large-fixture bottleneck is the per-component one-cell window cutting pass inside source-region extraction, which is still Python/NumPy-heavy after the GPU CCL stage
 - the pipeline now has a direct-control path for iteration: `--target-width` / `--target-height` plus optional `--phase-x` / `--phase-y` let you run an exact lattice without paying the full lattice search, and `--skip-phase-rerank` lets you keep the pipeline from second-guessing that choice
 - repeated fixed-lattice `tile-graph` runs in the same Python process now reuse the expensive model build; on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the first CUDA run took about `10.2s` and the second cached rerun took about `2.1s`

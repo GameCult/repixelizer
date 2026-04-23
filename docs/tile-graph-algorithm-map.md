@@ -129,6 +129,11 @@ Plain-language picture:
 
 This is a scouting report about where the mural has edges and rough color families. It is binoculars, not ownership papers.
 
+Current tile-graph note:
+
+- the tile-graph path now asks only for the edge scout report
+- cluster labels and cluster preview are left empty on that path because the tile-graph machine does not use them
+
 ### `SourceLatticeReference`
 
 - File: `src/repixelizer/types.py`
@@ -157,11 +162,11 @@ This is the mural after the graph paper has already been pressed onto it. Each s
   - `candidate_coords`: output coord `(y, x)` each candidate belongs to
   - `candidate_area_ratio`: how much of a cell-sized source window the source region covered
   - `candidate_coverage`: clipped version of area coverage
-- `candidate_deltas`: expected RGBA deltas to right/down/left/up neighbors sampled one cell away in source space
-- `cell_candidate_offsets`, `cell_candidate_indices`: CSR-like mapping from output cells to candidate rows
-- `reference_mean_rgba`, `reference_sharp_rgba`, `reference_edge_rgba`
-- `edge_strength`
-- `component_count`, `edge_density`, `average_choices`
+  - `candidate_deltas`: expected RGBA deltas to right/down/left/up neighbors sampled one cell away in source space
+  - `cell_candidate_offsets`, `cell_candidate_indices`: CSR-like mapping from output cells to candidate rows
+  - `reference_sharp_rgba`, `reference_edge_rgba`
+  - `edge_strength`
+  - `component_count`, `edge_density`, `average_choices`
 
 Plain-language picture:
 
@@ -263,7 +268,7 @@ File: `src/repixelizer/analysis.py`
 
 Entry point:
 
-- `analyze_source(rgba, seed, cluster_count=6, device=None)`
+- `analyze_source(rgba, seed, cluster_count=6, device=None, include_clusters=True)`
 
 Outputs:
 
@@ -281,6 +286,7 @@ Important reality check:
 
 - tile-graph no longer uses `cluster_map` as its actual tile ownership map
 - the tile-graph region ownership is built later by connected components over source pixels using color/alpha thresholds
+- after the pruning pass, tile-graph can skip cluster assignment entirely and still run normally because it only needs `edge_map`
 
 ## Stage 4: Optional Phase Rerank
 
@@ -567,8 +573,6 @@ After candidate selection, the model stores:
   - clipped area coverage proxy
 - `candidate_deltas`
   - sampled right/down/left/up expected deltas one cell away in source space
-- `reference_mean_rgba`
-  - lattice-conditioned per-cell mean
 - `reference_sharp_rgba`
   - lattice-conditioned per-cell exemplar
 - `reference_edge_rgba`
@@ -616,13 +620,12 @@ Transforms CSR-style cell candidate storage into dense tensors:
 For each output cell and each candidate:
 
 1. `sharp_error`
-2. `mean_error`
-3. `edge_error`
-4. If edge cell:
-  - `color_error = min(sharp_error, edge_error) + mean_error * tile_graph_edge_mean_weight`
-5. Else:
-  - `color_error = sharp_error * nonedge_sharp_weight + mean_error * nonedge_mean_weight`
-6. Add:
+2. `edge_error`
+3. If edge cell:
+  - `color_error = min(sharp_error, edge_error)`
+4. Else:
+  - `color_error = sharp_error * nonedge_sharp_weight`
+5. Add:
   - `area_error`
   - `alpha_error`
   - `coverage_error`
@@ -633,6 +636,8 @@ Important implication:
 - it is "pick the lowest lattice-conditioned unary cost among the allowed candidates for this output coord"
 
 This is the emotional center of the current design. The algorithm does not trust source-region ownership alone. It insists on comparing each legal chip to a portrait painted by the lattice reference first.
+
+The portrait is smaller now than it used to be. Tile-graph no longer asks, "How close is this chip to the cell average color?" It only asks, "How close is this chip to the cell's sharp exemplar or edge exemplar?" That keeps the judge from rewarding mush just because mush looks average.
 
 ## Stage 11: Initial Assignment
 

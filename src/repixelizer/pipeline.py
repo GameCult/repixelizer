@@ -79,7 +79,12 @@ def run_pipeline(
             device=device,
         )
         inference_mode = "fixed"
-    analysis = analyze_source(source, seed=seed, device=device if reconstruction_mode == "tile-graph" else None)
+    analysis = analyze_source(
+        source,
+        seed=seed,
+        device=device if reconstruction_mode == "tile-graph" else None,
+        include_clusters=reconstruction_mode != "tile-graph",
+    )
     inference = _select_phase_candidate(
         source,
         inference,
@@ -134,7 +139,8 @@ def run_pipeline(
         )
         write_alpha_preview(diagnostics_path / "alpha-preview.png", source, output_rgba)
         write_heatmap(diagnostics_path / "noise-heatmap.png", cleanup.isolated_heatmap)
-        save_rgba(diagnostics_path / "cluster-preview.png", analysis.cluster_preview)
+        if analysis.cluster_centers.size:
+            save_rgba(diagnostics_path / "cluster-preview.png", analysis.cluster_preview)
         run_json = summarize_run(result)
         run_json["inference"] = inference_to_json(inference)
         run_json["settings"] = {

@@ -60,7 +60,6 @@ class TileGraphModel:
     candidate_deltas: np.ndarray
     cell_candidate_offsets: np.ndarray
     cell_candidate_indices: np.ndarray
-    reference_mean_rgba: np.ndarray
     reference_sharp_rgba: np.ndarray
     reference_edge_rgba: np.ndarray
     edge_strength: np.ndarray
@@ -1075,7 +1074,6 @@ def build_tile_graph_model(
         candidate_deltas=candidate_deltas_np,
         cell_candidate_offsets=cell_candidate_offsets,
         cell_candidate_indices=cell_candidate_indices_np,
-        reference_mean_rgba=source_reference.mean_rgba.astype(np.float32),
         reference_sharp_rgba=source_reference.sharp_rgba.astype(np.float32),
         reference_edge_rgba=edge_rgba_np.reshape(inference.target_height, inference.target_width, -1).astype(np.float32),
         edge_strength=source_reference.edge_strength.astype(np.float32),
@@ -1113,42 +1111,6 @@ def _build_choice_grid(model: TileGraphModel) -> tuple[np.ndarray, np.ndarray]:
     return choice_indices, choice_mask
 
 
-def _tile_graph_unary_cost(model: TileGraphModel, solver_params: SolverHyperParams) -> np.ndarray:
-    height, width = model.reference_sharp_rgba.shape[:2]
-    unary_cost = np.full(model.cell_candidate_indices.shape[0], np.inf, dtype=np.float32)
-    for y in range(height):
-        for x in range(width):
-            start, end = _cell_candidate_span(model, y, x)
-            if end <= start:
-                continue
-            indices = model.cell_candidate_indices[start:end]
-            reference_sharp = model.reference_sharp_rgba[y, x]
-            reference_mean = model.reference_mean_rgba[y, x]
-            reference_edge = model.reference_edge_rgba[y, x]
-            candidates = model.candidate_rgba[indices]
-            sharp_error = np.mean(np.abs(reference_sharp[None, :] - candidates), axis=-1)
-            mean_error = np.mean(np.abs(reference_mean[None, :] - candidates), axis=-1)
-            edge_error = np.mean(np.abs(reference_edge[None, :] - candidates), axis=-1)
-            if float(model.edge_strength[y, x]) >= solver_params.source_edge_detail_threshold:
-                color_error = np.minimum(sharp_error, edge_error) + mean_error * solver_params.tile_graph_edge_mean_weight
-            else:
-                color_error = (
-                    sharp_error * solver_params.tile_graph_nonedge_sharp_weight
-                    + mean_error * solver_params.tile_graph_nonedge_mean_weight
-                )
-            area_error = np.abs(np.log(np.clip(model.candidate_area_ratio[indices], 1e-4, None) + 1e-4))
-            alpha_error = np.abs(candidates[:, 3] - reference_mean[3])
-            coverage_error = 1.0 - np.clip(model.candidate_coverage[indices], 0.0, 1.0)
-            total_cost = (
-                color_error
-                + area_error * solver_params.tile_graph_area_weight
-                + alpha_error * solver_params.tile_graph_alpha_weight
-                + coverage_error * solver_params.tile_graph_coverage_weight
-            )
-            unary_cost[start:end] = total_cost.astype(np.float32)
-    return unary_cost
-
-
 def _tile_graph_unary_cost_torch(
     torch,
     model: TileGraphModel,
@@ -1163,23 +1125,21 @@ def _tile_graph_unary_cost_torch(
     candidate_area_t = torch.from_numpy(model.candidate_area_ratio).to(device=device, dtype=torch.float32)
     candidate_coverage_t = torch.from_numpy(model.candidate_coverage).to(device=device, dtype=torch.float32)
     reference_sharp_t = torch.from_numpy(model.reference_sharp_rgba).to(device=device, dtype=torch.float32)
-    reference_mean_t = torch.from_numpy(model.reference_mean_rgba).to(device=device, dtype=torch.float32)
     reference_edge_t = torch.from_numpy(model.reference_edge_rgba).to(device=device, dtype=torch.float32)
     edge_strength_t = torch.from_numpy(model.edge_strength).to(device=device, dtype=torch.float32)
     choice_rgba_t = candidate_rgba_t[choice_indices_t]
     choice_deltas_t = candidate_deltas_t[choice_indices_t]
     sharp_error_t = (reference_sharp_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
-    mean_error_t = (reference_mean_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
     edge_error_t = (reference_edge_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
     edge_cell_mask_t = edge_strength_t[..., None] >= solver_params.source_edge_detail_threshold
     color_error = torch.where(
         edge_cell_mask_t,
-        torch.minimum(sharp_error_t, edge_error_t) + mean_error_t * solver_params.tile_graph_edge_mean_weight,
-        sharp_error_t * solver_params.tile_graph_nonedge_sharp_weight
-        + mean_error_t * solver_params.tile_graph_nonedge_mean_weight,
+        torch.minimum(sharp_error_t, edge_error_t),
+        sharp_error_t * solver_params.tile_graph_nonedge_sharp_weight,
     )
     area_error = torch.log(candidate_area_t[choice_indices_t].clamp_min(1e-4) + 1e-4).abs()
-    alpha_error = (choice_rgba_t[..., 3] - reference_mean_t[..., None, 3]).abs()
+    alpha_reference_t = torch.maximum(reference_sharp_t[..., 3], reference_edge_t[..., 3])
+    alpha_error = (choice_rgba_t[..., 3] - alpha_reference_t[..., None]).abs()
     coverage_error = 1.0 - candidate_coverage_t[choice_indices_t].clamp(0.0, 1.0)
     unary_cost_t = (
         color_error
