@@ -23,6 +23,32 @@ On the current broken badge run:
 
 That tiny change means the parity-update loop is not the main failure. The model build and initial assignment are.
 
+## How To Read This Machine
+
+The easiest way to picture the current algorithm is this:
+
+- the source image is a mural painted on a wall
+- the inferred lattice is a sheet of graph paper pressed on top of that mural
+- the tile-graph path is trying to cut little square souvenir chips out of the mural and lay them back down on a clean floor grid
+
+If the graph paper lines up with the mural, this can work. If the graph paper is skewed or coarse, the cutter starts taking chips that straddle multiple painted shapes. From that point on, every later decision is already compromised.
+
+The important mental model is that the current system is not simply "discover tiles, then arrange them." It is closer to:
+
+1. choose a grid first
+2. force the mural to be read through that grid
+3. summarize the mural cell by cell
+4. cut region proposals using windows sized by that grid
+5. choose one proposal per output cell using those same grid-conditioned summaries
+
+So the lattice is not a passive scaffold. It is the mold that many later pieces are poured through.
+
+## One-Sentence Machine
+
+The current `tile-graph` path is a lattice-conditioned source-region candidate generator followed by a small local discrete solver.
+
+That sentence matters because it explains the failure mode. When the lattice is poor, the generator is already feeding the solver bad ingredients. The solver is then only choosing among bad meals.
+
 ## Bird's-Eye Flow
 
 ```mermaid
@@ -49,6 +75,15 @@ flowchart TD
     R --> S["diagnostics/run.json"]
 ```
 
+Plain-language picture:
+
+The machine has two hands.
+
+- The left hand builds a story about what each output cell "should" look like by forcing the source through the lattice.
+- The right hand cuts source-owned candidate pieces and drops them into per-cell buckets.
+
+Then a judge stands in the middle and asks, for each output cell: "Which candidate piece most resembles the story the left hand wrote?" If the story is already wrong, the judge can pick only the least-wrong option.
+
 ## Core Data Objects
 
 ### `source_rgba`
@@ -58,6 +93,10 @@ flowchart TD
 - Value range: float32-like normalized RGBA in `[0, 1]`
 - Meaning: the loaded source facsimile, optionally background-stripped before anything else
 
+Plain-language picture:
+
+This is the raw mural before we draw any graph paper on it.
+
 ### `InferenceResult`
 
 - File: `src/repixelizer/types.py`
@@ -66,6 +105,10 @@ flowchart TD
   - `phase_x`, `phase_y`: sub-cell phase offsets in lattice units
   - `confidence`: gap between top two inference candidates
   - `top_candidates`: rerankable list of `InferenceCandidate`
+
+Plain-language picture:
+
+This is the foreman's decision about the size and offset of the graph paper. Every later worker trusts this sheet.
 
 ### `SourceAnalysis`
 
@@ -82,6 +125,10 @@ Important note:
 - `cluster_map` is diagnostic/coarse analysis data
 - it is not the current tile-graph region ownership model
 
+Plain-language picture:
+
+This is a scouting report about where the mural has edges and rough color families. It is binoculars, not ownership papers.
+
 ### `SourceLatticeReference`
 
 - File: `src/repixelizer/types.py`
@@ -96,6 +143,10 @@ Important note:
   - `edge_peak_x`, `edge_peak_y`
   - `edge_strength`, `edge_grad_x`, `edge_grad_y`
   - `delta_x`, `delta_y`, `delta_diag`, `delta_anti`
+
+Plain-language picture:
+
+This is the mural after the graph paper has already been pressed onto it. Each square now gets a little dossier: its average color, one "best" pixel, one edge pixel, and a few notes about how it differs from neighbors.
 
 ### `TileGraphModel`
 
@@ -112,6 +163,10 @@ Important note:
   - `edge_strength`
   - `component_count`, `edge_density`, `average_choices`
   - `geometry_reference_rgba`, `geometry_strength`: optional hybrid-mode priors
+
+Plain-language picture:
+
+This is the parts bin. Every output cell has a small tray of legal parts, plus a note about what the finished wall section is supposed to look like.
 
 ## Stage 1: Pipeline Entry
 
@@ -143,6 +198,10 @@ Control flow:
 7. Run cleanup and optional palette quantization.
 8. Save output and diagnostics.
 
+Plain-language picture:
+
+This is the loading dock and traffic controller. It decides which reconstruction machine to send the mural to, but it is not repainting the mural itself.
+
 Important finding:
 
 - The fixed-lattice pipeline path is behaving correctly.
@@ -162,6 +221,10 @@ Two entry points:
 
 - `infer_lattice(...)`
 - `infer_fixed_lattice(...)`
+
+Plain-language picture:
+
+This stage chooses the graph paper. In searched mode it tries many sheets and offsets. In fixed mode it obeys the requested sheet and stops arguing.
 
 ### Searched path
 
@@ -212,6 +275,10 @@ Outputs:
 - `alpha_map`
 - `cluster_preview`
 
+Plain-language picture:
+
+This is the scout walking the mural with a flashlight, marking where the paint changes abruptly and scribbling rough color families on a clipboard.
+
 Important reality check:
 
 - tile-graph no longer uses `cluster_map` as its actual tile ownership map
@@ -238,6 +305,10 @@ What it does:
   - inference score penalty
 4. Picks the best reranked candidate if it clears the configured margin.
 
+Plain-language picture:
+
+This is a dress rehearsal. The pipeline builds a few small stage versions and asks which staging looks least wrong before committing.
+
 Important note for tile-graph:
 
 - this rerank is pipeline-level, not optimizer-specific
@@ -254,6 +325,10 @@ Entry point:
 - `build_source_lattice_reference(...)`
 
 This is one of the most important stages, because it ties the source image to one specific inferred lattice.
+
+Plain-language picture:
+
+This is where the graph paper stops being a guide and becomes law. Every source pixel is drafted into exactly one box, whether that box matches the "real" fake-pixel cell or not.
 
 ### Inputs
 
@@ -317,6 +392,10 @@ Entry points:
 
 This stage does not use inferred cells yet. It runs on the source image or a strided sample of it.
 
+Plain-language picture:
+
+This is the machine trying to find puddles of paint on the mural before cutting them into squares. It looks for blobs of nearby pixels that are similar enough to be treated as one patch.
+
 ### Inputs
 
 - `source_rgba` or `sampled_rgba`
@@ -361,6 +440,10 @@ Entry point:
 - `_extract_source_region_tiles(...)`
 
 This is the real source-side tile cutter.
+
+Plain-language picture:
+
+Imagine laying square cookie cutters over each paint puddle and snapping out little chips. The cutter size is determined by the inferred lattice. The machine keeps stamping until the puddle is exhausted, then it throws each chip into the bucket of whichever output cell its center lands in.
 
 ### Inputs
 
@@ -431,6 +514,10 @@ Helpers:
 - `_select_source_region_candidates(...)`
 - `build_tile_graph_model(...)`
 
+Plain-language picture:
+
+Now each output cell has a tray of possible chips. This stage is the bouncer at the door. It lets only a few candidates into the club and throws the rest away.
+
 ### `build_tile_graph_model(...)` main flow
 
 1. Resolve geometry prior inputs if hybrid mode is active.
@@ -499,6 +586,15 @@ It is operating on:
 - scored against lattice-conditioned references
 - connected with deltas sampled from source-space positions offset by the inferred cell size
 
+Plain-language picture:
+
+By this point the machine has mixed two kinds of truth into one bowl:
+
+- "what source chips are legally available here"
+- "what this cell is supposed to look like according to the lattice summary"
+
+That mixture is exactly why the current algorithm is powerful when the lattice is good and fragile when the lattice is bad.
+
 ## Stage 10: Choice Grid And Unary Cost
 
 Helpers:
@@ -506,6 +602,10 @@ Helpers:
 - `_build_choice_grid(...)`
 - `_tile_graph_unary_cost(...)`
 - `_tile_graph_unary_cost_torch(...)`
+
+Plain-language picture:
+
+This is the judge's scorecard. Each candidate chip gets a grade for how well it resembles the lattice-conditioned portrait of the cell.
 
 ### `_build_choice_grid(...)`
 
@@ -536,6 +636,8 @@ Important implication:
 - the first assignment is not "pick the source region candidate that owns the tile"
 - it is "pick the lowest lattice-conditioned unary cost among the allowed candidates for this output coord"
 
+This is the emotional center of the current design. The algorithm does not trust source-region ownership alone. It insists on comparing each legal chip to a portrait painted by the lattice reference first.
+
 ## Stage 11: Initial Assignment
 
 File: `src/repixelizer/tile_graph.py`
@@ -564,6 +666,10 @@ Measured on the bad run:
 
 So the badness is already in `initial_choice_t`.
 
+Plain-language picture:
+
+The first draft of the mosaic is already wrong before the neighbor-agreement polish begins. The workers are not ruining a good floor later. They are laying the wrong chips down on the very first pass.
+
 ## Stage 12: Pairwise Refinement
 
 Still in `optimize_tile_graph(...)`
@@ -589,6 +695,10 @@ Important finding:
 - this loop is not the main cause of the fixed-126 corruption
 - it barely changes the broken initial assignment
 
+Plain-language picture:
+
+This is the grout-and-alignment crew. They can nudge neighboring chips so the seams look more coherent, but they cannot redeem a floor that was assembled from the wrong chips to begin with.
+
 ## Stage 13: Final Revert Guard
 
 At the end of `optimize_tile_graph(...)`:
@@ -603,6 +713,10 @@ This is why recent tile-graph passes stopped smearing as badly:
 - the solver is prevented from making a decent initial assignment worse
 
 But it cannot rescue a bad initial assignment.
+
+Plain-language picture:
+
+This is the foreman saying, "If the polishing crew made the mosaic uglier, roll back to the first draft." Useful protection, but not a cure.
 
 ## Stage 14: Cleanup And Diagnostics
 
@@ -629,6 +743,10 @@ That means:
 - `source_fidelity.final_output`
 - `phase_rerank_candidates`
 - `loss_history`
+
+Plain-language picture:
+
+Cleanup is mostly a broom parked in the closet. Diagnostics are the notebook on the bench telling us what the machine actually did.
 
 ## What The Broken Fixed-126 Run Is Actually Doing
 
@@ -760,6 +878,27 @@ Even when multiple region proposals land in the same output cell:
 - edge cells keep at most `6`
 
 So a real source-owned candidate can still be dropped if the lattice-conditioned references like other candidates better.
+
+## What Fits The Machine, And What Does Not
+
+If we are ruthless about the mental model, the load-bearing pieces are:
+
+- a source image
+- one lattice
+- a segmentation of source regions
+- a cutter that turns regions into tile proposals
+- per-output-cell candidate buckets
+- a selector that chooses one candidate per output cell
+- a small neighborhood-consistency pass
+
+The pieces that are secondary, advisory, or ornamental are:
+
+- `cluster_map` and its color-family story
+- phase rerank as a performance-expensive wrapper
+- hybrid geometry priors
+- cleanup, in the current badge case
+
+That does not mean those pieces are useless. It means they are not the heart of the machine. If the heart is wrong, polishing those side systems will not save the result.
 
 ## What I Think This Means
 
