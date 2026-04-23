@@ -121,6 +121,19 @@ The first optimizer cut landed immediately after that map:
 - `continuous.py` now uses only real source edges for guidance instead of blending in coarse cluster boundaries
 - the pinned cleaned-badge continuous smoke run under `artifacts/optimizer-cut-v1-badge-126/` still behaves coherently after the cut: snap scores `0.08100`, final scores `0.07535`, and the generated preview is `diagnostics/output-preview.png`
 
+The second optimizer cut is structural:
+
+- `_prepare_optimizer(...)` now owns source tensor creation, UV construction, edge gradients, source lattice reference building, detail reference building, source reliability, source deltas, guidance, and cell geometry
+- `_source_detail_delta_tensors(...)` computes premultiplied source-detail deltas once instead of repeating the same `premultiply(...)` calls for each axis
+- `optimize_lattice_pixels(...)` is now an orchestration shell around prep, snap, refine, the source-fidelity guardrail, and artifact packaging
+- the pinned cleaned-badge continuous smoke run under `artifacts/optimizer-cut-v2-prep-badge-126/` is byte-size identical to the previous preview and preserves the same source-fidelity numbers: snap `0.08100`, final `0.07535`
+
+Next after that:
+
+- put the representative portrait on trial in refine
+- add a focused ablation runner for pinned badge/emblem cases before cutting more behavior
+- collapse duplicated adjacency / motif / line voices only after ablation shows which stage owns each idea
+
 The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
 
 ## High-value regression case

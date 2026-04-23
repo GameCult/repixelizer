@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from .io import premultiply, unpremultiply
@@ -7,6 +9,23 @@ from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
 from .source_reference import build_source_lattice_reference
 from .types import ContinuousSourceAnalysis, InferenceResult, SolverArtifacts
+
+
+@dataclass(slots=True)
+class _OptimizerPrep:
+    source_t: object
+    uv_t: object
+    representative_t: object
+    source_reference_t: object
+    source_reliability_t: object
+    source_lattice_reference: object
+    source_delta_x_t: object | None
+    source_delta_y_t: object | None
+    source_delta_diag_t: object | None
+    source_delta_anti_t: object | None
+    guidance: np.ndarray
+    cell_x: float
+    cell_y: float
 
 
 def _require_torch():
@@ -424,6 +443,50 @@ def _build_source_detail_reference(source_rgba: np.ndarray, source_reference, so
     detail_rgba = source_reference.sharp_rgba * (1.0 - edge_mix) + edge_rgba * edge_mix
     detail_rgba[..., 3] = np.maximum(source_reference.sharp_rgba[..., 3], detail_rgba[..., 3])
     return detail_rgba.astype(np.float32)
+
+
+def _source_detail_delta_tensors(
+    torch,
+    source_detail_reference: np.ndarray,
+    *,
+    target_width: int,
+    target_height: int,
+    device: str,
+):
+    detail_premul = premultiply(source_detail_reference)
+    source_delta_x_t = (
+        torch.from_numpy((detail_premul[:, 1:, :] - detail_premul[:, :-1, :])[None, ...]).to(
+            device=device,
+            dtype=torch.float32,
+        )
+        if target_width > 1
+        else None
+    )
+    source_delta_y_t = (
+        torch.from_numpy((detail_premul[1:, :, :] - detail_premul[:-1, :, :])[None, ...]).to(
+            device=device,
+            dtype=torch.float32,
+        )
+        if target_height > 1
+        else None
+    )
+    source_delta_diag_t = (
+        torch.from_numpy((detail_premul[1:, 1:, :] - detail_premul[:-1, :-1, :])[None, ...]).to(
+            device=device,
+            dtype=torch.float32,
+        )
+        if target_height > 1 and target_width > 1
+        else None
+    )
+    source_delta_anti_t = (
+        torch.from_numpy((detail_premul[1:, :-1, :] - detail_premul[:-1, 1:, :])[None, ...]).to(
+            device=device,
+            dtype=torch.float32,
+        )
+        if target_height > 1 and target_width > 1
+        else None
+    )
+    return source_delta_x_t, source_delta_y_t, source_delta_diag_t, source_delta_anti_t
 
 
 def _edge_reliability(source_reliability, axis: str):
@@ -1336,21 +1399,16 @@ def _discrete_refine_output(
     return _finalize_output_rgba(best_colors, use_opaque, use_transparent), loss_history
 
 
-def optimize_lattice_pixels(
+def _prepare_optimizer(
+    torch,
+    F,
     rgba: np.ndarray,
     inference: InferenceResult,
     analysis: ContinuousSourceAnalysis,
-    steps: int,
-    seed: int,
+    solver_params: SolverHyperParams,
+    *,
     device: str,
-    solver_params: SolverHyperParams | None = None,
-) -> SolverArtifacts:
-    torch, F = _require_torch()
-    device = _resolve_device(torch, device)
-    solver_params = solver_params or SolverHyperParams()
-    torch.manual_seed(seed)
-    if device == "cuda":
-        torch.cuda.manual_seed_all(seed)
+) -> _OptimizerPrep:
     source = premultiply(rgba)
     height, width = source.shape[:2]
     cell_x = width / max(1, inference.target_width)
@@ -1359,7 +1417,7 @@ def optimize_lattice_pixels(
     source_edge = analysis.edge_map.astype(np.float32)
     edge_grad_x, edge_grad_y = _edge_gradient_maps(source_edge)
     edge_t = torch.from_numpy(source_edge[None, None, ...]).to(device=device, dtype=torch.float32)
-    uv0 = _make_regular_uv(
+    uv = _make_regular_uv(
         height=height,
         width=width,
         target_height=inference.target_height,
@@ -1367,7 +1425,7 @@ def optimize_lattice_pixels(
         phase_x=inference.phase_x,
         phase_y=inference.phase_y,
     )
-    uv0_t = torch.from_numpy(uv0[None, ...]).to(device=device, dtype=torch.float32)
+    uv_t = torch.from_numpy(uv[None, ...]).to(device=device, dtype=torch.float32)
     offsets_t = torch.from_numpy(
         _make_patch_offsets(height=height, width=width, target_height=inference.target_height, target_width=inference.target_width)
     ).to(device=device, dtype=torch.float32)
@@ -1384,10 +1442,10 @@ def optimize_lattice_pixels(
         edge_grad_y_hint=edge_grad_y,
     )
     source_detail_reference = _build_source_detail_reference(rgba, source_lattice_reference, solver_params)
-    initial_patches = _sample_cell_patches(F, source_t, uv0_t, offsets_t)
-    initial_representative_t, _ = _representative_colors(initial_patches, solver_params)
-    initial_representative_t = initial_representative_t.detach()
-    initial_source_reference_t = torch.from_numpy(premultiply(source_detail_reference)[None, ...]).to(
+    initial_patches = _sample_cell_patches(F, source_t, uv_t, offsets_t)
+    representative_t, _ = _representative_colors(initial_patches, solver_params)
+    representative_t = representative_t.detach()
+    source_reference_t = torch.from_numpy(premultiply(source_detail_reference)[None, ...]).to(
         device=device,
         dtype=torch.float32,
     )
@@ -1395,37 +1453,65 @@ def optimize_lattice_pixels(
         device=device,
         dtype=torch.float32,
     )
-    source_delta_x_t = (
-        torch.from_numpy((premultiply(source_detail_reference)[:, 1:, :] - premultiply(source_detail_reference)[:, :-1, :])[None, ...]).to(device=device, dtype=torch.float32)
-        if inference.target_width > 1
-        else None
+    source_delta_x_t, source_delta_y_t, source_delta_diag_t, source_delta_anti_t = _source_detail_delta_tensors(
+        torch,
+        source_detail_reference,
+        target_width=inference.target_width,
+        target_height=inference.target_height,
+        device=device,
     )
-    source_delta_y_t = (
-        torch.from_numpy((premultiply(source_detail_reference)[1:, :, :] - premultiply(source_detail_reference)[:-1, :, :])[None, ...]).to(device=device, dtype=torch.float32)
-        if inference.target_height > 1
-        else None
+    return _OptimizerPrep(
+        source_t=source_t,
+        uv_t=uv_t,
+        representative_t=representative_t,
+        source_reference_t=source_reference_t,
+        source_reliability_t=source_reliability_t,
+        source_lattice_reference=source_lattice_reference,
+        source_delta_x_t=source_delta_x_t,
+        source_delta_y_t=source_delta_y_t,
+        source_delta_diag_t=source_delta_diag_t,
+        source_delta_anti_t=source_delta_anti_t,
+        guidance=guide_small[0, 0].detach().cpu().numpy().astype(np.float32),
+        cell_x=cell_x,
+        cell_y=cell_y,
     )
-    source_delta_diag_t = (
-        torch.from_numpy((premultiply(source_detail_reference)[1:, 1:, :] - premultiply(source_detail_reference)[:-1, :-1, :])[None, ...]).to(device=device, dtype=torch.float32)
-        if inference.target_height > 1 and inference.target_width > 1
-        else None
-    )
-    source_delta_anti_t = (
-        torch.from_numpy((premultiply(source_detail_reference)[1:, :-1, :] - premultiply(source_detail_reference)[:-1, 1:, :])[None, ...]).to(device=device, dtype=torch.float32)
-        if inference.target_height > 1 and inference.target_width > 1
-        else None
+
+
+def optimize_lattice_pixels(
+    rgba: np.ndarray,
+    inference: InferenceResult,
+    analysis: ContinuousSourceAnalysis,
+    steps: int,
+    seed: int,
+    device: str,
+    solver_params: SolverHyperParams | None = None,
+) -> SolverArtifacts:
+    torch, F = _require_torch()
+    device = _resolve_device(torch, device)
+    solver_params = solver_params or SolverHyperParams()
+    torch.manual_seed(seed)
+    if device == "cuda":
+        torch.cuda.manual_seed_all(seed)
+    prep = _prepare_optimizer(
+        torch,
+        F,
+        rgba,
+        inference,
+        analysis,
+        solver_params,
+        device=device,
     )
     snap_rgba = _snap_output_to_source_pixels(
         torch,
-        source_t,
-        uv0_t,
-        initial_representative_t,
-        initial_source_reference_t,
-        source_reliability_t,
-        source_lattice_reference,
+        prep.source_t,
+        prep.uv_t,
+        prep.representative_t,
+        prep.source_reference_t,
+        prep.source_reliability_t,
+        prep.source_lattice_reference,
         solver_params,
-        cell_x=cell_x,
-        cell_y=cell_y,
+        cell_x=prep.cell_x,
+        cell_y=prep.cell_y,
     )
     snap_t = torch.from_numpy(premultiply(snap_rgba).transpose(2, 0, 1)[None, ...]).to(
         device=device,
@@ -1435,20 +1521,20 @@ def optimize_lattice_pixels(
         target_rgba, loss_history = _discrete_refine_output(
             torch,
             F,
-            source_t,
-            uv0_t,
-            initial_representative_t,
-            initial_source_reference_t,
-            source_reliability_t,
-            source_lattice_reference,
+            prep.source_t,
+            prep.uv_t,
+            prep.representative_t,
+            prep.source_reference_t,
+            prep.source_reliability_t,
+            prep.source_lattice_reference,
             snap_t,
-            source_delta_x_t,
-            source_delta_y_t,
-            source_delta_diag_t,
-            source_delta_anti_t,
+            prep.source_delta_x_t,
+            prep.source_delta_y_t,
+            prep.source_delta_diag_t,
+            prep.source_delta_anti_t,
             solver_params,
-            cell_x=cell_x,
-            cell_y=cell_y,
+            cell_x=prep.cell_x,
+            cell_y=prep.cell_y,
             iterations=steps,
         )
         snap_score = source_lattice_consistency_breakdown(
@@ -1473,13 +1559,11 @@ def optimize_lattice_pixels(
             target_rgba = snap_rgba
             loss_history.append(float(snap_score))
         initial_rgba = snap_rgba
-        uv_np = uv0_t.detach().cpu().numpy()[0]
-        guidance = guide_small[0, 0].detach().cpu().numpy()
 
     return SolverArtifacts(
         target_rgba=target_rgba,
-        uv_field=uv_np,
-        guidance_strength=guidance.astype(np.float32),
+        uv_field=prep.uv_t.detach().cpu().numpy()[0],
+        guidance_strength=prep.guidance,
         initial_rgba=initial_rgba,
         loss_history=loss_history,
     )

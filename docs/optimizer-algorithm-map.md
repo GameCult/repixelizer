@@ -40,6 +40,8 @@ The optimizer carries five important pieces of cargo all the way through:
 
 If we lose track of one of those, the optimizer becomes impossible to reason about.
 
+The first structural cut now gathers that cargo into `_OptimizerPrep` before snap and refine begin. That does not make the algorithm better by itself, but it makes the machine easier to see: preparation builds the map, snap and refine walk it.
+
 ## Stage 0: The pipeline picks the ruler
 
 Functions:
@@ -219,6 +221,12 @@ The optimizer now has two different stories about the same lattice:
 - a hard source-assignment story
 
 Much of the optimizer's complexity is the cost of arbitrating between those two stories.
+
+Current code shape:
+
+- `_prepare_optimizer(...)` owns this whole setup stage now
+- `_source_detail_delta_tensors(...)` computes the source-detail deltas once instead of rebuilding premultiplied references several times
+- `optimize_lattice_pixels(...)` now receives a prepared bundle and orchestrates snap, refine, and the final guardrail
 
 ## Stage 5: Snap every output cell to one real nearby source pixel
 
@@ -468,7 +476,7 @@ These are the places where the optimizer still speaks in an overly complicated o
 - the machine still maintains two overlapping portraits of the same lattice and spends much of its complexity mediating the argument between them
 - snap, relax, and refine all carry slightly different versions of adjacency, motif, line, and delta agreement; the same idea is being said three times with different accents
 - the candidate generator is local and the solver is discrete, but the vocabulary around it still sounds like a continuous deformation engine
-- the main entry point is now honestly named `optimize_lattice_pixels(...)`, and the k-means boundary scout is gone; those cuts removed two contradictions from the previous map
+- the main entry point is now honestly named `optimize_lattice_pixels(...)`, the k-means boundary scout is gone, and prep is split from decision-making; those cuts removed three contradictions from the previous map
 
 This is probably the real cutting checklist for the next optimizer pass.
 
@@ -484,11 +492,11 @@ That is much simpler than the surrounding names make it sound.
 
 If we keep pruning, the highest-value cuts look like this:
 
-1. Separate preparation from decision-making.
-   The edge scout, portraits, reliability maps, and delta maps want to be a clear prep stage instead of being braided through one giant function.
-2. Decide whether the representative portrait still earns its keep everywhere.
+1. Decide whether the representative portrait still earns its keep everywhere.
    If the source-first path is now strong enough, some of that arbitration machinery may be removable.
-3. Collapse duplicate structure voices.
+2. Collapse duplicate structure voices.
    Adjacency, motif, and line are important, but they should not need three near-parallel dialects unless they are truly doing different work.
+3. Put relax on trial.
+   The soft relaxation stage may be a useful bridge, or it may be an expensive second solver that mostly repeats refine.
 
 That is the next place to swing the axe.
