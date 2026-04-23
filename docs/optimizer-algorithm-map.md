@@ -42,6 +42,11 @@ If we lose track of one of those, the optimizer becomes impossible to reason abo
 
 The first structural cut now gathers that cargo into `_OptimizerPrep` before snap and refine begin. That does not make the algorithm better by itself, but it makes the machine easier to see: preparation builds the map, snap and refine walk it.
 
+For every stage below, read it in two layers:
+
+- `What the source actually does`: the code-shaped account, using the real function names and variables.
+- `Metaphor`: the image to keep in your head so the data flow stays legible instead of dissolving into a swamp of tensors.
+
 ## Stage 0: The pipeline picks the ruler
 
 Functions:
@@ -69,6 +74,15 @@ This fixes:
 
 Every later judgment is conditioned on that ruler. If it is wrong, the optimizer is making careful decisions against the wrong graph paper.
 
+### What the source actually does
+
+In `run_pipeline(...)`, the pipeline first resolves whether the user pinned a target size and phase through `_resolve_requested_target_dims(...)`. If the user did not, it calls `infer_lattice(...)`; if the user did, it calls `infer_fixed_lattice(...)`. Either way, the result is one `InferenceResult` carrying `target_width`, `target_height`, `phase_x`, and `phase_y`. Then `_run_reconstruction(...)` hands that same ruler to `optimize_lattice_pixels(...)`. No optimizer stage gets to improvise a different grid later.
+
+### Metaphor
+
+This is the surveyor hammering stakes into the ground before anyone starts building.  
+The rest of the crew can argue about stone choice, mortar lines, and whether a corner should be nudged half an inch, but nobody is allowed to quietly move the foundation stakes once the wall has started going up.
+
 ## Stage 1: The edge scout walks the mural
 
 Functions:
@@ -95,6 +109,15 @@ Natural-language picture:
 The edge scout is looking for cracks and ridges.  
 
 The old k-means paint-by-number scout has been cut. It was letting coarse color partitions masquerade as geometry, and that did not fit the optimizer's core story.
+
+### What the source actually does
+
+`analyze_continuous_source(...)` in `src/repixelizer/analysis.py` now does one thing: it builds `edge_map`. `_compute_edge_map(...)` computes luminance, reads alpha, forms `dx` and `dy` from neighboring differences, and normalizes the result into one float map. The GPU path mirrors the same logic in `_compute_edge_map_torch(...)`. The output is not a segmentation, not a palette, not a region graph. It is a single heat map saying where the image folds sharply.
+
+### Metaphor
+
+This scout is not painting the mural into numbered regions anymore. That old idiot got fired.  
+The surviving scout just runs charcoal over the wall and leaves dark marks where the plaster catches: ridges, cracks, cliff edges, places where the picture changes its mind abruptly. That is all.
 
 ## Stage 2: The optimizer lays down a regular UV grid
 
@@ -126,6 +149,15 @@ Then `_make_patch_offsets(...)` builds a little stencil of nearby offsets around
 Important truth:
 
 Despite the old name `optimize_uv_field(...)`, the current path never actually moves the UV field. It lays down a regular grid and keeps it.
+
+### What the source actually does
+
+`_make_regular_uv(...)` computes `cell_x` and `cell_y` from the source size and the chosen output size, builds the cell-center coordinates with `(index + 0.5 + phase) * cell_size - 0.5`, clamps them to the image bounds, then normalizes them to `[-1, 1]` sampling coordinates. `_make_patch_offsets(...)` then creates a small fixed stencil of local offsets, scaled by cell size, around each UV center. Nothing in this stage optimizes those centers. It manufactures a ruler and a sampling stencil, then freezes both.
+
+### Metaphor
+
+This is the crew lowering a sheet of graph paper over a fresco and taping it flat.  
+The UV coordinates are the pins through the paper. The patch offsets are a tiny clear plastic stencil you can place around each pin to peek at nearby paint without moving the pin itself.
 
 ## Stage 3: The machine paints a soft portrait of the lattice
 
@@ -162,6 +194,15 @@ Why it is dangerous:
 
 - this portrait is also exactly where softness can sneak in
 - if the machine listens to it too much, it starts preserving vibes instead of preserving source-owned structure
+
+### What the source actually does
+
+`_sample_cell_patches(...)` uses `grid_sample` to pull a little cloud of nearby RGBA samples around each UV center, flattening and reshaping the offset stencil so the source image can be sampled in one batched pass. `_representative_colors(...)` then computes `patch_mean`, measures each sampled patch color's distance from that mean, applies a softmax over the negative distances, and blends the patch colors with those weights. The result is `representative_t`: a premultiplied, smoothed per-cell color portrait. The code literally computes "which nearby samples are most typical for this cell?" and then averages toward that typicality.
+
+### Metaphor
+
+This is the machine stepping back, squinting, and painting a watercolor thumbnail over the graph paper.  
+It does not ask, "what exact shard of pigment lives here?" It asks, "if I blur out the noise and half-close my eyes, what color does this square mostly hum with?" Useful. Also suspicious. Watercolor is where the mush sneaks in wearing respectable shoes.
 
 ## Stage 4: The machine builds a hard ledger from the actual source assignment
 
@@ -228,6 +269,15 @@ Current code shape:
 - `_source_detail_delta_tensors(...)` computes the source-detail deltas once instead of rebuilding premultiplied references several times
 - `optimize_lattice_pixels(...)` now receives a prepared bundle and orchestrates snap, refine, and the final guardrail
 
+### What the source actually does
+
+`build_source_lattice_reference(...)` in `src/repixelizer/source_reference.py` calls `_build_reference_payload(...)`, which first uses `lattice_indices(...)` to assign every source pixel to one output cell under the chosen size and phase. It premultiplies the source, bins pixel contributions by cell index, and computes `mean_rgba`, `cell_dispersion`, `cell_support`, and `cell_alpha_max`. Then it chooses one exemplar-like pixel per cell with `_argbest_linear_indices(...)` over `exemplar_cost_t`, producing `sharp_rgba`, `sharp_x`, and `sharp_y`. In parallel it picks edge-peak locations using the strongest `edge_hint`, giving `edge_peak_x`, `edge_peak_y`, `edge_strength`, `edge_grad_x`, and `edge_grad_y`. Back in `continuous.py`, `_build_source_detail_reference(...)` mixes the sharp pixel with the edge-peak pixel where `edge_strength` clears the configured threshold. `_build_source_reliability(...)` then turns dispersion, support, alpha, and edge strength into a trust map, while `_source_detail_delta_tensors(...)` computes the horizontal, vertical, and diagonal color-jump tensors from that hard portrait.
+
+### Metaphor
+
+This stage stops squinting and opens the books.  
+Every real source pixel gets marched into exactly one cell's ledger like a tax record. The machine counts how many citizens live there, how similar they are, who the most typical resident is, where the loudest knife-edge cuts through town, and whether this district is solid enough to trust. Then it writes down not just what each cell is, but how violently it expects the color to jump when you step east, south, or diagonally into the next cell.
+
 ## Stage 5: Snap every output cell to one real nearby source pixel
 
 Function:
@@ -291,6 +341,15 @@ Then `_harden_binary_alpha_selection(...)` makes an extra binary decision for un
 
 That stops fuzzy half-alpha picks from surviving into the final raster.
 
+### What the source actually does
+
+`_snap_output_to_source_pixels(...)` turns each UV center into a fixed `5x5` local neighborhood by adding the `fractions = [-0.42, -0.21, 0.0, 0.21, 0.42]` offsets scaled by `cell_x` and `cell_y`, then rounds those positions to real source pixels to get `candidate_x`, `candidate_y`, and `candidate_colors`. It measures `representative_match` against `representative_t` and `source_match` against `source_reference_t`, then fuses them with `_reference_match_energy(...)` using `source_reliability_t`. It also builds `desired_delta_x`, `desired_delta_y`, `desired_delta_diag`, and `desired_delta_anti` by blending the soft portrait's deltas with the hard portrait's deltas through `_blend_reference_delta_map(...)`. Those deltas become pairwise energy terms so the chosen pixel does not only match its own cell; it also tries not to break the expected seam with its neighbors. Finally, `_harden_binary_alpha_selection(...)` snaps indecisive alpha picks to an explicitly opaque or transparent candidate when the ranking supports it.
+
+### Metaphor
+
+This is the first time the machine has to stop daydreaming and pick actual stones.  
+For each slot in the wall, it kneels over a tray of twenty-five nearby stones, weighs each one against the watercolor sketch and the accountant's ledger, then squints at the seam lines to make sure the choice will not make the neighboring joints look deranged. At the end it slaps the hand away from any damp half-ghost stone and says, no, pick rock or air. Commit.
+
 ## Stage 6: Expand the search space for refine
 
 Functions:
@@ -328,6 +387,15 @@ Natural-language picture:
 
 Snap chose one stone per slot.  
 Now refine lays several nearby stones on the scaffold around each slot so it can ask whether a slightly different local arrangement would make a cleaner wall.
+
+### What the source actually does
+
+`_build_candidate_positions(...)` starts from the fixed UV centers again, but now it builds a denser candidate set. It lays down a grid of fraction offsets from `refine_candidate_levels` and `refine_candidate_extent`, then appends edge-aware positions: the per-cell `edge_peak_x`/`edge_peak_y`, plus guided offsets along `edge_grad_x` and `edge_grad_y` when `edge_strength` and `cell_dispersion` say the cell is both edgy and unstable. `candidate_colors` are sampled directly from the source at those positions. The stage then computes `anchor_energy`, `source_reference_energy`, `alpha_energy`, and `distance_energy`, producing both `base_energy` for refine and the slightly softened `relax_base_energy` for the relax stage.
+
+### Metaphor
+
+Snap picked one stone and set it in mortar. Refine shows up with a wider tray.  
+Now the foreman has the snapped stone, a few neighboring stones, the stone sitting right on the local crack line, and a couple more dragged along the crack's direction. The question stops being "what is nearby?" and becomes "what nearby alternative might preserve the cut in the image without wandering off the ruler?"
 
 ## Stage 7: Relax into a soft field before going fully discrete again
 
@@ -377,6 +445,15 @@ Recent cut:
 
 - the old extra `relaxed_mode` bonus in refine is gone
 - the machine still compares the best refined state against the relaxed mode state at the end, but it no longer biases every greedy candidate score toward the relaxed mode
+
+### What the source actually does
+
+`_relax_candidate_selection(...)` initializes `probs` as a softmax over `-base_energy / start_temp`. On each iteration it converts those probabilities into `context_colors`, the expected color field implied by the current soft choices. It then rebuilds `final_energy` by adding pairwise delta agreement terms, optional source-facing adjacency terms, optional motif terms against both `anchor` and `source_reference`, and optional line-continuation terms. After each step, it damps and cools the distribution so the probabilities get sharper over time. When the loop ends, it keeps both the best handoff selection `selected` and the pure modal pick `mode_selected`. The relax-mode bonus that used to bias refine directly is gone; only the end-of-stage hedge remains.
+
+### Metaphor
+
+This is wet plaster and half-seated stones.  
+Nothing is fully committed yet. Each slot is allowed to say, "I'm 60% this dark edge stone, 30% the slightly duller one, 10% the safer interior stone." The wall is still trembling, but the trembling starts to synchronize. Temperature drops. The slurry thickens. Shapes that looked independent begin leaning into each other like bones finding their sockets.
 
 ## Stage 8: Greedy discrete refine
 
@@ -432,6 +509,15 @@ and keeps whichever one has the better full structure score.
 
 Then it hardens alpha again before producing the final `target_rgba`.
 
+### What the source actually does
+
+`_discrete_refine_output(...)` starts from the relaxed handoff and relaxed mode states, scores both with `_structure_score(...)`, and keeps the better starting point. Then for up to `iterations` passes it computes `candidate_energy(context_colors)` from `refine_base_energy`, pairwise delta terms, optional motif and line terms against the snapped anchor, and optional source-facing motif, line, and adjacency terms against the hard portrait. Each pass takes the per-cell argmin, scores the full discrete lattice with `_structure_score(...)`, and remembers the best whole-state selection it has seen in `best_selected`. At the end it compares that best greedy state against `relaxed_mode_selected`, picks the lower full-structure score, and hardens alpha one more time. After the recent cuts, this stage no longer consults the representative portrait directly; refine answers to the snapped anchor and the hard source portrait.
+
+### Metaphor
+
+Now the plaster has set enough that the foreman starts walking the wall with a hammer and a bad attitude.  
+He taps one stone loose, tries another, steps back, judges the seam, repeats. He does not repaint the watercolor sketch anymore. He judges the wall by the actual stone joints: edge runs, repeated motifs, line continuation, whether the neighboring cuts still read like they belong to the same carving instead of a committee.
+
 ## Stage 9: Final sanity check against snap
 
 Functions:
@@ -459,6 +545,15 @@ This is the supervisor looking at the finished wall and saying:
 "Nice theory. But if the first honest stone placement was better, we are keeping that."
 
 This guardrail matters because the refine stage is absolutely capable of making the wall feel smoother while also making it less true.
+
+### What the source actually does
+
+Back in `optimize_lattice_pixels(...)`, the code computes `snap_score` and `target_score` with `source_lattice_consistency_breakdown(...)`. That metric asks how well the output agrees with the inferred source lattice under the chosen size and phase. If `target_score > snap_score + 1e-6`, the refined result is discarded and `target_rgba = snap_rgba`. The machine literally keeps a receipt from before it got clever, then checks whether cleverness paid rent.
+
+### Metaphor
+
+This is the last adult in the room.  
+The crew may have spent hours lovingly fussing over the wall, but the supervisor still walks over with a clipboard and says: if your improved version is prettier but less faithful to the stone yard we pulled from, it goes in the bin. We keep the first honest wall.
 
 ## What fits the machine
 
