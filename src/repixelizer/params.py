@@ -78,17 +78,16 @@ class SolverHyperParams:
     tile_graph_edge_candidates_per_coord: int = 6
     tile_graph_component_color_threshold: float = 0.055
     tile_graph_component_alpha_threshold: float = 0.12
-    tile_graph_source_region_stride: int = 0
     tile_graph_source_region_min_area_ratio: float = 0.06
     tile_graph_source_region_window_coverage: float = 0.12
     tile_graph_stroke_linearity_threshold: float = 0.72
     tile_graph_stroke_step_scale: float = 0.95
     tile_graph_stroke_minor_limit_scale: float = 0.55
-    tile_graph_nonedge_sharp_weight: float = 0.85
     tile_graph_area_weight: float = 0.03
     tile_graph_alpha_weight: float = 0.25
     tile_graph_coverage_weight: float = 0.05
-    tile_graph_delta_weight: float = 0.45
+    tile_graph_edge_peak_weight: float = 0.10
+    tile_graph_adjacency_weight: float = 0.45
     tile_graph_iterations: int = 10
 
     def to_dict(self) -> dict[str, float | int]:

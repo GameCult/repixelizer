@@ -19,12 +19,12 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing (`70 passed`)
+- full test suite currently passing before the current algorithm-cut pass (`70 passed`)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
 - the new algorithm map in `docs/tile-graph-algorithm-map.md` confirms that the pinned `126x126` tile-graph badge collapse is already present in the tile-graph initial assignment; the fixed-lattice pipeline path itself is reproducing that bad state faithfully rather than introducing it, and the newer extraction coverage fix now guarantees that occupied output cells are not silently losing their source-region bucket under the corrected full-size lattice mapping
-- the new architectural split keeps the fixed synthetic emblem baselines byte-identical on both engines: the pinned tile-graph output still hashes to `31e3bc2c...6ae9` and the pinned continuous output still hashes to `404748af...7903`
+- the new architectural split kept the fixed synthetic emblem baselines byte-identical on both engines at the moment it landed: the pinned tile-graph output hashed to `31e3bc2c...6ae9` and the pinned continuous output hashed to `404748af...7903`
 
 ## Status after adjacency-first pass
 
@@ -64,9 +64,9 @@ What landed:
 - `tile-graph` no longer participates in pipeline phase rerank probes; rerank is now a continuous-only wrapper
 - the experimental `hybrid` path and its geometry-prior wiring have been removed
 - `tile_graph.py` no longer carries geometry-prior fields through `TileGraphModel` or tile-graph unary scoring
-- `tile-graph` now skips source clustering entirely and uses only edge analysis plus sharp/edge lattice references during unary scoring
+- `tile-graph` now skips source clustering entirely and uses only edge analysis plus direct per-cell source summaries during unary scoring
 - `analysis.py` now has separate prep paths: continuous gets edge plus cluster analysis, while tile-graph gets an edge-only scout report
-- `source_reference.py` now has a dedicated `TileGraphSourceReference` instead of forcing tile-graph through the larger continuous/metrics reference object
+- `source_reference.py` was split so tile-graph could have its own lean prep contract, but the next cut removed tile-graph's need for any separate source-reference object at all
 - `TileGraphModel` is now solver-only state; cache metadata and build diagnostics live in a separate `TileGraphBuildStats` sidecar
 - `cli.py` now exposes only `continuous` and `tile-graph` as reconstruction engines
 - `tests/test_pipeline.py` now checks that low-confidence tile-graph runs skip rerank probes instead of rebuilding probe candidates
@@ -79,10 +79,13 @@ Current implementation note:
 - the direct-control path is specifically for dodging those costs during iteration when we already know which lattice we want to inspect
 - tile-graph now skips pipeline rerank entirely, so iteration no longer rebuilds multiple probe candidates before the final tile-graph solve
 - on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, a fixed-lattice CUDA `tile-graph` run now took about `10.2s` on the first same-process run and about `2.1s` on the cached rerun, with the same output and a reported `tile_graph_model_cache_hit` on the second pass
-- the current deep-dive diagnosis is that the fixed-lattice garbling is not a wrapper bug and not mainly a parity-solver bug; it is being born in lattice-conditioned reference building, source-region cutting/projection, candidate starvation, and the first unary argmin assignment
+- the current deep-dive diagnosis is that the fixed-lattice garbling is not a wrapper bug and not mainly a parity-solver bug; it is born in tile cutting, candidate truncation, local source support, and the first unary argmin assignment
 - the extraction coverage bug turned out to be real but secondary: the new `_extract_source_region_tiles(...)` overlap fill pass now guarantees that any output cell containing opaque sampled source pixels gets at least one extracted region bucket, but the pinned `126x126` badge output remains numerically unchanged (`0.4998626`), which narrows the remaining failure to candidate ranking and lattice-conditioned reference usage rather than empty region buckets
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
+- the latest core algorithm cut removes `source_region_stride`, removes portrait-based candidate ranking, removes sharp/edge foreground fallback injection, and replaces sampled-delta pairwise scoring with adjacency learned from extracted tiles
+- that cut also removes the dedicated `TileGraphSourceReference` entirely: tile-graph now grounds itself in full-resolution extracted tiles plus direct per-cell source summaries (`cell_mean_rgba`, `cell_alpha_mean`, `cell_edge_strength`)
+- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the new cut recovers the fixed-lattice run from roughly `0.5055` source-fidelity down to `0.1814`; that is still weak, but it is no longer total algorithmic collapse
 
 Next after that:
 - split tile-graph iteration into a cached model-build phase and a near-free solve phase so weight tuning does not keep paying the `~131s` source-region cutting bill

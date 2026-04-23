@@ -9,7 +9,6 @@ import numpy as np
 
 from .metrics import source_lattice_consistency_breakdown
 from .params import SolverHyperParams
-from .source_reference import build_tile_graph_source_reference
 from .types import InferenceResult, SolverArtifacts, TileGraphSourceAnalysis
 
 _RIGHT = 0
@@ -56,12 +55,14 @@ class TileGraphModel:
     candidate_rgba: np.ndarray
     candidate_area_ratio: np.ndarray
     candidate_coverage: np.ndarray
-    candidate_deltas: np.ndarray
+    candidate_edge_peak: np.ndarray
+    candidate_neighbor_rgba: np.ndarray
+    candidate_neighbor_mask: np.ndarray
     cell_candidate_offsets: np.ndarray
     cell_candidate_indices: np.ndarray
-    reference_sharp_rgba: np.ndarray
-    reference_edge_rgba: np.ndarray
-    edge_strength: np.ndarray
+    cell_mean_rgba: np.ndarray
+    cell_alpha_mean: np.ndarray
+    cell_edge_strength: np.ndarray
 
 
 @dataclass(slots=True)
@@ -103,12 +104,16 @@ def _tile_graph_model_cache_key(
         "tile_graph_edge_candidates_per_coord",
         "tile_graph_component_color_threshold",
         "tile_graph_component_alpha_threshold",
-        "tile_graph_source_region_stride",
         "tile_graph_source_region_min_area_ratio",
         "tile_graph_source_region_window_coverage",
         "tile_graph_stroke_linearity_threshold",
         "tile_graph_stroke_step_scale",
         "tile_graph_stroke_minor_limit_scale",
+        "tile_graph_area_weight",
+        "tile_graph_alpha_weight",
+        "tile_graph_coverage_weight",
+        "tile_graph_edge_peak_weight",
+        "tile_graph_adjacency_weight",
     )
     build_signature = tuple((name, getattr(solver_params, name)) for name in build_param_names)
     return (
@@ -527,7 +532,6 @@ def _extract_source_region_tiles(
     flat_y: np.ndarray,
     cell_w: float,
     cell_h: float,
-    sample_area: float,
     target_width: int,
     target_height: int,
     phase_x: float,
@@ -543,13 +547,18 @@ def _extract_source_region_tiles(
     half_w = cell_w * 0.5
     half_h = cell_h * 0.5
     buckets: list[list[dict[str, float | int | np.ndarray]]] = [[] for _ in range(output_area)]
-    min_region_pixels = max(1, int(np.ceil(cell_area * min_region_area_ratio / max(sample_area, 1e-6))))
+    min_region_pixels = max(1, int(np.ceil(cell_area * min_region_area_ratio)))
     ordered_components = sorted(
         components,
         key=lambda comp: (abs(float(comp["size"]) - cell_area), -float(comp["edge_peak"])),
     )
+    primary_tiles: list[dict[str, float | int | np.ndarray]] = []
 
-    def overlap_tiles_for_component(component: dict[str, float | int | np.ndarray]) -> list[dict[str, float | int | np.ndarray]]:
+    def overlap_tiles_for_component(
+        component: dict[str, float | int | np.ndarray],
+        *,
+        component_id: int,
+    ) -> list[dict[str, float | int | np.ndarray]]:
         member_linear = np.asarray(component["member_linear"], dtype=np.int32)
         if member_linear.size <= 0:
             return []
@@ -595,20 +604,20 @@ def _extract_source_region_tiles(
                 {
                     "rep_linear": rep_linear,
                     "rep_rgba": flat_rgba[rep_linear].astype(np.float32),
-                    "area_ratio": float((cell_linear.shape[0] * sample_area) / cell_area),
-                    "coverage": float(np.clip((cell_linear.shape[0] * sample_area) / cell_area, 0.0, 1.0)),
+                    "area_ratio": float(cell_linear.shape[0] / cell_area),
+                    "coverage": float(np.clip(cell_linear.shape[0] / cell_area, 0.0, 1.0)),
                     "edge_peak": edge_peak,
                     "source_center_x": center_x,
                     "source_center_y": center_y,
                     "coord_x": int(flat_index % target_width),
                     "coord_y": int(flat_index // target_width),
                     "flat_index": flat_index,
-                    "guaranteed_fill": True,
+                    "component_id": component_id,
                 }
             )
         return tiles
 
-    for component in ordered_components:
+    for component_id, component in enumerate(ordered_components):
         component_size = int(component["size"])
         if component_size < min_region_pixels:
             continue
@@ -682,7 +691,7 @@ def _extract_source_region_tiles(
             footprint_count = int(np.count_nonzero(in_window))
             if footprint_count <= 0:
                 continue
-            area_ratio = float((footprint_count * sample_area) / cell_area)
+            area_ratio = float(footprint_count / cell_area)
             if area_ratio < min_window_coverage:
                 continue
 
@@ -729,6 +738,7 @@ def _extract_source_region_tiles(
                     "coord_x": coord_x,
                     "coord_y": coord_y,
                     "flat_index": flat_index,
+                    "component_id": component_id,
                 }
             )
             remaining[in_window] = False
@@ -789,10 +799,10 @@ def _extract_source_region_tiles(
                     previous_secondary = float(best_tile["coord_x"] if dominant_vertical else best_tile["coord_y"])
                 component_tiles = filtered_tiles
             for tile in component_tiles:
-                buckets[int(tile["flat_index"])].append(tile)
+                primary_tiles.append(tile)
             continue
 
-        component_area_ratio = float((component_size * sample_area) / cell_area)
+        component_area_ratio = float(component_size / cell_area)
         if component_area_ratio < min_window_coverage:
             continue
         centroid_linear = int(component["centroid_linear"])
@@ -820,14 +830,53 @@ def _extract_source_region_tiles(
                 "coord_x": coord_x,
                 "coord_y": coord_y,
                 "flat_index": flat_index,
+                "component_id": component_id,
             }
         )
 
-    for component in ordered_components:
-        for tile in overlap_tiles_for_component(component):
-            if buckets[int(tile["flat_index"])]:
+    for tile in primary_tiles:
+        buckets[int(tile["flat_index"])].append(tile)
+    for component_id, component in enumerate(ordered_components):
+        for tile in overlap_tiles_for_component(component, component_id=component_id):
+            flat_index = int(tile["flat_index"])
+            if buckets[flat_index]:
                 continue
-            buckets[int(tile["flat_index"])].append(tile)
+            buckets[flat_index].append(tile)
+
+    for flat_index, bucket in enumerate(buckets):
+        if not bucket:
+            continue
+        coord_y = flat_index // target_width
+        coord_x = flat_index % target_width
+        for tile in bucket:
+            neighbor_rgba = np.zeros((4, 4), dtype=np.float32)
+            neighbor_mask = np.zeros((4,), dtype=bool)
+            for direction, dy, dx in _DIRS:
+                neighbor_x = coord_x + dx
+                neighbor_y = coord_y + dy
+                if neighbor_x < 0 or neighbor_x >= target_width or neighbor_y < 0 or neighbor_y >= target_height:
+                    continue
+                neighbor_bucket = buckets[neighbor_y * target_width + neighbor_x]
+                if not neighbor_bucket:
+                    continue
+                expected_x = float(tile["source_center_x"]) + dx * cell_w
+                expected_y = float(tile["source_center_y"]) + dy * cell_h
+
+                def neighbor_score(candidate: dict[str, float | int | np.ndarray]) -> tuple[float, int, float, float, float]:
+                    return (
+                        abs(float(candidate["source_center_x"]) - expected_x)
+                        + abs(float(candidate["source_center_y"]) - expected_y),
+                        0 if int(candidate["component_id"]) == int(tile["component_id"]) else 1,
+                        abs(float(candidate["area_ratio"]) - 1.0),
+                        -float(candidate["coverage"]),
+                        -float(candidate["edge_peak"]),
+                    )
+
+                best_neighbor = min(neighbor_bucket, key=neighbor_score)
+                neighbor_rgba[direction] = np.asarray(best_neighbor["rep_rgba"], dtype=np.float32)
+                neighbor_mask[direction] = True
+            tile["neighbor_rgba"] = neighbor_rgba
+            tile["neighbor_mask"] = neighbor_mask
 
     return buckets
 
@@ -836,9 +885,6 @@ def _select_source_region_candidates(
     *,
     candidates: list[dict[str, float | int | np.ndarray]],
     allowed_candidates: int,
-    reference_rgba: np.ndarray,
-    edge_reference_rgba: np.ndarray,
-    prefer_edge: bool,
 ) -> list[dict[str, float | int | np.ndarray]]:
     if not candidates or allowed_candidates <= 0:
         return []
@@ -856,21 +902,12 @@ def _select_source_region_candidates(
         candidates,
         key=lambda cand: (abs(float(cand["area_ratio"]) - 1.0), -float(cand["coverage"]), -float(cand["edge_peak"])),
     )
-    by_reference = sorted(
-        candidates,
-        key=lambda cand: float(np.mean(np.abs(np.asarray(cand["rep_rgba"], dtype=np.float32) - reference_rgba))),
-    )
-    by_edge_reference = sorted(
-        candidates,
-        key=lambda cand: float(np.mean(np.abs(np.asarray(cand["rep_rgba"], dtype=np.float32) - edge_reference_rgba))),
-    )
     by_edge = sorted(candidates, key=lambda cand: (-float(cand["edge_peak"]), abs(float(cand["area_ratio"]) - 1.0)))
+    by_coverage = sorted(candidates, key=lambda cand: (-float(cand["coverage"]), abs(float(cand["area_ratio"]) - 1.0), -float(cand["edge_peak"])))
 
     add(by_area[0])
-    add(by_reference[0])
-    if prefer_edge:
-        add(by_edge_reference[0])
-        add(by_edge[0])
+    add(by_coverage[0])
+    add(by_edge[0])
     for candidate in by_area:
         add(candidate)
         if len(picked) >= allowed_candidates:
@@ -899,67 +936,50 @@ def build_tile_graph_model(
     if cached_model is not None:
         model, stats = cached_model
         return model, replace(stats, cache_hit=True)
-    source_reference = build_tile_graph_source_reference(
-        source_rgba,
-        target_width=inference.target_width,
-        target_height=inference.target_height,
-        phase_x=inference.phase_x,
-        phase_y=inference.phase_y,
-        alpha_threshold=solver_params.alpha_transparent_threshold,
-        edge_hint=analysis.edge_map,
-        device=resolved_device,
-    )
     height, width = source_rgba.shape[:2]
     cell_h = height / max(1, inference.target_height)
     cell_w = width / max(1, inference.target_width)
     output_area = max(1, inference.target_height * inference.target_width)
     max_candidates_per_coord = max(1, int(solver_params.tile_graph_max_candidates_per_coord))
 
-    source_t = torch.from_numpy(source_rgba).to(device=resolved_device, dtype=torch.float32)
-    flat_rgba_t = source_t.reshape(-1, source_t.shape[-1])
-    pixel_y_t, pixel_x_t = torch.meshgrid(
-        torch.arange(height, device=resolved_device, dtype=torch.long),
-        torch.arange(width, device=resolved_device, dtype=torch.long),
-        indexing="ij",
-    )
-    flat_y_t = pixel_y_t.reshape(-1)
-    flat_x_t = pixel_x_t.reshape(-1)
-    sharp_x_flat_t = torch.from_numpy(source_reference.sharp_x.reshape(-1)).to(device=resolved_device, dtype=torch.long)
-    sharp_y_flat_t = torch.from_numpy(source_reference.sharp_y.reshape(-1)).to(device=resolved_device, dtype=torch.long)
-    edge_peak_x_flat_t = torch.from_numpy(source_reference.edge_peak_x.reshape(-1)).to(device=resolved_device, dtype=torch.long)
-    edge_peak_y_flat_t = torch.from_numpy(source_reference.edge_peak_y.reshape(-1)).to(device=resolved_device, dtype=torch.long)
-    sharp_linear_t = sharp_y_flat_t * width + sharp_x_flat_t
-    edge_linear_t = edge_peak_y_flat_t * width + edge_peak_x_flat_t
-
     flat_rgba_np = source_rgba.reshape(-1, source_rgba.shape[-1]).astype(np.float32)
     flat_edge_np = analysis.edge_map.reshape(-1).astype(np.float32)
-    source_region_stride = int(getattr(solver_params, "tile_graph_source_region_stride", 0))
-    if source_region_stride <= 0:
-        if max(height, width) <= 256 or output_area <= 1024:
-            source_region_stride = 1
-        else:
-            source_region_stride = max(1, int(np.floor(min(cell_w, cell_h) / 4.0)))
-    source_region_stride = max(1, min(source_region_stride, 3))
-    sampled_rgba = source_rgba[::source_region_stride, ::source_region_stride].astype(np.float32)
-    sampled_edge = analysis.edge_map[::source_region_stride, ::source_region_stride].astype(np.float32)
-    sampled_y_coords = np.arange(0, height, source_region_stride, dtype=np.int32)
-    sampled_x_coords = np.arange(0, width, source_region_stride, dtype=np.int32)
-    sampled_y_grid, sampled_x_grid = np.meshgrid(sampled_y_coords, sampled_x_coords, indexing="ij")
-    sampled_flat_rgba_np = sampled_rgba.reshape(-1, sampled_rgba.shape[-1]).astype(np.float32)
-    sampled_flat_edge_np = sampled_edge.reshape(-1).astype(np.float32)
-    sampled_flat_y_np = sampled_y_grid.reshape(-1).astype(np.int32)
-    sampled_flat_x_np = sampled_x_grid.reshape(-1).astype(np.int32)
     flat_y_np, flat_x_np = np.divmod(np.arange(flat_rgba_np.shape[0], dtype=np.int64), width)
     flat_y_np = flat_y_np.astype(np.int32)
     flat_x_np = flat_x_np.astype(np.int32)
-    sharp_linear_np = sharp_linear_t.detach().cpu().numpy().astype(np.int64)
-    edge_linear_np = edge_linear_t.detach().cpu().numpy().astype(np.int64)
     flat_alpha_np = flat_rgba_np[:, 3].astype(np.float32)
-    edge_rgba_np = flat_rgba_np[edge_linear_np]
-    edge_strength_np = source_reference.edge_strength.reshape(-1).astype(np.float32)
+    projected_coord_x = np.clip(
+        np.floor((flat_x_np.astype(np.float32) + 0.5) / max(cell_w, 1e-6) - inference.phase_x).astype(np.int32),
+        0,
+        max(0, inference.target_width - 1),
+    )
+    projected_coord_y = np.clip(
+        np.floor((flat_y_np.astype(np.float32) + 0.5) / max(cell_h, 1e-6) - inference.phase_y).astype(np.int32),
+        0,
+        max(0, inference.target_height - 1),
+    )
+    projected_flat_index = projected_coord_y * inference.target_width + projected_coord_x
+    cell_counts_flat = np.bincount(projected_flat_index, minlength=output_area).astype(np.float32)
+    safe_cell_counts_flat = np.clip(cell_counts_flat, 1.0, None)
+    cell_mean_rgba_flat = np.stack(
+        [
+            np.bincount(projected_flat_index, weights=flat_rgba_np[:, channel], minlength=output_area).astype(np.float32)
+            / safe_cell_counts_flat
+            for channel in range(flat_rgba_np.shape[-1])
+        ],
+        axis=-1,
+    )
+    cell_alpha_support_flat = np.zeros(output_area, dtype=np.float32)
+    np.maximum.at(cell_alpha_support_flat, projected_flat_index, flat_alpha_np)
+    cell_alpha_mean_flat = (
+        np.bincount(projected_flat_index, weights=flat_alpha_np, minlength=output_area).astype(np.float32)
+        / safe_cell_counts_flat
+    )
+    cell_edge_strength_flat = np.zeros(output_area, dtype=np.float32)
+    np.maximum.at(cell_edge_strength_flat, projected_flat_index, flat_edge_np)
     global_components = _segment_atomic_source_regions(
-        source_rgba=sampled_rgba,
-        edge_map=sampled_edge,
+        source_rgba=source_rgba.astype(np.float32),
+        edge_map=analysis.edge_map.astype(np.float32),
         alpha_floor=solver_params.alpha_transparent_threshold,
         color_threshold=float(getattr(solver_params, "tile_graph_component_color_threshold", 0.055)),
         alpha_threshold=float(getattr(solver_params, "tile_graph_component_alpha_threshold", 0.12)),
@@ -967,13 +987,12 @@ def build_tile_graph_model(
     )
     region_buckets = _extract_source_region_tiles(
         components=global_components,
-        flat_rgba=sampled_flat_rgba_np,
-        flat_edge=sampled_flat_edge_np,
-        flat_x=sampled_flat_x_np,
-        flat_y=sampled_flat_y_np,
+        flat_rgba=flat_rgba_np,
+        flat_edge=flat_edge_np,
+        flat_x=flat_x_np,
+        flat_y=flat_y_np,
         cell_w=cell_w,
         cell_h=cell_h,
-        sample_area=float(source_region_stride * source_region_stride),
         target_width=inference.target_width,
         target_height=inference.target_height,
         phase_x=inference.phase_x,
@@ -985,86 +1004,94 @@ def build_tile_graph_model(
         stroke_minor_limit_scale=float(getattr(solver_params, "tile_graph_stroke_minor_limit_scale", 0.55)),
     )
 
-    candidate_linear: list[int] = []
+    candidate_rgba: list[np.ndarray] = []
     candidate_area_ratio: list[float] = []
     candidate_coverage: list[float] = []
-    candidate_source_x: list[float] = []
-    candidate_source_y: list[float] = []
+    candidate_edge_peak: list[float] = []
+    candidate_neighbor_rgba: list[np.ndarray] = []
+    candidate_neighbor_mask: list[np.ndarray] = []
     choice_counts_list: list[int] = []
     component_total = len(global_components)
     edge_candidate_cap = max(max_candidates_per_coord, int(getattr(solver_params, "tile_graph_edge_candidates_per_coord", max_candidates_per_coord)))
     for flat_index in range(output_area):
-        coord_y = flat_index // inference.target_width
-        coord_x = flat_index % inference.target_width
         seen_pixels: set[int] = set()
-        cell_start = len(candidate_linear)
-        edge_cell = edge_strength_np[flat_index] >= solver_params.source_edge_detail_threshold
+        cell_start = len(candidate_rgba)
+        edge_cell = cell_edge_strength_flat[flat_index] >= solver_params.source_edge_detail_threshold
         allowed_candidates = edge_candidate_cap if edge_cell else max_candidates_per_coord
 
-        def add_candidate(pixel_index: int, *, area_ratio: float, coverage: float, source_x: float, source_y: float) -> None:
-            if pixel_index in seen_pixels or len(seen_pixels) >= allowed_candidates:
+        def add_candidate(
+            rgba: np.ndarray,
+            *,
+            pixel_index: int | None,
+            area_ratio: float,
+            coverage: float,
+            edge_peak: float,
+            neighbor_rgba: np.ndarray | None = None,
+            neighbor_mask: np.ndarray | None = None,
+        ) -> None:
+            if len(candidate_rgba) - cell_start >= allowed_candidates:
                 return
-            seen_pixels.add(pixel_index)
-            candidate_linear.append(pixel_index)
+            if pixel_index is not None:
+                if pixel_index in seen_pixels:
+                    return
+                seen_pixels.add(pixel_index)
+            candidate_rgba.append(np.asarray(rgba, dtype=np.float32))
             candidate_area_ratio.append(float(max(area_ratio, 1e-3)))
             candidate_coverage.append(float(np.clip(coverage, 0.0, 1.0)))
-            candidate_source_x.append(float(source_x))
-            candidate_source_y.append(float(source_y))
+            candidate_edge_peak.append(float(np.clip(edge_peak, 0.0, 1.0)))
+            candidate_neighbor_rgba.append(
+                np.asarray(neighbor_rgba if neighbor_rgba is not None else np.zeros((4, 4), dtype=np.float32), dtype=np.float32)
+            )
+            candidate_neighbor_mask.append(
+                np.asarray(neighbor_mask if neighbor_mask is not None else np.zeros((4,), dtype=bool), dtype=bool)
+            )
 
         selected_regions = _select_source_region_candidates(
             candidates=region_buckets[flat_index],
             allowed_candidates=allowed_candidates,
-            reference_rgba=source_reference.sharp_rgba.reshape(-1, 4)[flat_index],
-            edge_reference_rgba=edge_rgba_np[flat_index],
-            prefer_edge=edge_cell,
-        )
-        selected_only_guaranteed_fill = bool(selected_regions) and all(
-            bool(region.get("guaranteed_fill", False))
-            for region in selected_regions
         )
         for region in selected_regions:
-            pixel_index = int(region["rep_linear"])
             add_candidate(
-                pixel_index,
+                np.asarray(region["rep_rgba"], dtype=np.float32),
+                pixel_index=int(region["rep_linear"]),
                 area_ratio=float(region["area_ratio"]),
                 coverage=float(region["coverage"]),
-                source_x=float(region["source_center_x"]),
-                source_y=float(region["source_center_y"]),
+                edge_peak=float(region["edge_peak"]),
+                neighbor_rgba=np.asarray(region.get("neighbor_rgba", np.zeros((4, 4), dtype=np.float32)), dtype=np.float32),
+                neighbor_mask=np.asarray(region.get("neighbor_mask", np.zeros((4,), dtype=bool)), dtype=bool),
             )
-        if len(candidate_linear) == cell_start or selected_only_guaranteed_fill:
-            sharp_pixel = int(sharp_linear_np[flat_index])
+        if cell_alpha_mean_flat[flat_index] < 0.98:
             add_candidate(
-                sharp_pixel,
+                np.zeros((4,), dtype=np.float32),
+                pixel_index=None,
                 area_ratio=1.0,
-                coverage=max(0.05, float(flat_alpha_np[sharp_pixel])),
-                source_x=float(flat_x_np[sharp_pixel]),
-                source_y=float(flat_y_np[sharp_pixel]),
+                coverage=float(np.clip(1.0 - cell_alpha_mean_flat[flat_index], 0.0, 1.0)),
+                edge_peak=0.0,
             )
-            if edge_cell:
-                edge_pixel = int(edge_linear_np[flat_index])
+        if len(candidate_rgba) == cell_start:
+            if cell_alpha_support_flat[flat_index] <= solver_params.alpha_transparent_threshold:
                 add_candidate(
-                    edge_pixel,
+                    np.zeros((4,), dtype=np.float32),
+                    pixel_index=None,
                     area_ratio=1.0,
-                    coverage=max(0.05, float(flat_alpha_np[edge_pixel])),
-                    source_x=float(flat_x_np[edge_pixel]),
-                    source_y=float(flat_y_np[edge_pixel]),
+                    coverage=1.0,
+                    edge_peak=0.0,
                 )
-        choice_counts_list.append(len(candidate_linear) - cell_start)
+            else:
+                coord_y = flat_index // inference.target_width
+                coord_x = flat_index % inference.target_width
+                raise RuntimeError(
+                    "Tile-graph extraction produced no source-owned candidate "
+                    f"for occupied output cell ({coord_x}, {coord_y})."
+                )
+        choice_counts_list.append(len(candidate_rgba) - cell_start)
 
-    candidate_linear_t = torch.as_tensor(candidate_linear, device=resolved_device, dtype=torch.long)
-    center_rgba_t = flat_rgba_t[candidate_linear_t]
-    center_y_t = torch.as_tensor(candidate_source_y, device=resolved_device, dtype=torch.float32)
-    center_x_t = torch.as_tensor(candidate_source_x, device=resolved_device, dtype=torch.float32)
-    candidate_deltas_t = torch.zeros((candidate_linear_t.shape[0], 4, 4), device=resolved_device, dtype=torch.float32)
-    for direction, dy, dx in _DIRS:
-        sample_y_t = torch.round(center_y_t + dy * cell_h).clamp(0, max(0, height - 1)).to(dtype=torch.long)
-        sample_x_t = torch.round(center_x_t + dx * cell_w).clamp(0, max(0, width - 1)).to(dtype=torch.long)
-        candidate_deltas_t[:, direction] = source_t[sample_y_t, sample_x_t] - center_rgba_t
-
-    candidate_rgba_np = center_rgba_t.detach().cpu().numpy().astype(np.float32)
+    candidate_rgba_np = np.asarray(candidate_rgba, dtype=np.float32)
     candidate_area_ratio_np = np.asarray(candidate_area_ratio, dtype=np.float32)
     candidate_coverage_np = np.asarray(candidate_coverage, dtype=np.float32)
-    candidate_deltas_np = candidate_deltas_t.detach().cpu().numpy().astype(np.float32)
+    candidate_edge_peak_np = np.asarray(candidate_edge_peak, dtype=np.float32)
+    candidate_neighbor_rgba_np = np.asarray(candidate_neighbor_rgba, dtype=np.float32)
+    candidate_neighbor_mask_np = np.asarray(candidate_neighbor_mask, dtype=bool)
 
     cell_candidate_offsets = np.zeros(output_area + 1, dtype=np.int32)
     cell_candidate_offsets[1:] = np.cumsum(np.asarray(choice_counts_list, dtype=np.int32), dtype=np.int32)
@@ -1073,18 +1100,20 @@ def build_tile_graph_model(
     average_choices = float(np.mean(choice_counts)) if choice_counts.size else 0.0
 
     edge_density = float(
-        np.mean(source_reference.edge_strength >= solver_params.source_edge_detail_threshold)
+        np.mean(cell_edge_strength_flat >= solver_params.source_edge_detail_threshold)
     )
     base_model = TileGraphModel(
         candidate_rgba=candidate_rgba_np,
         candidate_area_ratio=candidate_area_ratio_np,
         candidate_coverage=candidate_coverage_np,
-        candidate_deltas=candidate_deltas_np,
+        candidate_edge_peak=candidate_edge_peak_np,
+        candidate_neighbor_rgba=candidate_neighbor_rgba_np,
+        candidate_neighbor_mask=candidate_neighbor_mask_np,
         cell_candidate_offsets=cell_candidate_offsets,
         cell_candidate_indices=cell_candidate_indices_np,
-        reference_sharp_rgba=source_reference.sharp_rgba.astype(np.float32),
-        reference_edge_rgba=edge_rgba_np.reshape(inference.target_height, inference.target_width, -1).astype(np.float32),
-        edge_strength=source_reference.edge_strength.astype(np.float32),
+        cell_mean_rgba=cell_mean_rgba_flat.reshape(inference.target_height, inference.target_width, 4).astype(np.float32),
+        cell_alpha_mean=cell_alpha_mean_flat.reshape(inference.target_height, inference.target_width).astype(np.float32),
+        cell_edge_strength=cell_edge_strength_flat.reshape(inference.target_height, inference.target_width).astype(np.float32),
     )
     base_stats = TileGraphBuildStats(
         component_count=component_total,
@@ -1099,13 +1128,13 @@ def build_tile_graph_model(
 
 
 def _cell_candidate_span(model: TileGraphModel, y: int, x: int) -> tuple[int, int]:
-    width = model.reference_sharp_rgba.shape[1]
+    width = model.cell_alpha_mean.shape[1]
     flat_index = y * width + x
     return int(model.cell_candidate_offsets[flat_index]), int(model.cell_candidate_offsets[flat_index + 1])
 
 
 def _build_choice_grid(model: TileGraphModel) -> tuple[np.ndarray, np.ndarray]:
-    height, width = model.reference_sharp_rgba.shape[:2]
+    height, width = model.cell_alpha_mean.shape[:2]
     choice_counts = np.diff(model.cell_candidate_offsets)
     max_choices = int(np.max(choice_counts)) if choice_counts.size else 1
     choice_indices = np.zeros((height, width, max_choices), dtype=np.int64)
@@ -1132,124 +1161,166 @@ def _tile_graph_unary_cost_torch(
     solver_params: SolverHyperParams,
 ):
     candidate_rgba_t = torch.from_numpy(model.candidate_rgba).to(device=device, dtype=torch.float32)
-    candidate_deltas_t = torch.from_numpy(model.candidate_deltas).to(device=device, dtype=torch.float32)
     candidate_area_t = torch.from_numpy(model.candidate_area_ratio).to(device=device, dtype=torch.float32)
     candidate_coverage_t = torch.from_numpy(model.candidate_coverage).to(device=device, dtype=torch.float32)
-    reference_sharp_t = torch.from_numpy(model.reference_sharp_rgba).to(device=device, dtype=torch.float32)
-    reference_edge_t = torch.from_numpy(model.reference_edge_rgba).to(device=device, dtype=torch.float32)
-    edge_strength_t = torch.from_numpy(model.edge_strength).to(device=device, dtype=torch.float32)
+    candidate_edge_peak_t = torch.from_numpy(model.candidate_edge_peak).to(device=device, dtype=torch.float32)
+    candidate_neighbor_rgba_t = torch.from_numpy(model.candidate_neighbor_rgba).to(device=device, dtype=torch.float32)
+    candidate_neighbor_mask_t = torch.from_numpy(model.candidate_neighbor_mask).to(device=device, dtype=torch.bool)
+    cell_mean_rgba_t = torch.from_numpy(model.cell_mean_rgba).to(device=device, dtype=torch.float32)
+    cell_alpha_mean_t = torch.from_numpy(model.cell_alpha_mean).to(device=device, dtype=torch.float32)
+    cell_edge_strength_t = torch.from_numpy(model.cell_edge_strength).to(device=device, dtype=torch.float32)
     choice_rgba_t = candidate_rgba_t[choice_indices_t]
-    choice_deltas_t = candidate_deltas_t[choice_indices_t]
-    sharp_error_t = (reference_sharp_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
-    edge_error_t = (reference_edge_t[..., None, :] - choice_rgba_t).abs().mean(dim=-1)
-    edge_cell_mask_t = edge_strength_t[..., None] >= solver_params.source_edge_detail_threshold
-    color_error = torch.where(
-        edge_cell_mask_t,
-        torch.minimum(sharp_error_t, edge_error_t),
-        sharp_error_t * solver_params.tile_graph_nonedge_sharp_weight,
-    )
+    choice_edge_peak_t = candidate_edge_peak_t[choice_indices_t]
+    color_error = (choice_rgba_t - cell_mean_rgba_t[..., None, :]).abs().mean(dim=-1)
     area_error = torch.log(candidate_area_t[choice_indices_t].clamp_min(1e-4) + 1e-4).abs()
-    alpha_reference_t = torch.maximum(reference_sharp_t[..., 3], reference_edge_t[..., 3])
-    alpha_error = (choice_rgba_t[..., 3] - alpha_reference_t[..., None]).abs()
+    alpha_error = (choice_rgba_t[..., 3] - cell_alpha_mean_t[..., None]).abs()
     coverage_error = 1.0 - candidate_coverage_t[choice_indices_t].clamp(0.0, 1.0)
+    edge_error = (choice_edge_peak_t - cell_edge_strength_t[..., None]).abs()
     unary_cost_t = (
         color_error
         + area_error * solver_params.tile_graph_area_weight
         + alpha_error * solver_params.tile_graph_alpha_weight
         + coverage_error * solver_params.tile_graph_coverage_weight
+        + edge_error * solver_params.tile_graph_edge_peak_weight
     )
     unary_cost_t = unary_cost_t.masked_fill(~choice_mask_t, float("inf"))
-    return unary_cost_t, candidate_rgba_t, candidate_deltas_t, choice_rgba_t, choice_deltas_t
+    return unary_cost_t, candidate_rgba_t, candidate_neighbor_rgba_t, candidate_neighbor_mask_t, choice_rgba_t
 
 
-def _pair_penalty_selected_torch(torch, candidate_rgba_t, candidate_deltas_t, left_indices_t, right_indices_t, direction: int, weight: float):
+def _pair_penalty_selected_torch(
+    torch,
+    candidate_rgba_t,
+    candidate_neighbor_rgba_t,
+    candidate_neighbor_mask_t,
+    left_indices_t,
+    right_indices_t,
+    direction: int,
+    weight: float,
+):
     left_rgba = candidate_rgba_t[left_indices_t]
     right_rgba = candidate_rgba_t[right_indices_t]
-    observed_delta = right_rgba - left_rgba
-    expected = candidate_deltas_t[left_indices_t, direction]
-    reverse = candidate_deltas_t[right_indices_t, _OPPOSITE[direction]]
-    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
-    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
-    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+    forward_mask = candidate_neighbor_mask_t[left_indices_t, direction]
+    reverse_mask = candidate_neighbor_mask_t[right_indices_t, _OPPOSITE[direction]]
+    forward_penalty = (right_rgba - candidate_neighbor_rgba_t[left_indices_t, direction]).abs().mean(dim=-1)
+    reverse_penalty = (left_rgba - candidate_neighbor_rgba_t[right_indices_t, _OPPOSITE[direction]]).abs().mean(dim=-1)
+    total_weight = forward_mask.to(dtype=torch.float32) + reverse_mask.to(dtype=torch.float32)
+    combined = (
+        forward_penalty * forward_mask.to(dtype=torch.float32)
+        + reverse_penalty * reverse_mask.to(dtype=torch.float32)
+    )
+    return torch.where(total_weight > 0.0, combined / total_weight.clamp_min(1.0), torch.zeros_like(combined)) * weight
 
 
 def _pair_penalty_option_right_torch(
     torch,
     fixed_left_indices_t,
     option_rgba_t,
-    option_deltas_t,
     candidate_rgba_t,
-    candidate_deltas_t,
+    candidate_neighbor_rgba_t,
+    candidate_neighbor_mask_t,
+    option_neighbor_rgba_t,
+    option_neighbor_mask_t,
     *,
     weight: float,
 ):
     fixed_left_rgba = candidate_rgba_t[fixed_left_indices_t]
-    expected = candidate_deltas_t[fixed_left_indices_t, _RIGHT][..., None, :]
-    reverse = option_deltas_t[..., _LEFT, :]
-    observed_delta = option_rgba_t - fixed_left_rgba[..., None, :]
-    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
-    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
-    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+    forward_mask = candidate_neighbor_mask_t[fixed_left_indices_t, _RIGHT][..., None]
+    reverse_mask = option_neighbor_mask_t[..., _LEFT]
+    forward_penalty = (option_rgba_t - candidate_neighbor_rgba_t[fixed_left_indices_t, _RIGHT][..., None, :]).abs().mean(dim=-1)
+    reverse_penalty = (fixed_left_rgba[..., None, :] - option_neighbor_rgba_t[..., _LEFT, :]).abs().mean(dim=-1)
+    total_weight = forward_mask.to(dtype=torch.float32) + reverse_mask.to(dtype=torch.float32)
+    combined = (
+        forward_penalty * forward_mask.to(dtype=torch.float32)
+        + reverse_penalty * reverse_mask.to(dtype=torch.float32)
+    )
+    return torch.where(total_weight > 0.0, combined / total_weight.clamp_min(1.0), torch.zeros_like(combined)) * weight
 
 
 def _pair_penalty_option_left_torch(
     torch,
     option_rgba_t,
-    option_deltas_t,
     fixed_right_indices_t,
     candidate_rgba_t,
-    candidate_deltas_t,
+    candidate_neighbor_rgba_t,
+    candidate_neighbor_mask_t,
+    option_neighbor_rgba_t,
+    option_neighbor_mask_t,
     *,
     weight: float,
 ):
     fixed_right_rgba = candidate_rgba_t[fixed_right_indices_t]
-    expected = option_deltas_t[..., _RIGHT, :]
-    reverse = candidate_deltas_t[fixed_right_indices_t, _LEFT][..., None, :]
-    observed_delta = fixed_right_rgba[..., None, :] - option_rgba_t
-    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
-    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
-    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+    forward_mask = option_neighbor_mask_t[..., _RIGHT]
+    reverse_mask = candidate_neighbor_mask_t[fixed_right_indices_t, _LEFT][..., None]
+    forward_penalty = (fixed_right_rgba[..., None, :] - option_neighbor_rgba_t[..., _RIGHT, :]).abs().mean(dim=-1)
+    reverse_penalty = (option_rgba_t - candidate_neighbor_rgba_t[fixed_right_indices_t, _LEFT][..., None, :]).abs().mean(dim=-1)
+    total_weight = forward_mask.to(dtype=torch.float32) + reverse_mask.to(dtype=torch.float32)
+    combined = (
+        forward_penalty * forward_mask.to(dtype=torch.float32)
+        + reverse_penalty * reverse_mask.to(dtype=torch.float32)
+    )
+    return torch.where(total_weight > 0.0, combined / total_weight.clamp_min(1.0), torch.zeros_like(combined)) * weight
 
 
 def _pair_penalty_option_down_torch(
     torch,
     fixed_up_indices_t,
     option_rgba_t,
-    option_deltas_t,
     candidate_rgba_t,
-    candidate_deltas_t,
+    candidate_neighbor_rgba_t,
+    candidate_neighbor_mask_t,
+    option_neighbor_rgba_t,
+    option_neighbor_mask_t,
     *,
     weight: float,
 ):
     fixed_up_rgba = candidate_rgba_t[fixed_up_indices_t]
-    expected = candidate_deltas_t[fixed_up_indices_t, _DOWN][..., None, :]
-    reverse = option_deltas_t[..., _UP, :]
-    observed_delta = option_rgba_t - fixed_up_rgba[..., None, :]
-    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
-    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
-    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+    forward_mask = candidate_neighbor_mask_t[fixed_up_indices_t, _DOWN][..., None]
+    reverse_mask = option_neighbor_mask_t[..., _UP]
+    forward_penalty = (option_rgba_t - candidate_neighbor_rgba_t[fixed_up_indices_t, _DOWN][..., None, :]).abs().mean(dim=-1)
+    reverse_penalty = (fixed_up_rgba[..., None, :] - option_neighbor_rgba_t[..., _UP, :]).abs().mean(dim=-1)
+    total_weight = forward_mask.to(dtype=torch.float32) + reverse_mask.to(dtype=torch.float32)
+    combined = (
+        forward_penalty * forward_mask.to(dtype=torch.float32)
+        + reverse_penalty * reverse_mask.to(dtype=torch.float32)
+    )
+    return torch.where(total_weight > 0.0, combined / total_weight.clamp_min(1.0), torch.zeros_like(combined)) * weight
 
 
 def _pair_penalty_option_up_torch(
     torch,
     option_rgba_t,
-    option_deltas_t,
     fixed_down_indices_t,
     candidate_rgba_t,
-    candidate_deltas_t,
+    candidate_neighbor_rgba_t,
+    candidate_neighbor_mask_t,
+    option_neighbor_rgba_t,
+    option_neighbor_mask_t,
     *,
     weight: float,
 ):
     fixed_down_rgba = candidate_rgba_t[fixed_down_indices_t]
-    expected = option_deltas_t[..., _DOWN, :]
-    reverse = candidate_deltas_t[fixed_down_indices_t, _UP][..., None, :]
-    observed_delta = fixed_down_rgba[..., None, :] - option_rgba_t
-    delta_penalty = (observed_delta - expected).abs().mean(dim=-1)
-    reverse_penalty = (-observed_delta - reverse).abs().mean(dim=-1)
-    return (delta_penalty + reverse_penalty) * (0.5 * weight)
+    forward_mask = option_neighbor_mask_t[..., _DOWN]
+    reverse_mask = candidate_neighbor_mask_t[fixed_down_indices_t, _UP][..., None]
+    forward_penalty = (fixed_down_rgba[..., None, :] - option_neighbor_rgba_t[..., _DOWN, :]).abs().mean(dim=-1)
+    reverse_penalty = (option_rgba_t - candidate_neighbor_rgba_t[fixed_down_indices_t, _UP][..., None, :]).abs().mean(dim=-1)
+    total_weight = forward_mask.to(dtype=torch.float32) + reverse_mask.to(dtype=torch.float32)
+    combined = (
+        forward_penalty * forward_mask.to(dtype=torch.float32)
+        + reverse_penalty * reverse_mask.to(dtype=torch.float32)
+    )
+    return torch.where(total_weight > 0.0, combined / total_weight.clamp_min(1.0), torch.zeros_like(combined)) * weight
 
 
-def _assignment_score_torch(torch, selected_t, unary_cost_t, choice_indices_t, candidate_rgba_t, candidate_deltas_t, solver_params: SolverHyperParams) -> float:
+def _assignment_score_torch(
+    torch,
+    selected_t,
+    unary_cost_t,
+    choice_indices_t,
+    candidate_rgba_t,
+    candidate_neighbor_rgba_t,
+    candidate_neighbor_mask_t,
+    solver_params: SolverHyperParams,
+) -> float:
     selected_choice_t = (choice_indices_t == selected_t[..., None]).to(dtype=torch.int64).argmax(dim=-1)
     gathered = torch.take_along_dim(unary_cost_t, selected_choice_t[..., None], dim=2)[..., 0]
     score = float(gathered.mean().item())
@@ -1258,11 +1329,12 @@ def _assignment_score_torch(torch, selected_t, unary_cost_t, choice_indices_t, c
             _pair_penalty_selected_torch(
                 torch,
                 candidate_rgba_t,
-                candidate_deltas_t,
+                candidate_neighbor_rgba_t,
+                candidate_neighbor_mask_t,
                 selected_t[:, :-1],
                 selected_t[:, 1:],
                 _RIGHT,
-                solver_params.tile_graph_delta_weight,
+                solver_params.tile_graph_adjacency_weight,
             ).mean().item()
         )
     if selected_t.shape[0] > 1:
@@ -1270,11 +1342,12 @@ def _assignment_score_torch(torch, selected_t, unary_cost_t, choice_indices_t, c
             _pair_penalty_selected_torch(
                 torch,
                 candidate_rgba_t,
-                candidate_deltas_t,
+                candidate_neighbor_rgba_t,
+                candidate_neighbor_mask_t,
                 selected_t[:-1, :],
                 selected_t[1:, :],
                 _DOWN,
-                solver_params.tile_graph_delta_weight,
+                solver_params.tile_graph_adjacency_weight,
             ).mean().item()
         )
     return score
@@ -1310,7 +1383,7 @@ def optimize_tile_graph(
     choice_indices_np, choice_mask_np = _build_choice_grid(model)
     choice_indices_t = torch.from_numpy(choice_indices_np).to(device=resolved_device, dtype=torch.long)
     choice_mask_t = torch.from_numpy(choice_mask_np).to(device=resolved_device, dtype=torch.bool)
-    unary_cost_t, candidate_rgba_t, candidate_deltas_t, choice_rgba_t, choice_deltas_t = _tile_graph_unary_cost_torch(
+    unary_cost_t, candidate_rgba_t, candidate_neighbor_rgba_t, candidate_neighbor_mask_t, choice_rgba_t = _tile_graph_unary_cost_torch(
         torch,
         model,
         choice_indices_t,
@@ -1321,7 +1394,20 @@ def optimize_tile_graph(
     initial_choice_t = torch.argmin(unary_cost_t, dim=2)
     selected_t = torch.take_along_dim(choice_indices_t, initial_choice_t[..., None], dim=2)[..., 0]
     initial_selected_t = selected_t.clone()
-    loss_history = [_assignment_score_torch(torch, selected_t, unary_cost_t, choice_indices_t, candidate_rgba_t, candidate_deltas_t, solver_params)]
+    choice_neighbor_rgba_t = candidate_neighbor_rgba_t[choice_indices_t]
+    choice_neighbor_mask_t = candidate_neighbor_mask_t[choice_indices_t]
+    loss_history = [
+        _assignment_score_torch(
+            torch,
+            selected_t,
+            unary_cost_t,
+            choice_indices_t,
+            candidate_rgba_t,
+            candidate_neighbor_rgba_t,
+            candidate_neighbor_mask_t,
+            solver_params,
+        )
+    ]
     grid_y_t, grid_x_t = torch.meshgrid(
         torch.arange(inference.target_height, device=resolved_device, dtype=torch.long),
         torch.arange(inference.target_width, device=resolved_device, dtype=torch.long),
@@ -1337,38 +1423,46 @@ def optimize_tile_graph(
                     torch,
                     selected_t[:, :-1],
                     choice_rgba_t[:, 1:, :, :],
-                    choice_deltas_t[:, 1:, :, :, :],
                     candidate_rgba_t,
-                    candidate_deltas_t,
-                    weight=solver_params.tile_graph_delta_weight,
+                    candidate_neighbor_rgba_t,
+                    candidate_neighbor_mask_t,
+                    choice_neighbor_rgba_t[:, 1:, :, :, :],
+                    choice_neighbor_mask_t[:, 1:, :, :],
+                    weight=solver_params.tile_graph_adjacency_weight,
                 )
                 local_cost_t[:, :-1, :] += _pair_penalty_option_left_torch(
                     torch,
                     choice_rgba_t[:, :-1, :, :],
-                    choice_deltas_t[:, :-1, :, :, :],
                     selected_t[:, 1:],
                     candidate_rgba_t,
-                    candidate_deltas_t,
-                    weight=solver_params.tile_graph_delta_weight,
+                    candidate_neighbor_rgba_t,
+                    candidate_neighbor_mask_t,
+                    choice_neighbor_rgba_t[:, :-1, :, :, :],
+                    choice_neighbor_mask_t[:, :-1, :, :],
+                    weight=solver_params.tile_graph_adjacency_weight,
                 )
             if selected_t.shape[0] > 1:
                 local_cost_t[1:, :, :] += _pair_penalty_option_down_torch(
                     torch,
                     selected_t[:-1, :],
                     choice_rgba_t[1:, :, :, :],
-                    choice_deltas_t[1:, :, :, :, :],
                     candidate_rgba_t,
-                    candidate_deltas_t,
-                    weight=solver_params.tile_graph_delta_weight,
+                    candidate_neighbor_rgba_t,
+                    candidate_neighbor_mask_t,
+                    choice_neighbor_rgba_t[1:, :, :, :, :],
+                    choice_neighbor_mask_t[1:, :, :, :],
+                    weight=solver_params.tile_graph_adjacency_weight,
                 )
                 local_cost_t[:-1, :, :] += _pair_penalty_option_up_torch(
                     torch,
                     choice_rgba_t[:-1, :, :, :],
-                    choice_deltas_t[:-1, :, :, :, :],
                     selected_t[1:, :],
                     candidate_rgba_t,
-                    candidate_deltas_t,
-                    weight=solver_params.tile_graph_delta_weight,
+                    candidate_neighbor_rgba_t,
+                    candidate_neighbor_mask_t,
+                    choice_neighbor_rgba_t[:-1, :, :, :, :],
+                    choice_neighbor_mask_t[:-1, :, :, :],
+                    weight=solver_params.tile_graph_adjacency_weight,
                 )
             best_choice_t = torch.argmin(local_cost_t, dim=2)
             best_selected_t = torch.take_along_dim(choice_indices_t, best_choice_t[..., None], dim=2)[..., 0]
@@ -1382,7 +1476,8 @@ def optimize_tile_graph(
                 unary_cost_t,
                 choice_indices_t,
                 candidate_rgba_t,
-                candidate_deltas_t,
+                candidate_neighbor_rgba_t,
+                candidate_neighbor_mask_t,
                 solver_params,
             )
         )

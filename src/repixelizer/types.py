@@ -59,16 +59,6 @@ class SourceLatticeReference:
 
 
 @dataclass(slots=True)
-class TileGraphSourceReference:
-    sharp_rgba: np.ndarray
-    sharp_x: np.ndarray
-    sharp_y: np.ndarray
-    edge_peak_x: np.ndarray
-    edge_peak_y: np.ndarray
-    edge_strength: np.ndarray
-
-
-@dataclass(slots=True)
 class SolverArtifacts:
     target_rgba: np.ndarray
     uv_field: np.ndarray

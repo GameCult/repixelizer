@@ -44,6 +44,9 @@ def test_tile_graph_model_extracts_candidates_and_adjacency_from_lattice_proposa
     )
 
     assert model.candidate_rgba.shape[0] > 4
+    assert model.candidate_neighbor_rgba.shape[1:] == (4, 4)
+    assert model.candidate_neighbor_mask.shape[1:] == (4,)
+    assert bool(np.any(model.candidate_neighbor_mask))
     choice_counts = np.diff(model.cell_candidate_offsets)
     assert choice_counts.shape[0] == inference.target_width * inference.target_height
     assert np.all(choice_counts >= 1)
@@ -161,20 +164,19 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
     analysis = analyze_tile_graph_source(source, device="cpu")
     cell_h = source.shape[0] / inference.target_height
     cell_w = source.shape[1] / inference.target_width
-    source_region_stride = 2
-    sampled_rgba = source[::source_region_stride, ::source_region_stride].astype(np.float32)
-    sampled_edge = analysis.edge_map[::source_region_stride, ::source_region_stride].astype(np.float32)
-    sampled_y_coords = np.arange(0, source.shape[0], source_region_stride, dtype=np.int32)
-    sampled_x_coords = np.arange(0, source.shape[1], source_region_stride, dtype=np.int32)
-    sampled_y_grid, sampled_x_grid = np.meshgrid(sampled_y_coords, sampled_x_coords, indexing="ij")
-    sampled_flat_rgba = sampled_rgba.reshape(-1, sampled_rgba.shape[-1]).astype(np.float32)
-    sampled_flat_edge = sampled_edge.reshape(-1).astype(np.float32)
-    sampled_flat_y = sampled_y_grid.reshape(-1).astype(np.int32)
-    sampled_flat_x = sampled_x_grid.reshape(-1).astype(np.int32)
+    full_y_grid, full_x_grid = np.meshgrid(
+        np.arange(source.shape[0], dtype=np.int32),
+        np.arange(source.shape[1], dtype=np.int32),
+        indexing="ij",
+    )
+    flat_rgba = source.reshape(-1, source.shape[-1]).astype(np.float32)
+    flat_edge = analysis.edge_map.reshape(-1).astype(np.float32)
+    flat_y = full_y_grid.reshape(-1).astype(np.int32)
+    flat_x = full_x_grid.reshape(-1).astype(np.int32)
 
     components = _segment_atomic_source_regions(
-        source_rgba=sampled_rgba,
-        edge_map=sampled_edge,
+        source_rgba=source,
+        edge_map=analysis.edge_map,
         alpha_floor=params.alpha_transparent_threshold,
         color_threshold=params.tile_graph_component_color_threshold,
         alpha_threshold=params.tile_graph_component_alpha_threshold,
@@ -182,13 +184,12 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
     )
     region_buckets = _extract_source_region_tiles(
         components=components,
-        flat_rgba=sampled_flat_rgba,
-        flat_edge=sampled_flat_edge,
-        flat_x=sampled_flat_x,
-        flat_y=sampled_flat_y,
+        flat_rgba=flat_rgba,
+        flat_edge=flat_edge,
+        flat_x=flat_x,
+        flat_y=flat_y,
         cell_w=cell_w,
         cell_h=cell_h,
-        sample_area=float(source_region_stride * source_region_stride),
         target_width=inference.target_width,
         target_height=inference.target_height,
         phase_x=inference.phase_x,
@@ -200,14 +201,14 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
         stroke_minor_limit_scale=params.tile_graph_stroke_minor_limit_scale,
     )
 
-    opaque = sampled_flat_rgba[:, 3] >= params.alpha_transparent_threshold
+    opaque = flat_rgba[:, 3] >= params.alpha_transparent_threshold
     coord_x = np.clip(
-        np.floor((sampled_flat_x.astype(np.float32) + 0.5) / cell_w - inference.phase_x).astype(np.int32),
+        np.floor((flat_x.astype(np.float32) + 0.5) / cell_w - inference.phase_x).astype(np.int32),
         0,
         inference.target_width - 1,
     )
     coord_y = np.clip(
-        np.floor((sampled_flat_y.astype(np.float32) + 0.5) / cell_h - inference.phase_y).astype(np.int32),
+        np.floor((flat_y.astype(np.float32) + 0.5) / cell_h - inference.phase_y).astype(np.int32),
         0,
         inference.target_height - 1,
     )

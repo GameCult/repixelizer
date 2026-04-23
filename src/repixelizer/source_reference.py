@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .io import premultiply, unpremultiply
-from .types import SourceLatticeReference, TileGraphSourceReference
+from .types import SourceLatticeReference
 
 
 def _require_torch():
@@ -150,37 +150,6 @@ def build_source_lattice_reference(
         device=device,
     )
     return SourceLatticeReference(**payload)
-
-
-def build_tile_graph_source_reference(
-    source_rgba: np.ndarray,
-    *,
-    target_width: int,
-    target_height: int,
-    phase_x: float,
-    phase_y: float,
-    alpha_threshold: float = 0.05,
-    edge_hint: np.ndarray | None = None,
-    device: str | None = None,
-) -> TileGraphSourceReference:
-    payload = _build_reference_payload(
-        source_rgba,
-        target_width=target_width,
-        target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
-        alpha_threshold=alpha_threshold,
-        edge_hint=edge_hint,
-        device=device,
-    )
-    return TileGraphSourceReference(
-        sharp_rgba=payload["sharp_rgba"],
-        sharp_x=payload["sharp_x"],
-        sharp_y=payload["sharp_y"],
-        edge_peak_x=payload["edge_peak_x"],
-        edge_peak_y=payload["edge_peak_y"],
-        edge_strength=payload["edge_strength"],
-    )
 
 
 def _build_reference_payload(
