@@ -16,7 +16,7 @@ Where did the machine start negotiating with itself too much?
 
 The current optimizer machine is:
 
-`source image -> edge scout -> regular UV grid -> soft representative portrait + hard source lattice portrait -> source-first snap -> relaxed candidate field -> greedy discrete refine -> keep snap if refine made things worse`
+`source image -> edge scout -> regular UV grid -> soft representative portrait + hard source lattice portrait -> source-first snap -> source-first refine -> keep snap if refine made things worse`
 
 Or, in pictures:
 
@@ -320,7 +320,7 @@ So the refine stage can reach sharper alternatives than the original snap neighb
 Each candidate now accumulates several costs:
 
 - anchor match: how far it strays from the snapped output
-- representative/source match: how well it fits the blended portrait story
+- source match: how well it fits the hard source portrait
 - alpha match
 - distance from the UV center
 
@@ -413,7 +413,6 @@ The structure score in `_structure_score(...)` mixes:
 - adjacency agreement with the hard source portrait
 - motif agreement with the hard source portrait
 - line agreement with the hard source portrait
-- a tiny representative-match tiebreaker
 
 Natural-language picture:
 
@@ -465,6 +464,7 @@ These parts fit the optimizer's core story:
 - building a hard source-assignment portrait from the actual lattice ownership
 - using per-cell reliability to blend those two portraits instead of always trusting one
 - forcing snap and refine to choose real source pixels, not synthesized colors
+- letting the soft representative portrait stabilize snap, then making refine answer only to the snapped anchor and the hard source portrait
 - keeping snap if refine makes source-lattice fidelity worse
 
 Those are coherent. They all serve the same broad goal: make one global lattice without drifting too far from real local source evidence.
@@ -473,10 +473,10 @@ Those are coherent. They all serve the same broad goal: make one global lattice 
 
 These are the places where the optimizer still speaks in an overly complicated or self-contradictory voice:
 
-- the machine still maintains two overlapping portraits of the same lattice and spends much of its complexity mediating the argument between them
+- the machine still maintains two overlapping portraits of the same lattice, even though refine is now source-first and only snap still arbitrates between them
 - snap, relax, and refine all carry slightly different versions of adjacency, motif, line, and delta agreement; the same idea is being said three times with different accents
 - the candidate generator is local and the solver is discrete, but the vocabulary around it still sounds like a continuous deformation engine
-- the main entry point is now honestly named `optimize_lattice_pixels(...)`, the k-means boundary scout is gone, and prep is split from decision-making; those cuts removed three contradictions from the previous map
+- the main entry point is now honestly named `optimize_lattice_pixels(...)`, the k-means boundary scout is gone, prep is split from decision-making, and refine no longer consults the representative portrait; those cuts removed four contradictions from the previous map
 
 This is probably the real cutting checklist for the next optimizer pass.
 
@@ -484,7 +484,7 @@ This is probably the real cutting checklist for the next optimizer pass.
 
 If we strip the optimizer down to what it is really doing today, the machine is:
 
-`source image -> edge scout -> fixed lattice centers -> soft portrait + hard portrait -> source-first snap -> soft neighborhood relax -> greedy discrete refine -> keep snap if refine lied`
+`source image -> edge scout -> fixed lattice centers -> soft portrait + hard portrait -> source-first snap -> soft neighborhood relax -> source-first greedy refine -> keep snap if refine lied`
 
 That is much simpler than the surrounding names make it sound.
 
@@ -492,11 +492,11 @@ That is much simpler than the surrounding names make it sound.
 
 If we keep pruning, the highest-value cuts look like this:
 
-1. Decide whether the representative portrait still earns its keep everywhere.
-   If the source-first path is now strong enough, some of that arbitration machinery may be removable.
+1. Put relax on trial.
+   The soft relaxation stage may be a useful bridge, or it may be an expensive second solver that mostly repeats refine.
 2. Collapse duplicate structure voices.
    Adjacency, motif, and line are important, but they should not need three near-parallel dialects unless they are truly doing different work.
-3. Put relax on trial.
-   The soft relaxation stage may be a useful bridge, or it may be an expensive second solver that mostly repeats refine.
+3. Decide whether snap still needs both portraits everywhere.
+   Refine is already source-first now, so the next big question is whether snap still needs all of its portrait arbitration machinery or only the parts that genuinely stabilize hard cases.
 
 That is the next place to swing the axe.

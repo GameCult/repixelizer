@@ -61,6 +61,7 @@ Current tile-graph status:
 - that speed pass is a real throughput win but a small quality regression: the same pinned badge case moves from `0.1814` to `0.2036` source-fidelity
 - the optimizer now has its own deep-dive map in `docs/optimizer-algorithm-map.md`, and the first cut from that map removed the old UV-optimizer name plus the continuous k-means cluster-boundary scout; the continuous path is now a fixed-lattice, source-first discrete chooser guided by real edge evidence
 - optimizer preparation is now split into a private `_OptimizerPrep` bundle, so the continuous path has a visible seam between "build the map" and "choose the pixels"
+- refine is now source-first too: the representative portrait still stabilizes snap, but refine and final structure choice no longer consult it, and the pinned badge smoke improved slightly from `0.07535` to `0.07485`
 - after the first pruning pass, tile-graph no longer participates in pipeline phase-rerank probes and no longer carries hybrid geometry priors through its unary cost; the path is now one lattice-conditioned candidate generator plus one local discrete solver
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine

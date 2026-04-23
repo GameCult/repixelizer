@@ -79,7 +79,7 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
         rng,
         [
             base.refine_anchor_weight,
-            base.refine_representative_weight,
+            base.refine_source_weight,
             base.refine_alpha_weight,
             base.refine_distance_weight,
         ],
@@ -91,7 +91,7 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
             base.structure_boundary_weight,
             base.structure_anchor_adjacency_weight,
             base.structure_anchor_motif_weight,
-            base.structure_representative_weight,
+            base.structure_anchor_line_weight,
         ],
         scale,
     )
@@ -113,7 +113,7 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
             high=0.32,
         ),
         refine_anchor_weight=float(refine_group[0]),
-        refine_representative_weight=float(refine_group[1]),
+        refine_source_weight=float(refine_group[1]),
         refine_alpha_weight=float(refine_group[2]),
         refine_distance_weight=float(refine_group[3]),
         refine_source_delta_weight=_mutate_linear(
@@ -207,7 +207,7 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
         structure_boundary_weight=float(structure_group[0]),
         structure_anchor_adjacency_weight=float(structure_group[1]),
         structure_anchor_motif_weight=float(structure_group[2]),
-        structure_representative_weight=float(structure_group[3]),
+        structure_anchor_line_weight=float(structure_group[3]),
         structure_source_adjacency_weight=_mutate_linear(
             rng,
             base.structure_source_adjacency_weight,

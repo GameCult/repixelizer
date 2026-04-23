@@ -130,9 +130,16 @@ The second optimizer cut is structural:
 
 Next after that:
 
-- put the representative portrait on trial in refine
 - add a focused ablation runner for pinned badge/emblem cases before cutting more behavior
 - collapse duplicated adjacency / motif / line voices only after ablation shows which stage owns each idea
+- put relax on trial now that refine itself is source-first
+
+The third optimizer cut is behavioral:
+
+- refine no longer scores candidates against the representative portrait
+- `_structure_score(...)` no longer includes representative-match as a final tiebreaker
+- the dead refine/structure representative knobs were removed from `SolverHyperParams` and the tuning harness
+- the pinned cleaned-badge continuous smoke run under `artifacts/optimizer-cut-v3-source-refine-badge-126/` improved slightly: snap stayed `0.08100`, final moved from `0.07535` to `0.07485`
 
 The next optimizer simplification pass should use that map as its cutting checklist instead of guessing from scattered helper names.
 

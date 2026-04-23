@@ -1115,7 +1115,6 @@ def _structure_score(
     source_t,
     uv_t,
     candidate_t,
-    representative_t,
     source_reference_t,
     anchor_t,
     solver_params: SolverHyperParams,
@@ -1133,7 +1132,6 @@ def _structure_score(
     source_adj = _adjacency_pattern_loss(candidate_t, source_reference_t)
     source_motif = _motif_pattern_loss(candidate_t, source_reference_t)
     source_line = _line_pattern_loss(torch, candidate_t, source_reference_t)
-    representative_match = (candidate_t - representative_t).abs().mean()
     return (
         boundary * solver_params.structure_boundary_weight
         + anchor_adj * solver_params.structure_anchor_adjacency_weight
@@ -1142,7 +1140,6 @@ def _structure_score(
         + source_adj * solver_params.structure_source_adjacency_weight
         + source_motif * solver_params.structure_source_motif_weight
         + source_line * solver_params.structure_source_line_weight
-        + representative_match * solver_params.structure_representative_weight
     )
 
 
@@ -1151,9 +1148,7 @@ def _discrete_refine_output(
     F,
     source_t,
     uv_t,
-    representative_t,
     source_reference_t,
-    source_reliability_t,
     source_reference_np,
     anchor_t,
     source_delta_x_t,
@@ -1170,12 +1165,10 @@ def _discrete_refine_output(
     height = source_hw.shape[0]
     width = source_hw.shape[1]
     uv = uv_t[0]
-    representative = representative_t[0]
     source_reference = source_reference_t[0]
-    source_reliability = source_reliability_t[0]
     anchor = anchor_t[0].permute(1, 2, 0)
-    output_height = representative.shape[0]
-    output_width = representative.shape[1]
+    output_height = anchor.shape[0]
+    output_width = anchor.shape[1]
 
     candidate_levels = max(3, int(solver_params.refine_candidate_levels))
     if candidate_levels % 2 == 0:
@@ -1195,26 +1188,18 @@ def _discrete_refine_output(
     )
     candidate_colors = source_hw[candidate_y, candidate_x]
     anchor_energy = (candidate_colors - anchor[..., None, :]).abs().mean(dim=-1)
-    rep_energy = (candidate_colors - representative[..., None, :]).abs().mean(dim=-1)
     source_reference_energy = (candidate_colors - source_reference[..., None, :]).abs().mean(dim=-1)
     alpha_energy = (candidate_colors[..., 3] - anchor[..., None, 3]).abs()
     distance_energy = (candidate_offset_x / max(cell_x, 1e-4)).square() + (candidate_offset_y / max(cell_y, 1e-4)).square()
-    match_energy = _reference_match_energy(
-        rep_energy,
-        source_reference_energy,
-        source_reliability,
-        representative_weight=solver_params.refine_representative_match_weight,
-        source_weight=solver_params.refine_source_match_weight,
-    )
     base_energy = (
         anchor_energy * solver_params.refine_anchor_weight
-        + match_energy * solver_params.refine_representative_weight
+        + source_reference_energy * solver_params.refine_source_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
     relax_base_energy = (
         anchor_energy * solver_params.refine_anchor_weight * solver_params.relax_anchor_scale
-        + match_energy * solver_params.refine_representative_weight
+        + source_reference_energy * solver_params.refine_source_weight
         + alpha_energy * solver_params.refine_alpha_weight
         + distance_energy * solver_params.refine_distance_weight
     )
@@ -1321,7 +1306,6 @@ def _discrete_refine_output(
                 source_t,
                 uv_t,
                 start_colors[None, ...],
-                representative_t,
                 source_reference_t,
                 anchor_hw,
                 solver_params,
@@ -1344,7 +1328,6 @@ def _discrete_refine_output(
                 source_t,
                 uv_t,
                 candidate_t,
-                representative_t,
                 source_reference_t,
                 anchor_hw,
                 solver_params,
@@ -1375,7 +1358,6 @@ def _discrete_refine_output(
                 source_t,
                 uv_t,
                 candidate_colors_selected[None, ...],
-                representative_t,
                 source_reference_t,
                 anchor_hw,
                 solver_params,
@@ -1392,7 +1374,7 @@ def _discrete_refine_output(
         candidate_colors,
         final_selected,
         final_ranking_energy,
-        representative[..., 3],
+        anchor[..., 3],
         solver_params=solver_params,
     )
     best_colors = _select_colors(candidate_colors, hardened_selected)
@@ -1523,9 +1505,7 @@ def optimize_lattice_pixels(
             F,
             prep.source_t,
             prep.uv_t,
-            prep.representative_t,
             prep.source_reference_t,
-            prep.source_reliability_t,
             prep.source_lattice_reference,
             snap_t,
             prep.source_delta_x_t,

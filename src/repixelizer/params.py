@@ -23,9 +23,7 @@ class SolverHyperParams:
     snap_representative_delta_weight: float = 0.20
     snap_source_delta_weight: float = 0.80
     refine_anchor_weight: float = 0.60
-    refine_representative_weight: float = 0.20
-    refine_representative_match_weight: float = 0.15
-    refine_source_match_weight: float = 0.85
+    refine_source_weight: float = 0.20
     refine_alpha_weight: float = 0.10
     refine_distance_weight: float = 0.10
     refine_source_delta_weight: float = 0.25
@@ -59,7 +57,6 @@ class SolverHyperParams:
     structure_source_adjacency_weight: float = 0.35
     structure_source_motif_weight: float = 0.40
     structure_source_line_weight: float = 0.20
-    structure_representative_weight: float = 0.02
     alpha_foreground_threshold: float = 0.50
     alpha_representative_foreground_threshold: float = 0.60
     alpha_opaque_threshold: float = 0.95
