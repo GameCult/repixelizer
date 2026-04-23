@@ -2,47 +2,43 @@
 
 ## Why this map exists
 
-The tile-graph path is trying to do one simple, stubborn thing:
+The tile-graph path is trying to do one stubbornly honest thing:
 
-Take a fake-pixel mural, cut it into honest one-cell tiles that really belong to the source image, learn which tiles naturally sit beside which, and then lay those tiles back down on a clean output lattice.
+Take a fake-pixel mural, split it into real opaque paint islands, slice those islands by the chosen output lattice, learn which slices continue into neighboring cells, and then reassemble the image using only those real slices.
 
-That is the dream.
+When the output looks wrong, this map is here to answer:
 
-When the output looks wrong, this map is here to answer one question:
-
-Where, exactly, did the machine start lying?
+Where did the machine start lying?
 
 ## One-sentence machine
 
 The current tile-graph machine is:
 
-`source image -> edge scout -> atomic opaque regions -> one-cell tile cuts -> per-cell candidate buckets -> learned tile adjacency -> local discrete assignment`
+`source image -> edge scout -> connected components -> component-cell overlap reduction -> per-cell candidate buckets -> learned same-component adjacency -> local discrete assignment`
 
-Or in more visual language:
+Or, in pictures:
 
 - the source image is the mural
-- connected components are the paint islands
-- extracted tiles are the stones we chip out of that mural
-- candidate buckets are the bins beside each slot in the final mosaic
-- the solver is the mason choosing which chipped stone goes in each slot while trying to keep neighboring stones compatible
+- connected components are paint islands
+- the chosen lattice is a sheet of graph paper laid over the mural
+- the overlap reducer is a cookie cutter that stamps each island against each graph-paper square it actually touches
+- the solver is the mason choosing which stamped shard goes in each final slot
 
 ## What was cut away
 
-The machine used to carry several ideas that did not belong:
+These ideas are gone:
 
 - subsampling the mural before extraction with `source_region_stride`
-- ranking region candidates by resemblance to a lattice portrait (`sharp_rgba`, `edge_rgba`)
-- papering over missing foreground tiles by injecting `sharp_pixel` or `edge_pixel`
-- pretending a learned tile graph existed while actually using sampled color deltas from one cell away in source space
-- building and hauling a dedicated tile-graph source-reference object through the core loop
+- per-component seed walking and window stepping
+- stroke-specific PCA slicing
+- ranking candidates by resemblance to a lattice portrait (`sharp_rgba`, `edge_rgba`)
+- injecting `sharp_pixel` / `edge_pixel` when extraction failed
+- sampled one-cell-away RGBA deltas pretending to be a graph
+- a dedicated tile-graph source-reference object
 
-Those are gone.
+That matters because all of those were ways for the machine to stop listening to the actual source-owned tiles.
 
-That matters because they were smuggling continuous-solver assumptions back into a path that is supposed to be source-owned and discrete.
-
-## The living machine
-
-### Stage 0: Pipeline chooses a lattice
+## Stage 0: The pipeline picks a ruler
 
 Function:
 
@@ -57,16 +53,15 @@ Inputs:
   - `phase_x`
   - `phase_y`
 
-What it means:
+Meaning:
 
-The pipeline chooses the grid we are going to commit to. This is not the tile-graph solver yet. This is just choosing the size of the chessboard before we decide which pieces go on it.
+Before anything else, the system chooses the graph paper.
 
-Important truth:
+If the graph paper is wrong, every later step is cutting the mural against the wrong ruler.
 
-- if the lattice is wrong, every later step is forced to cut the mural against the wrong ruler
-- but once the lattice is pinned, the tile-graph path now runs directly on that lattice without phase-rerank probes or hybrid sidecars
+Once the lattice is pinned, the tile-graph path now runs directly on that lattice. It no longer burns time on phase-rerank probes or hybrid sidecars.
 
-### Stage 1: Edge scout
+## Stage 1: Edge scout
 
 Function:
 
@@ -76,71 +71,66 @@ Output:
 
 - `TileGraphSourceAnalysis.edge_map`
 
-What it means:
+Meaning:
 
-This stage is the scout walking over the mural with a lantern, marking where the sharp cliffs are. It is not deciding colors. It is only pointing out where the paint changes abruptly.
+This is a scout walking over the mural with a lantern and chalk, marking where the paint changes sharply.
+
+It is not deciding colors. It is only measuring local cliff faces.
 
 Important variable:
 
 - `edge_map[y, x]`
-  - a per-source-pixel edge strength in `[0, 1]`
 
 Why it exists:
 
-- region extraction needs to know where a component has its sharpest internal detail
-- candidate budgeting uses edge strength to give difficult cells more room
+- connected components need a detail hint
+- candidate budgeting still uses edge-heavy cells as "hard mode"
 
-### Stage 2: Source pixels are projected onto the output lattice
+## Stage 2: Every source pixel is assigned to an output cell
 
 Function:
 
-- `build_tile_graph_model(...)` in `src/repixelizer/tile_graph.py`
+- `build_tile_graph_model(...)`
 
 Key variables:
 
 - `cell_w`
 - `cell_h`
-- `projected_coord_x`
-- `projected_coord_y`
 - `projected_flat_index`
-
-What it means:
-
-Every source pixel is asked:
-
-"If this final grid is the one we believe in, which output cell do you live under?"
-
-This is like dropping a transparent graph-paper sheet over the mural and writing the output cell index on every source pixel.
-
-Derived summaries:
-
-- `cell_counts_flat`
-  - how many source pixels fall into each output cell
 - `cell_mean_rgba_flat`
-  - the average source color already living under that cell
-- `cell_alpha_support_flat`
-  - the strongest alpha seen in that cell
 - `cell_alpha_mean_flat`
-  - the average alpha in that cell
+- `cell_alpha_support_flat`
 - `cell_edge_strength_flat`
-  - the strongest edge signal seen in that cell
 
-These summaries are not a tile portrait from a separate source-reference system. They are direct summaries of the actual source pixels already assigned to that output cell under the chosen lattice.
+Meaning:
 
-### Stage 3: Atomic opaque regions
+Imagine dropping transparent graph paper over the mural and writing the output cell index on every source pixel.
 
-Function:
+That gives us direct per-cell source summaries:
+
+- average color already under the slot
+- average alpha already under the slot
+- strongest alpha under the slot
+- strongest edge under the slot
+
+These are not a separate portrait of what the slot "should" be. They are literally summaries of the pixels already living under that slot.
+
+## Stage 3: Connected components
+
+Functions:
 
 - `_segment_atomic_source_regions(...)`
-- CPU path: `_segment_atomic_source_regions_cpu(...)`
+- `_segment_atomic_source_regions_cpu(...)`
 
-Inputs:
+Output:
 
-- full-resolution `source_rgba`
-- full-resolution `edge_map`
-- alpha/color join thresholds
+- `AtomicRegionLabeling`
+  - `pixel_linear`
+  - `component_ids`
+  - `component_sizes`
+  - `component_count`
 
-What it means:
+Meaning:
 
 Now the mural is split into paint islands.
 
@@ -150,168 +140,106 @@ Pixels join the same island only if:
 - their premultiplied colors are similar enough
 - their alpha is similar enough
 
-This is not a "cluster by vibes" step. It is literal connected-component labeling over the full-resolution mural.
+This is literal connected-component labeling over the full-resolution source.
 
 Important consequence:
 
-- every opaque source pixel belongs to some component
-- if an occupied output cell later ends up with no real extracted tile, that is not normal; it is a bug or a failure in cutting/projection logic
+- every opaque source pixel belongs to exactly one component
 
-### Stage 4: Cut one-cell tiles out of each component
+## Stage 4: Reduce component-cell overlaps
 
 Function:
 
 - `_extract_source_region_tiles(...)`
 
-Inputs:
+This is the new heart of the machine.
 
-- `components`
-- `flat_rgba`
-- `flat_edge`
-- `flat_x`
-- `flat_y`
-- lattice geometry: `cell_w`, `cell_h`, `phase_x`, `phase_y`
+Instead of walking each component with seed queues and cell-sized windows, the reducer does something much simpler:
 
-What it means:
+1. take every opaque labeled source pixel
+2. project it onto the chosen output lattice
+3. form a compound key: `(component_id, output_cell)`
+4. sort by that key
+5. reduce each run into one candidate shard
 
-This is the quarry.
+This is the same basic mental pattern as `reduce_by_key` / `segment_reduce`: sort once, then aggregate consecutive runs.
 
-For each paint island, we try to chip out cell-sized stones.
-
-There are two modes:
-
-- ordinary components:
-  - start from the centroid and edge peak
-  - accept a one-cell window if it contains enough of the component
-  - march outward one cell at a time
-- elongated stroke-like components:
-  - estimate the component’s principal axis
-  - seed along that axis
-  - cut tiles in bands so a long stroke is not immediately turned into a rectangular blob
-
-Important variables inside each extracted tile:
+What each reduced shard stores:
 
 - `rep_linear`
-  - the literal source pixel index chosen to represent the tile
 - `rep_rgba`
-  - the tile color
 - `area_ratio`
-  - how much component area the tile owns relative to one output cell
 - `coverage`
-  - `area_ratio` clipped to `[0, 1]`
 - `edge_peak`
-  - strongest edge value inside that tile footprint
-- `source_center_x`, `source_center_y`
-  - where this tile lives in source space
+- `source_center_x`
+- `source_center_y`
 - `coord_x`, `coord_y`, `flat_index`
-  - which output cell this tile projects into
 - `component_id`
-  - which paint island it came from
 
 Natural-language picture:
 
-The component is a strip of stained glass. We are cutting out little panes, each about one output cell wide, and tagging where each pane came from.
+Instead of hand-carving the island with a pocketknife, we stamp every island against the graph paper and keep one shard per `(island, cell)` overlap.
 
-### Stage 5: Fill empty occupied cells honestly
-
-Still inside:
-
-- `_extract_source_region_tiles(...)`
-
-What it means:
-
-After the first pass of tile cutting, some output cells may still have no tile in their bucket even though component pixels really do overlap them.
-
-To fix that, the builder does an overlap-based empty-cell fill:
-
-- for each component, look at every output cell it physically overlaps
-- if that bucket is still empty, add one overlap tile there
-
-This matters because:
-
-- a foreground cell is allowed to have multiple candidates
-- a foreground cell is not allowed to have zero real extracted candidates
-
-Background-only cells are different:
-
-- they have no opaque source ownership
-- they get a transparent candidate later in model building
-
-### Stage 6: Learn adjacency from extracted tiles
+## Stage 5: Candidate buckets
 
 Still inside:
 
 - `_extract_source_region_tiles(...)`
+- `_select_source_region_candidates(...)`
 
-What it means:
+Meaning:
 
-Each extracted tile now looks one cell away in all four directions and asks:
+Each output cell now gets a bucket of legal shards.
 
-"Among the tiles that actually landed in that neighboring output slot, which one looks like my real neighbor back in source space?"
+The reducer first creates every real `(component, cell)` overlap shard.
 
-For each direction, we search the neighboring bucket and choose the best observed neighbor by:
-
-- source-center displacement closeness
-- same-component tie preference
-- area fit
-- coverage
-- edge strength
-
-Stored per tile:
-
-- `neighbor_rgba[4, 4]`
-- `neighbor_mask[4]`
-
-This is the first honest adjacency graph the tile-graph path has had.
-
-It is not:
-
-- sampled one-cell-away colors from the source image
-- a lattice portrait
-- a guessed delta field
-
-It is:
-
-- "this extracted stone most naturally sat beside that extracted stone"
-
-### Stage 7: Build per-cell candidate buckets
-
-Function:
-
-- `build_tile_graph_model(...)`
-- helper: `_select_source_region_candidates(...)`
-
-What it means:
-
-Each output cell gets a bucket of legal stones.
-
-Candidate selection now keeps only tile-owned signals:
+Then bucket pruning keeps the best local candidates using only tile-owned evidence:
 
 - area fit
 - coverage
 - edge peak
 
-It does not use:
-
-- `sharp_rgba` similarity
-- `edge_rgba` similarity
-- injected sharp/edge fallback pixels
-
 Important rule:
 
-- if a cell has real source-owned region tiles, those are the truth
-- if a cell has no opaque source support, it gets a transparent candidate
-- if a cell has opaque source support but no extracted region candidate, the build fails loudly
+- if a cell has opaque source support, it must have at least one real extracted shard
+- if pruning would empty a supported cell, the best overlap shard for that cell is kept anyway
+- background or near-background cells can also get a transparent candidate
 
-That last rule is deliberate. The old machine would quietly make something up. The new one would rather stop the line than lie.
+What this prevents:
 
-Additional background option:
+- silent empty foreground buckets
+- fake sharp/edge fallback pixels
 
-- if `cell_alpha_mean_flat < 0.98`, a transparent candidate is also added
+## Stage 6: Learn adjacency from the reduced shards
 
-This lets the solver choose "leave this slot empty" in partially occupied or fringe cells instead of being forced to place an opaque stone just because a tiny sliver of source detail touched the slot.
+Still inside:
 
-### Stage 8: The solver model
+- `_extract_source_region_tiles(...)`
+
+Meaning:
+
+Each shard now asks a simpler question than before:
+
+"Does my same component continue into the cell to the right, down, left, or up?"
+
+If a same-component overlap shard exists in the neighboring cell, that shard's representative color becomes the expected neighbor color for that direction.
+
+Stored per shard:
+
+- `neighbor_rgba[4, 4]`
+- `neighbor_mask[4]`
+
+This is an intentionally narrower graph than the earlier heuristic:
+
+- it only learns continuity that the same connected paint island actually exhibits
+- it does not try to smooth across boundaries between different components
+
+That is a carefully chosen bias:
+
+- continuity within a real island is trustworthy
+- continuity across a contour is where fake smoothing usually starts
+
+## Stage 7: Solver model
 
 Dataclass:
 
@@ -331,45 +259,41 @@ Current essential fields:
 - `cell_alpha_mean`
 - `cell_edge_strength`
 
-What it means:
+Meaning:
 
-This is the parts tray beside the machine.
+This is the tray of legal shards plus the local evidence under each output slot.
 
-- the first block describes the legal stones
-- the second block says which stones belong to which output slot
-- the last block is the local source evidence already living under each slot
-
-### Stage 9: Unary cost
+## Stage 8: Unary cost
 
 Function:
 
 - `_tile_graph_unary_cost_torch(...)`
 
-Current unary terms:
+Terms:
 
 - `color_error`
-  - how far the candidate color is from the actual mean source color already under that output cell
+  - candidate versus actual mean color already under the slot
 - `area_error`
-  - how far the candidate footprint is from one cell
+  - how close the shard is to one full cell
 - `alpha_error`
-  - how far the candidate alpha is from the actual mean alpha under that cell
+  - candidate alpha versus actual mean alpha under the slot
 - `coverage_error`
-  - how incomplete the candidate’s source ownership is
+  - how incomplete the overlap is
 - `edge_error`
-  - how far the candidate’s edge peak is from the strongest edge already under that cell
+  - candidate edge peak versus strongest edge under the slot
 
-Natural-language picture:
+Meaning:
 
-This is the bouncer at each slot saying:
+The unary cost is the bouncer at each slot asking:
 
-"Does this stone even look like it belongs in the patch of mural that sits under this square?"
+"Does this shard honestly fit the patch of mural under this square?"
 
 Important difference from the old machine:
 
 - this is local source support
-- not a separate lattice portrait pretending to know the answer in advance
+- not a pre-baked portrait from another reference object
 
-### Stage 10: Pairwise adjacency cost
+## Stage 9: Pairwise cost
 
 Functions:
 
@@ -379,24 +303,18 @@ Functions:
 - `_pair_penalty_option_down_torch(...)`
 - `_pair_penalty_option_up_torch(...)`
 
-What it means:
+Meaning:
 
 Now the mason cares about seams.
 
-If tile A says it naturally expects tile B to the right, then choosing a very different right neighbor should cost something.
+If a shard says "my component really continues to the right as color X," then placing a very different right neighbor costs something.
 
-The current pairwise cost compares:
+This is narrower than the old fake graph, but more honest:
 
-- the actually chosen neighbor color
-- against the neighbor color learned from extracted tiles
+- it rewards real within-component continuation
+- it stops encouraging smoothing across unrelated components
 
-This is now a real observed compatibility signal.
-
-It is no longer:
-
-- "the source image one cell away from this center happened to look like X, so maybe that is the right delta"
-
-### Stage 11: Checkerboard parity refinement
+## Stage 10: Parity refinement
 
 Function:
 
@@ -404,119 +322,106 @@ Function:
 
 What it does:
 
-1. build the model
+1. build candidate buckets
 2. compute unary cost
 3. choose an initial argmin candidate per cell
-4. alternate parity updates over the grid
-5. keep the initial assignment if the refinement step makes source-lattice fidelity worse
+4. alternate parity updates across the grid
+5. if refinement worsens source-fidelity, keep the initial assignment
 
-Natural-language picture:
+Meaning:
 
-The mason lays down a first draft, then alternates black squares and white squares of the chessboard, trying to improve local seam compatibility without moving everything at once.
+The mason lays an initial mosaic, then alternates black and white squares of the chessboard trying to improve local seams without moving everything at once.
 
 Important truth:
 
-- this is still a local greedy/discrete smoother
-- it is not a global optimal graph solver
-- if the initial candidate buckets are wrong, parity updates will not save the image
+- this is still a local discrete optimizer
+- it is not globally optimal
+- if the buckets are wrong, refinement will not save the image
 
 ## Data dictionary
 
-### `flat_rgba_np`
+### `AtomicRegionLabeling.pixel_linear`
 
-- full-resolution source pixels flattened into `[pixel, rgba]`
+- flattened source-pixel indices for every opaque labeled pixel
+
+### `AtomicRegionLabeling.component_ids`
+
+- component id for each `pixel_linear`
 
 ### `projected_flat_index`
 
-- for each source pixel, which output cell it belongs to under the chosen lattice
+- output-cell index for each source pixel under the chosen lattice
 
-### `components`
+### `compound_key`
 
-- connected opaque paint islands in the source
+- `(component_id * output_area) + output_cell`
+
+This is the reducer's key. Every identical key means "these pixels belong to the same component-cell overlap shard."
 
 ### `region_buckets[flat_index]`
 
-- all extracted real tiles currently legal for one output cell
-
-### `candidate_rgba`
-
-- literal colors the solver is allowed to place
+- all legal source-owned shards currently available for one output cell
 
 ### `candidate_neighbor_rgba`
 
-- per-candidate remembered neighbor colors from real extracted-tile adjacency
+- expected neighboring shard colors learned from same-component continuation
 
-### `cell_mean_rgba`
-
-- actual average source color already living under each output cell
-
-### `cell_alpha_mean`
-
-- actual average source alpha already living under each output cell
-
-### `cell_edge_strength`
-
-- strongest edge signal already living under each output cell
-
-## What this machine is trying to maximize
+## What this machine is optimizing for
 
 In plain language:
 
-- choose only real, source-owned stones
-- prefer stones that genuinely fit the patch of mural beneath the slot
-- prefer neighboring stones that were actually observed beside each other
-- never silently hallucinate a foreground tile just because the lattice wanted one
+- choose only real source-owned shards
+- prefer shards that genuinely fit the local patch of mural
+- preserve continuation within real paint islands
+- refuse to invent a foreground shard when extraction did not produce one
 
-## What would make the machine lie now
+## What can still go wrong
 
-If the output is still wrong after this pass, the likely failure points are no longer the old ones.
+The likely remaining lies are now:
 
-The remaining likely lies are:
-
-- region cutting still slices a component into the wrong one-cell panes
-- candidate truncation still throws away the only good tile for a difficult slot
-- learned adjacency still chooses the wrong observed neighbor when multiple neighbors are plausible
-- the parity solver is still too local and can settle into a bad arrangement even with legal tiles
-- the lattice itself is wrong, which means the whole quarry is being cut against the wrong ruler
+- the lattice is wrong
+- component labeling merged or split the wrong source regions
+- the direct overlap shard for a difficult contour cell is too coarse
+- candidate truncation threw away the only good shard in a crowded cell
+- same-component adjacency is too narrow to express a more complex local motif
+- the parity solver settles into a mediocre local arrangement
 
 ## Current reality check
 
-Pinned cleaned badge run:
+Pinned cleaned badge run after the reduce-by-key extraction rewrite:
 
 - target: `126x126`
 - phase: `(0.0, -0.2)`
 - mode: `tile-graph`
 - phase rerank: off
 
-Current result after the latest cut:
+Measured result:
 
-- initial source-fidelity: `0.1814`
-- final source-fidelity: `0.1814`
-- the solver kept the initial assignment because refinement did not improve it
+- initial source-fidelity: `0.2036`
+- final source-fidelity: `0.2036`
+- the solver kept the initial assignment
 
-That is still not good enough, but it is dramatically more honest than the earlier architectural-collapse run around `0.5055`.
-
-In other words:
-
-- the machine is no longer babbling nonsense
-- it is still not carving the right stones often enough
+That is a small quality regression from the previous `0.1814` cut, but it is still far better than the earlier fixed-lattice collapse around `0.5055`.
 
 ## Big-picture judgment
 
-Does the current machine make sense?
+Does the current machine make more sense than the old one?
 
-Yes, much more than before.
+Yes.
 
-The data now flows in one believable direction:
+The dataflow is now much cleaner:
 
 1. observe the mural
-2. find real paint islands
-3. cut one-cell stones out of those islands
-4. learn which stones really sat beside which
-5. choose among those stones for each output slot
+2. label the paint islands
+3. stamp those islands against the chosen lattice
+4. keep the resulting overlap shards
+5. learn only the continuation those shards actually exhibit
+6. assemble the output from those shards
 
-That is a coherent mental model.
+That is the right shape.
 
-What is still missing is not conceptual honesty.
+The remaining problem is no longer "why is the machine inventing stories?"
 
-What is still missing is quality in the stone cutting and compatibility choice.
+It is:
+
+"Are these overlap shards expressive enough for the finest contours, and can we compute the labels fast enough?"

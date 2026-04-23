@@ -154,7 +154,7 @@ def test_fixed_tile_graph_pipeline_output_matches_refactor_baseline(tmp_path: Pa
     )
 
     output_hash = hashlib.sha256(np.ascontiguousarray(result.output_rgba).view(np.uint8)).hexdigest()
-    assert output_hash == "9dea6030fc17cec03703ef0efac076255b925e90d4bc381cd2185229ed8006d6"
+    assert output_hash == "1f6d497a65953ab60a37fce98e69b101955e5f0e5a06a1e32167c6b8582a23f6"
 
 
 def test_fixed_continuous_pipeline_output_matches_refactor_baseline(tmp_path: Path) -> None:

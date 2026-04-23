@@ -44,25 +44,25 @@ Current tile-graph status:
 - candidate selection is now source-owned: extracted tiles are ranked by their own area, coverage, and edge signal instead of by resemblance to `sharp_rgba` / `edge_rgba`
 - occupied foreground cells no longer get papered over with injected `sharp_pixel` or `edge_pixel` fallbacks; if extraction cannot produce a real tile there, the build fails instead of lying
 - the adjacency term is now learned from extracted tiles themselves, not from sampled one-cell-away RGBA deltas
+- tile extraction no longer walks components with seed queues and one-cell windows; it now directly reduces `(component_id, output_cell)` overlaps into candidate shards
 - the deep-dive map in `docs/tile-graph-algorithm-map.md` now reflects the living machine directly instead of documenting the dead portrait/stride/delta path
 - the extraction stage still has an explicit empty-cell overlap fill pass, so output cells that actually contain opaque source pixels do not silently lose their extracted region bucket
 - the latest full-emblem probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the earlier full-CUDA tile-graph baseline at `0.0283`
 - tile-graph now falls back to its initial assignment when the propagation loop would make source-lattice fidelity worse, which is currently important for preserving sharp internal contour cells
 - it still beats naive resize on the repo's synthetic thin-feature regression and now does so without letting the final propagation step blur past the initial placement
 - source-region connected-components now have a device-side Torch path, so the expensive labeling step no longer depends on Python flood fill
-- profiling the selected badge candidate shows the main remaining bottleneck is model construction, not the solver loop: `build_tile_graph_model(...)` takes about `142.3s`, and about `131.2s` of that is `_extract_source_region_tiles(...)`
+- profiling the older selected badge candidate showed the main bottleneck was model construction rather than the solver loop: `build_tile_graph_model(...)` took about `142.3s`, and about `131.2s` of that was `_extract_source_region_tiles(...)`
 - after the first pruning pass, tile-graph no longer spends iteration time on pipeline rerank probes at all; it now runs the chosen or pinned lattice directly
 - tile-graph now also skips cluster analysis entirely and no longer uses sharp/edge portrait anchors in unary scoring; the path keeps only edge scouting plus direct per-cell source summaries
-- the remaining large-fixture bottleneck is the per-component one-cell window cutting pass inside source-region extraction, which is still Python/NumPy-heavy after the GPU CCL stage
+- after the reduce-by-key rewrite, the large-fixture bottleneck moved: extraction is much cheaper, and the main cold-build cost is now connected-component labeling / label compression rather than per-component window cutting
 - the pipeline now has a direct-control path for iteration: `--target-width` / `--target-height` plus optional `--phase-x` / `--phase-y` let you run an exact lattice without paying the full lattice search, and `--skip-phase-rerank` lets you keep the pipeline from second-guessing that choice
 - repeated fixed-lattice `tile-graph` runs in the same Python process now reuse the expensive model build; on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the first CUDA run took about `10.2s` and the second cached rerun took about `2.1s`
-- elongated source regions now get a stroke-aware slicing pass that follows their principal axis instead of only marching with cardinal queue steps, and the repo now has a shallow-stroke regression that checks for fan-out on that kind of component
-- that stroke-aware slicer is a real synthetic improvement but not a real-badge win yet: the latest badge probe under `artifacts/badge-tile-graph-stroke-v2-cuda/` still keeps the initial assignment and slightly regresses source-fidelity (`0.1832` vs `0.1800`)
+- the latest reduce-by-key pinned badge probe under `artifacts/tile-graph-reducebykey-v1-badge-126/` finishes in about `16.1s` cold and `6.0s` warm on CUDA, versus the previous full-resolution cut at about `96.9s` cold and `5.4s` warm
+- that speed pass is a real throughput win but a small quality regression: the same pinned badge case moves from `0.1814` to `0.2036` source-fidelity
 - after the first pruning pass, tile-graph no longer participates in pipeline phase-rerank probes and no longer carries hybrid geometry priors through its unary cost; the path is now one lattice-conditioned candidate generator plus one local discrete solver
 - this fixes the core design mismatch that had allowed repeated distant labels to create big same-color patches and opaque black background blocks
 - on the current `24x24` emblem smoke case, an end-to-end `tile-graph` run dropped from about `2.57s` on CPU to `0.61s` on CUDA on this machine
 - the older hard-edge-only candidate widening pass under `artifacts/full-emblem-tile-graph-hard-edge-v2-cuda/` remains a useful negative result: more edge choices alone sharpen some cells locally but still regress full-emblem source-fidelity (`0.0377`)
-- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the latest cut lands at `0.1814` source-fidelity instead of the post-refactor collapse around `0.5055`, which is a real recovery even though it is still far from the continuous path
 
 ## Quickstart
 

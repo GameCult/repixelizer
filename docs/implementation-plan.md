@@ -19,7 +19,7 @@ Implemented:
 
 Verified:
 - local editable install in a dedicated venv
-- full test suite currently passing before the current algorithm-cut pass (`70 passed`)
+- full test suite currently passing before the current speed/refactor pass (`69 passed` once the new grouped-extraction path landed)
 - compare-mode smoke run against a real emblem image
 - the cleaned real badge fixture in `tests/fixtures/real/ai-badge-cleaned.png` still beats naive resize on source-lattice consistency on the continuous path
 - the latest full-emblem tile-graph atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity, beating the older full-emblem tile-graph CUDA baseline at `0.0283`
@@ -58,7 +58,7 @@ The most provisional areas are:
 
 ### Active pass
 
-This pass is the first pruning pass after the new algorithm map: strip away the optimizer-era sidecars that are not part of the core tile-graph machine.
+This pass is the first serious speed pass after the algorithm cleanup: replace the expensive per-component window-walk extractor with a grouped `(component_id, output_cell)` overlap reducer and then measure the tradeoff honestly.
 
 What landed:
 - `tile-graph` no longer participates in pipeline phase rerank probes; rerank is now a continuous-only wrapper
@@ -73,24 +73,28 @@ What landed:
 - `tests/test_analysis.py` and `tests/test_tile_graph.py` now cover the new edge-only analysis path
 - `tests/test_pipeline.py` now locks in fixed continuous and tile-graph output hashes from a pre-refactor baseline so this architectural cut cannot silently drift behavior
 - `docs/tile-graph-algorithm-map.md` now describes the smaller machine directly rather than documenting the removed hybrid sidecar path
+- the old per-component queue/seed/window extractor is gone; `_extract_source_region_tiles(...)` now directly reduces `(component_id, output_cell)` overlaps into candidate shards
+- the old stroke-aware slicing machinery and its tuning knobs are gone along with that extractor
+- same-component continuation now defines tile-graph adjacency directly, replacing the previous search-heavy neighbor heuristic inside extraction
 
 Current implementation note:
-- the earlier profiling result still stands: on the searched badge path, the solver loop is not the problem; the heavy costs are `infer_lattice(...)`, continuous-mode phase rerank probes, and `_extract_source_region_tiles(...)`
+- the earlier profiling result still stands conceptually: on the searched badge path, the solver loop is not the problem
 - the direct-control path is specifically for dodging those costs during iteration when we already know which lattice we want to inspect
 - tile-graph now skips pipeline rerank entirely, so iteration no longer rebuilds multiple probe candidates before the final tile-graph solve
-- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, a fixed-lattice CUDA `tile-graph` run now took about `10.2s` on the first same-process run and about `2.1s` on the cached rerun, with the same output and a reported `tile_graph_model_cache_hit` on the second pass
+- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the new grouped-extraction CUDA path now takes about `16.1s` on the first same-process run and about `6.0s` on the cached rerun, with `tile_graph_model_cache_hit=True` on the second pass
 - the current deep-dive diagnosis is that the fixed-lattice garbling is not a wrapper bug and not mainly a parity-solver bug; it is born in tile cutting, candidate truncation, local source support, and the first unary argmin assignment
 - the extraction coverage bug turned out to be real but secondary: the new `_extract_source_region_tiles(...)` overlap fill pass now guarantees that any output cell containing opaque sampled source pixels gets at least one extracted region bucket, but the pinned `126x126` badge output remains numerically unchanged (`0.4998626`), which narrows the remaining failure to candidate ranking and lattice-conditioned reference usage rather than empty region buckets
 - the latest full-emblem atomic probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` lands at `0.0224` source-fidelity with `34278` candidates and about `2.16` average choices per cell
 - that beats the earlier full-CUDA tile-graph baseline (`0.0283`) and materially improves on the first atomic-only attempt (`0.1571`), which chose atomic regions too eagerly and then let the solver blur them out again
 - the latest core algorithm cut removes `source_region_stride`, removes portrait-based candidate ranking, removes sharp/edge foreground fallback injection, and replaces sampled-delta pairwise scoring with adjacency learned from extracted tiles
 - that cut also removes the dedicated `TileGraphSourceReference` entirely: tile-graph now grounds itself in full-resolution extracted tiles plus direct per-cell source summaries (`cell_mean_rgba`, `cell_alpha_mean`, `cell_edge_strength`)
-- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the new cut recovers the fixed-lattice run from roughly `0.5055` source-fidelity down to `0.1814`; that is still weak, but it is no longer total algorithmic collapse
+- on the cleaned badge at pinned `126x126` / phase `(0.0, -0.2)`, the portrait-free cut first recovered the fixed-lattice run from roughly `0.5055` source-fidelity down to `0.1814`; the new grouped-extraction speed pass regresses a bit to `0.2036` while making the same case roughly `6x` faster cold on CUDA
+- a fresh CPU profile of the grouped extractor shows the bottleneck has moved: `build_tile_graph_model(...)` now takes about `61.0s` instead of `145.8s`, and `_extract_source_region_tiles(...)` no longer dominates; the new hot spot is `_segment_atomic_source_regions(...)` at about `59.5s`
 
 Next after that:
 - split tile-graph iteration into a cached model-build phase and a near-free solve phase so weight tuning does not keep paying the `~131s` source-region cutting bill
 - extend the current fixed-lattice path so repeated CLI runs can reuse cached model artifacts across processes instead of only within one Python process
-- port or reformulate `_extract_source_region_tiles(...)` so it no longer spends most of the badge runtime in Python/NumPy window cutting
+- replace or accelerate `_segment_atomic_source_regions(...)`, because that is now the cold-build bottleneck rather than extraction
 - decide whether the continuous path should stay the only global search/rerank engine or whether tile-graph eventually needs its own lighter lattice chooser
 - evaluate whether the tile-graph propagation loop should become more contour-aware or simply stay more conservative now that the initial assignment is stronger
 - rerun tuning after the tile-graph objective and candidate sets stabilize
@@ -118,8 +122,8 @@ Current status:
 - on the full emblem, the tile-graph atomic path under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` now reaches `0.0224`, which is the best tile-graph full-emblem result so far in this repo
 - the remaining weakness on tile-graph is not candidate color purity anymore; it is candidate extraction cost plus deciding how aggressive the propagation step should be once the initial assignment is already strong
 - on the cleaned badge, the new CCL-backed tile-graph run under `artifacts/badge-tile-graph-ccl-cuda/` still lands at a weak `0.1800`, so the current CCL work should be treated as an infrastructure/performance step rather than a visual-quality fix
-- the new stroke-aware badge run under `artifacts/badge-tile-graph-stroke-v2-cuda/` still does not solve the guard-contour problem and slightly regresses to `0.1832`, so the next stroke pass should be judged on whether it changes the source-side path model more fundamentally
-- older searched-path profiling showed that iteration was dominated by preprocessing work rather than the tile-graph parity solver: about `44.1s` in inference, `223.9s` in low-confidence rerank probes, and `142.3s` in the final selected-candidate build; the pruned tile-graph path no longer pays those rerank probes, but `_extract_source_region_tiles(...)` is still the heavy remaining step
+- the new grouped-extraction badge run under `artifacts/tile-graph-reducebykey-v1-badge-126/` is the first speed-focused cut that actually changes the preprocessing profile in the right direction: cold CUDA time drops to about `16.1s`, warm cached time is about `6.0s`, and the remaining quality problem is contour precision rather than total collapse
+- the latest CPU profile shows that preprocessing is still the story, but the story changed: extraction is no longer the monster, and connected-component labeling / label compression is now the thing to attack next
 
 Important note:
 - the checkerboard is baked into the source image, not transparency
@@ -131,7 +135,7 @@ What future work should improve here:
 - richer candidate generation so continuous snap/refine can reach sharp exemplars, edge peaks, and guided offsets instead of only a fixed local grid
 - short top-k refine probes for low-confidence lattice candidates before the final rerank decision
 - an atomic candidate builder that more closely matches real source-region ownership and consumption
-- a GPU-friendly reformulation of the atomic candidate extraction stage
+- a faster labeler or grouped label-reduction path so tile-graph can keep the new simpler overlap model without paying for label propagation so heavily
 - some form of coordinated local relaxation so nearby cells can move together toward a globally better contour
 
 ## Suggested next milestones

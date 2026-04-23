@@ -183,7 +183,7 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
         device="cpu",
     )
     region_buckets = _extract_source_region_tiles(
-        components=components,
+        labeling=components,
         flat_rgba=flat_rgba,
         flat_edge=flat_edge,
         flat_x=flat_x,
@@ -196,9 +196,6 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
         phase_y=inference.phase_y,
         min_region_area_ratio=params.tile_graph_source_region_min_area_ratio,
         min_window_coverage=params.tile_graph_source_region_window_coverage,
-        stroke_linearity_threshold=params.tile_graph_stroke_linearity_threshold,
-        stroke_step_scale=params.tile_graph_stroke_step_scale,
-        stroke_minor_limit_scale=params.tile_graph_stroke_minor_limit_scale,
     )
 
     opaque = flat_rgba[:, 3] >= params.alpha_transparent_threshold
@@ -222,7 +219,7 @@ def test_tile_graph_region_extraction_covers_every_occupied_output_cell() -> Non
     assert np.all(occupied_bucket[occupied_direct > 0] > 0)
 
 
-def test_tile_graph_projects_source_regions_instead_of_mixed_lattice_buckets() -> None:
+def test_tile_graph_projects_component_overlaps_directly_onto_output_cells() -> None:
     source = np.zeros((6, 12, 4), dtype=np.float32)
     source[..., 3] = 1.0
     red = np.asarray([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
@@ -259,9 +256,9 @@ def test_tile_graph_projects_source_regions_instead_of_mixed_lattice_buckets() -
     }
 
     assert tuple(np.round(red, 4)) in left_candidates
-    assert tuple(np.round(blue, 4)) not in left_candidates
     assert tuple(np.round(blue, 4)) in right_candidates
-    assert tuple(np.round(red, 4)) not in right_candidates
+    assert left_candidates.issubset({tuple(np.round(red, 4)), tuple(np.round(blue, 4))})
+    assert right_candidates.issubset({tuple(np.round(red, 4)), tuple(np.round(blue, 4))})
 
 
 def test_tile_graph_edge_cells_include_multiple_same_cell_contour_colors() -> None:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections import OrderedDict, deque
+from collections import OrderedDict
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -75,6 +75,14 @@ class TileGraphBuildStats:
     cache_hit: bool = False
 
 
+@dataclass(slots=True)
+class AtomicRegionLabeling:
+    pixel_linear: np.ndarray
+    component_ids: np.ndarray
+    component_sizes: np.ndarray
+    component_count: int
+
+
 _TILE_GRAPH_MODEL_CACHE_MAX_ENTRIES = 8
 _TILE_GRAPH_MODEL_CACHE: OrderedDict[tuple[object, ...], TileGraphModel] = OrderedDict()
 _TILE_GRAPH_BUILD_STATS_CACHE: OrderedDict[tuple[object, ...], TileGraphBuildStats] = OrderedDict()
@@ -106,9 +114,6 @@ def _tile_graph_model_cache_key(
         "tile_graph_component_alpha_threshold",
         "tile_graph_source_region_min_area_ratio",
         "tile_graph_source_region_window_coverage",
-        "tile_graph_stroke_linearity_threshold",
-        "tile_graph_stroke_step_scale",
-        "tile_graph_stroke_minor_limit_scale",
         "tile_graph_area_weight",
         "tile_graph_alpha_weight",
         "tile_graph_coverage_weight",
@@ -167,51 +172,28 @@ def _make_regular_uv(height: int, width: int, target_height: int, target_width: 
     return uv.astype(np.float32)
 
 
-def _component_axis_stats(member_x: np.ndarray, member_y: np.ndarray) -> tuple[float, float, float, float, float]:
-    if member_x.size <= 1:
-        return 1.0, 0.0, 0.0, 0.0, 0.0
-    centered_x = member_x.astype(np.float32) - float(np.mean(member_x))
-    centered_y = member_y.astype(np.float32) - float(np.mean(member_y))
-    covariance = np.asarray(
-        [
-            [float(np.mean(centered_x * centered_x)), float(np.mean(centered_x * centered_y))],
-            [float(np.mean(centered_x * centered_y)), float(np.mean(centered_y * centered_y))],
-        ],
-        dtype=np.float32,
-    )
-    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
-    order = np.argsort(eigenvalues)
-    minor_value = float(max(0.0, eigenvalues[order[0]]))
-    major_value = float(max(0.0, eigenvalues[order[1]]))
-    major_vector = eigenvectors[:, order[1]].astype(np.float32)
-    norm = float(np.linalg.norm(major_vector))
-    if norm <= 1e-6:
-        return 1.0, 0.0, 0.0, 0.0, 0.0
-    major_vector /= norm
-    axis_x = float(major_vector[0])
-    axis_y = float(major_vector[1])
-    projections = centered_x * axis_x + centered_y * axis_y
-    perpendicular = centered_x * (-axis_y) + centered_y * axis_x
-    major_span = float(np.max(projections) - np.min(projections)) if projections.size else 0.0
-    minor_span = float(np.max(perpendicular) - np.min(perpendicular)) if perpendicular.size else 0.0
-    linearity = float(np.clip(1.0 - (minor_value / max(major_value, 1e-6)), 0.0, 1.0))
-    return axis_x, axis_y, linearity, major_span, minor_span
-
-
-def _project_source_point_to_output_coord(
+def _project_pixels_to_output_cells(
     *,
-    x: float,
-    y: float,
+    pixel_x: np.ndarray,
+    pixel_y: np.ndarray,
     cell_w: float,
     cell_h: float,
     target_width: int,
     target_height: int,
     phase_x: float,
     phase_y: float,
-) -> tuple[int, int, int]:
-    coord_x = int(np.clip(np.floor((x + 0.5) / max(cell_w, 1e-6) - phase_x), 0, max(0, target_width - 1)))
-    coord_y = int(np.clip(np.floor((y + 0.5) / max(cell_h, 1e-6) - phase_y), 0, max(0, target_height - 1)))
-    return coord_y, coord_x, coord_y * target_width + coord_x
+) -> np.ndarray:
+    coord_x = np.clip(
+        np.floor((pixel_x.astype(np.float32) + 0.5) / max(cell_w, 1e-6) - phase_x).astype(np.int32),
+        0,
+        max(0, target_width - 1),
+    )
+    coord_y = np.clip(
+        np.floor((pixel_y.astype(np.float32) + 0.5) / max(cell_h, 1e-6) - phase_y).astype(np.int32),
+        0,
+        max(0, target_height - 1),
+    )
+    return coord_y * target_width + coord_x
 
 
 def _segment_atomic_source_regions_cpu(
@@ -241,7 +223,10 @@ def _segment_atomic_source_regions_cpu(
 
     pixel_count = width * height
     visited = ~opaque.reshape(-1)
-    components: list[dict[str, float | int | np.ndarray]] = []
+    pixel_linear_parts: list[np.ndarray] = []
+    component_ids_parts: list[np.ndarray] = []
+    component_sizes: list[int] = []
+    component_id = 0
 
     for seed in range(pixel_count):
         if visited[seed]:
@@ -275,32 +260,23 @@ def _segment_atomic_source_regions_cpu(
                     visited[neighbor] = True
                     queue.append(neighbor)
         member_array = np.asarray(members, dtype=np.int32)
-        member_y = (member_array // width).astype(np.float32)
-        member_x = (member_array % width).astype(np.float32)
-        centroid_y = float(np.mean(member_y))
-        centroid_x = float(np.mean(member_x))
-        axis_x, axis_y, linearity, major_span, minor_span = _component_axis_stats(member_x, member_y)
-        centroid_dist = (member_y - centroid_y) ** 2 + (member_x - centroid_x) ** 2
-        centroid_pick = int(np.argmin(centroid_dist))
-        edge_pick = int(np.argmax(flat_edge[member_array]))
-        edge_peak = float(np.max(flat_edge[member_array]))
-        components.append(
-            {
-                "member_linear": member_array,
-                "edge_peak_linear": int(member_array[edge_pick]),
-                "edge_peak": edge_peak,
-                "centroid_linear": int(member_array[centroid_pick]),
-                "centroid_x": centroid_x,
-                "centroid_y": centroid_y,
-                "axis_x": axis_x,
-                "axis_y": axis_y,
-                "linearity": linearity,
-                "major_span": major_span,
-                "minor_span": minor_span,
-                "size": int(member_array.size),
-            }
+        pixel_linear_parts.append(member_array)
+        component_ids_parts.append(np.full(member_array.shape[0], component_id, dtype=np.int32))
+        component_sizes.append(int(member_array.size))
+        component_id += 1
+    if not pixel_linear_parts:
+        return AtomicRegionLabeling(
+            pixel_linear=np.zeros((0,), dtype=np.int32),
+            component_ids=np.zeros((0,), dtype=np.int32),
+            component_sizes=np.zeros((0,), dtype=np.int32),
+            component_count=0,
         )
-    return components
+    return AtomicRegionLabeling(
+        pixel_linear=np.concatenate(pixel_linear_parts).astype(np.int32, copy=False),
+        component_ids=np.concatenate(component_ids_parts).astype(np.int32, copy=False),
+        component_sizes=np.asarray(component_sizes, dtype=np.int32),
+        component_count=component_id,
+    )
 
 
 def _segment_atomic_source_regions(
@@ -311,12 +287,17 @@ def _segment_atomic_source_regions(
     color_threshold: float,
     alpha_threshold: float,
     device: str,
-) -> list[dict[str, float | int | np.ndarray]]:
+) -> AtomicRegionLabeling:
     torch = _require_torch()
     resolved_device = _resolve_device(torch, device)
     height, width = source_rgba.shape[:2]
     if height <= 0 or width <= 0:
-        return []
+        return AtomicRegionLabeling(
+            pixel_linear=np.zeros((0,), dtype=np.int32),
+            component_ids=np.zeros((0,), dtype=np.int32),
+            component_sizes=np.zeros((0,), dtype=np.int32),
+            component_count=0,
+        )
 
     if resolved_device == "cpu" and (height * width) <= 4096:
         flat_rgba = source_rgba.reshape(-1, source_rgba.shape[-1]).astype(np.float32)
@@ -338,7 +319,12 @@ def _segment_atomic_source_regions(
     alpha_map = source_t[..., 3]
     opaque = alpha_map >= alpha_floor
     if not bool(opaque.any().item()):
-        return []
+        return AtomicRegionLabeling(
+            pixel_linear=np.zeros((0,), dtype=np.int32),
+            component_ids=np.zeros((0,), dtype=np.int32),
+            component_sizes=np.zeros((0,), dtype=np.int32),
+            component_count=0,
+        )
 
     premul = source_t.clone()
     premul[..., :3] *= premul[..., 3:4]
@@ -390,142 +376,30 @@ def _segment_atomic_source_regions(
 
     valid_linear_t = torch.nonzero(labels.reshape(-1) < sentinel, as_tuple=False).flatten()
     if valid_linear_t.numel() <= 0:
-        return []
+        return AtomicRegionLabeling(
+            pixel_linear=np.zeros((0,), dtype=np.int32),
+            component_ids=np.zeros((0,), dtype=np.int32),
+            component_sizes=np.zeros((0,), dtype=np.int32),
+            component_count=0,
+        )
 
     component_labels_t = labels.reshape(-1)[valid_linear_t]
     _, inverse_t = torch.unique(component_labels_t, sorted=True, return_inverse=True)
     valid_linear = valid_linear_t.detach().cpu().numpy().astype(np.int32)
     inverse = inverse_t.detach().cpu().numpy().astype(np.int32)
-    flat_edge = edge_t.reshape(-1).detach().cpu().numpy().astype(np.float32)
-
-    order = np.argsort(inverse, kind="stable")
-    sorted_linear = valid_linear[order]
-    sorted_inverse = inverse[order]
-    boundaries = np.flatnonzero(
-        np.concatenate((
-            np.asarray([True], dtype=bool),
-            sorted_inverse[1:] != sorted_inverse[:-1],
-        ))
+    component_count = int(inverse.max()) + 1 if inverse.size else 0
+    component_sizes = np.bincount(inverse, minlength=component_count).astype(np.int32)
+    return AtomicRegionLabeling(
+        pixel_linear=valid_linear,
+        component_ids=inverse,
+        component_sizes=component_sizes,
+        component_count=component_count,
     )
-    ends = np.concatenate((boundaries[1:], np.asarray([sorted_inverse.shape[0]], dtype=np.int64)))
-
-    components: list[dict[str, float | int | np.ndarray]] = []
-    for start, end in zip(boundaries.tolist(), ends.tolist(), strict=False):
-        member_array = sorted_linear[start:end].astype(np.int32, copy=False)
-        member_y = (member_array // width).astype(np.float32)
-        member_x = (member_array % width).astype(np.float32)
-        centroid_y = float(np.mean(member_y))
-        centroid_x = float(np.mean(member_x))
-        axis_x, axis_y, linearity, major_span, minor_span = _component_axis_stats(member_x, member_y)
-        centroid_dist = (member_y - centroid_y) ** 2 + (member_x - centroid_x) ** 2
-        centroid_pick = int(np.argmin(centroid_dist))
-        edge_pick = int(np.argmax(flat_edge[member_array]))
-        edge_peak = float(np.max(flat_edge[member_array]))
-        components.append(
-            {
-                "member_linear": member_array,
-                "edge_peak_linear": int(member_array[edge_pick]),
-                "edge_peak": edge_peak,
-                "centroid_linear": int(member_array[centroid_pick]),
-                "centroid_x": centroid_x,
-                "centroid_y": centroid_y,
-                "axis_x": axis_x,
-                "axis_y": axis_y,
-                "linearity": linearity,
-                "major_span": major_span,
-                "minor_span": minor_span,
-                "size": int(member_array.size),
-            }
-        )
-    return components
-
-
-def _stroke_window_mask(
-    *,
-    member_x: np.ndarray,
-    member_y: np.ndarray,
-    remaining: np.ndarray,
-    center_x: float,
-    center_y: float,
-    axis_x: float,
-    axis_y: float,
-    major_half: float,
-    minor_half: float,
-) -> np.ndarray:
-    delta_x = member_x - float(center_x)
-    delta_y = member_y - float(center_y)
-    major_delta = delta_x * axis_x + delta_y * axis_y
-    minor_delta = delta_x * (-axis_y) + delta_y * axis_x
-    return remaining & (np.abs(major_delta) <= major_half) & (np.abs(minor_delta) <= minor_half)
-
-
-def _stroke_seed_centers(
-    *,
-    component: dict[str, float | int | np.ndarray],
-    member_x: np.ndarray,
-    member_y: np.ndarray,
-    flat_x: np.ndarray,
-    flat_y: np.ndarray,
-    cell_w: float,
-    cell_h: float,
-    step_scale: float,
-) -> list[tuple[float, float]]:
-    axis_x = float(component["axis_x"])
-    axis_y = float(component["axis_y"])
-    centroid_x = float(component["centroid_x"])
-    centroid_y = float(component["centroid_y"])
-    projection = (member_x - centroid_x) * axis_x + (member_y - centroid_y) * axis_y
-    if projection.size <= 0:
-        return [(centroid_y, centroid_x)]
-    step = max(
-        1.0,
-        (abs(axis_x) * cell_w + abs(axis_y) * cell_h) * float(step_scale),
-        np.hypot(axis_x * cell_w, axis_y * cell_h) * 0.9,
-    )
-    if step <= 1e-6:
-        return [(centroid_y, centroid_x)]
-    low = float(np.min(projection))
-    high = float(np.max(projection))
-    edge_peak_linear = int(component["edge_peak_linear"])
-    anchor_x = float(flat_x[edge_peak_linear])
-    anchor_y = float(flat_y[edge_peak_linear])
-    anchor_projection = (anchor_x - centroid_x) * axis_x + (anchor_y - centroid_y) * axis_y
-    if not np.isfinite(anchor_projection):
-        anchor_projection = 0.0
-
-    seed_projections: list[float] = [anchor_projection]
-    cursor = anchor_projection - step
-    while cursor >= low - 0.5 * step:
-        seed_projections.append(cursor)
-        cursor -= step
-    cursor = anchor_projection + step
-    while cursor <= high + 0.5 * step:
-        seed_projections.append(cursor)
-        cursor += step
-    if len(seed_projections) == 1 and abs(high - low) > 0.6 * step:
-        center_projection = 0.5 * (low + high)
-        seed_projections.extend([center_projection - 0.5 * step, center_projection + 0.5 * step])
-
-    seen: set[tuple[int, int]] = set()
-    centers: list[tuple[float, float]] = []
-    perpendicular = (member_x - centroid_x) * (-axis_y) + (member_y - centroid_y) * axis_x
-    for proj_center in sorted(seed_projections):
-        score = np.abs(projection - proj_center) + np.abs(perpendicular) * 0.35
-        pick = int(np.argmin(score))
-        center = (float(member_y[pick]), float(member_x[pick]))
-        key = (int(round(center[0] * 2.0)), int(round(center[1] * 2.0)))
-        if key in seen:
-            continue
-        seen.add(key)
-        centers.append(center)
-    if not centers:
-        centers.append((centroid_y, centroid_x))
-    return centers
 
 
 def _extract_source_region_tiles(
     *,
-    components: list[dict[str, float | int | np.ndarray]],
+    labeling: AtomicRegionLabeling,
     flat_rgba: np.ndarray,
     flat_edge: np.ndarray,
     flat_x: np.ndarray,
@@ -538,345 +412,134 @@ def _extract_source_region_tiles(
     phase_y: float,
     min_region_area_ratio: float,
     min_window_coverage: float,
-    stroke_linearity_threshold: float,
-    stroke_step_scale: float,
-    stroke_minor_limit_scale: float,
 ) -> list[list[dict[str, float | int | np.ndarray]]]:
     output_area = max(1, target_width * target_height)
     cell_area = max(cell_w * cell_h, 1e-6)
-    half_w = cell_w * 0.5
-    half_h = cell_h * 0.5
     buckets: list[list[dict[str, float | int | np.ndarray]]] = [[] for _ in range(output_area)]
-    min_region_pixels = max(1, int(np.ceil(cell_area * min_region_area_ratio)))
-    ordered_components = sorted(
-        components,
-        key=lambda comp: (abs(float(comp["size"]) - cell_area), -float(comp["edge_peak"])),
-    )
-    primary_tiles: list[dict[str, float | int | np.ndarray]] = []
+    if labeling.pixel_linear.size <= 0 or labeling.component_count <= 0:
+        return buckets
 
-    def overlap_tiles_for_component(
-        component: dict[str, float | int | np.ndarray],
-        *,
-        component_id: int,
-    ) -> list[dict[str, float | int | np.ndarray]]:
-        member_linear = np.asarray(component["member_linear"], dtype=np.int32)
-        if member_linear.size <= 0:
-            return []
-        member_x = flat_x[member_linear].astype(np.float32)
-        member_y = flat_y[member_linear].astype(np.float32)
-        member_coord_x = np.clip(
-            np.floor((member_x + 0.5) / max(cell_w, 1e-6) - phase_x).astype(np.int32),
-            0,
-            max(0, target_width - 1),
+    pixel_linear = labeling.pixel_linear.astype(np.int32, copy=False)
+    component_ids = labeling.component_ids.astype(np.int32, copy=False)
+    component_sizes = labeling.component_sizes.astype(np.int32, copy=False)
+    pixel_x = flat_x[pixel_linear].astype(np.int32, copy=False)
+    pixel_y = flat_y[pixel_linear].astype(np.int32, copy=False)
+    projected_flat_index = _project_pixels_to_output_cells(
+        pixel_x=pixel_x,
+        pixel_y=pixel_y,
+        cell_w=cell_w,
+        cell_h=cell_h,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+    ).astype(np.int32, copy=False)
+    compound_key = component_ids.astype(np.int64) * output_area + projected_flat_index.astype(np.int64)
+    order = np.argsort(compound_key, kind="stable")
+    sorted_key = compound_key[order]
+    sorted_linear = pixel_linear[order]
+    sorted_component = component_ids[order]
+    sorted_cell = projected_flat_index[order]
+    sorted_x = pixel_x[order].astype(np.float32)
+    sorted_y = pixel_y[order].astype(np.float32)
+    sorted_edge = flat_edge[sorted_linear].astype(np.float32)
+    starts = np.concatenate(
+        (
+            np.asarray([0], dtype=np.int64),
+            np.flatnonzero(sorted_key[1:] != sorted_key[:-1]) + 1,
         )
-        member_coord_y = np.clip(
-            np.floor((member_y + 0.5) / max(cell_h, 1e-6) - phase_y).astype(np.int32),
-            0,
-            max(0, target_height - 1),
-        )
-        member_flat_index = member_coord_y * target_width + member_coord_x
-        order = np.argsort(member_flat_index, kind="stable")
-        sorted_flat_index = member_flat_index[order]
-        starts = np.concatenate(
-            (
-                np.asarray([0], dtype=np.int64),
-                np.flatnonzero(sorted_flat_index[1:] != sorted_flat_index[:-1]) + 1,
+    )
+    ends = np.concatenate((starts[1:], np.asarray([sorted_key.shape[0]], dtype=np.int64)))
+    counts = (ends - starts).astype(np.int32)
+    area_ratio = counts.astype(np.float32) / float(cell_area)
+    coverage = np.clip(area_ratio, 0.0, 1.0).astype(np.float32)
+    sum_x = np.add.reduceat(sorted_x, starts).astype(np.float32)
+    sum_y = np.add.reduceat(sorted_y, starts).astype(np.float32)
+    center_x = (sum_x / np.maximum(1, counts)).astype(np.float32)
+    center_y = (sum_y / np.maximum(1, counts)).astype(np.float32)
+    edge_peak = np.maximum.reduceat(sorted_edge, starts).astype(np.float32)
+    segment_component = sorted_component[starts].astype(np.int32, copy=False)
+    segment_cell = sorted_cell[starts].astype(np.int32, copy=False)
+    component_area_ratio = component_sizes[segment_component].astype(np.float32) / float(cell_area)
+    keep = (component_area_ratio >= float(min_region_area_ratio)) & (area_ratio >= float(min_window_coverage))
+
+    rep_linear = np.empty(starts.shape[0], dtype=np.int32)
+    for segment_index, (start, end) in enumerate(zip(starts.tolist(), ends.tolist(), strict=False)):
+        segment_linear = sorted_linear[start:end]
+        if segment_linear.size <= 0:
+            rep_linear[segment_index] = 0
+            continue
+        if edge_peak[segment_index] > 0.0:
+            local_edge = sorted_edge[start:end]
+            rep_linear[segment_index] = int(segment_linear[int(np.argmax(local_edge))])
+        else:
+            rep_linear[segment_index] = int(segment_linear[0])
+
+    kept_by_cell: dict[int, list[int]] = {}
+    all_by_cell: dict[int, list[int]] = {}
+    for segment_index, flat_index in enumerate(segment_cell.tolist()):
+        all_by_cell.setdefault(flat_index, []).append(segment_index)
+        if keep[segment_index]:
+            kept_by_cell.setdefault(flat_index, []).append(segment_index)
+
+    for flat_index, segment_indices in all_by_cell.items():
+        use_segments = kept_by_cell.get(flat_index)
+        if not use_segments:
+            best_segment = min(
+                segment_indices,
+                key=lambda idx: (
+                    abs(float(area_ratio[idx]) - 1.0),
+                    -float(coverage[idx]),
+                    -float(edge_peak[idx]),
+                ),
             )
-        )
-        ends = np.concatenate((starts[1:], np.asarray([sorted_flat_index.shape[0]], dtype=np.int64)))
-        tiles: list[dict[str, float | int | np.ndarray]] = []
-        for start, end in zip(starts.tolist(), ends.tolist(), strict=False):
-            local_order = order[start:end]
-            cell_linear = member_linear[local_order]
-            cell_x = member_x[local_order]
-            cell_y = member_y[local_order]
-            cell_edge = flat_edge[cell_linear]
-            flat_index = int(sorted_flat_index[start])
-            center_x = float(np.mean(cell_x))
-            center_y = float(np.mean(cell_y))
-            edge_peak = float(np.max(cell_edge)) if cell_edge.size else 0.0
-            if edge_peak > 0.0:
-                rep_linear = int(cell_linear[int(np.argmax(cell_edge))])
-            else:
-                centroid_dist = (cell_x - center_x) ** 2 + (cell_y - center_y) ** 2
-                rep_linear = int(cell_linear[int(np.argmin(centroid_dist))])
-            tiles.append(
+            use_segments = [best_segment]
+        for segment_index in use_segments:
+            buckets[flat_index].append(
                 {
-                    "rep_linear": rep_linear,
-                    "rep_rgba": flat_rgba[rep_linear].astype(np.float32),
-                    "area_ratio": float(cell_linear.shape[0] / cell_area),
-                    "coverage": float(np.clip(cell_linear.shape[0] / cell_area, 0.0, 1.0)),
-                    "edge_peak": edge_peak,
-                    "source_center_x": center_x,
-                    "source_center_y": center_y,
+                    "rep_linear": int(rep_linear[segment_index]),
+                    "rep_rgba": flat_rgba[int(rep_linear[segment_index])].astype(np.float32),
+                    "area_ratio": float(area_ratio[segment_index]),
+                    "coverage": float(coverage[segment_index]),
+                    "edge_peak": float(edge_peak[segment_index]),
+                    "source_center_x": float(center_x[segment_index]),
+                    "source_center_y": float(center_y[segment_index]),
                     "coord_x": int(flat_index % target_width),
                     "coord_y": int(flat_index // target_width),
-                    "flat_index": flat_index,
-                    "component_id": component_id,
+                    "flat_index": int(flat_index),
+                    "component_id": int(segment_component[segment_index]),
                 }
             )
-        return tiles
 
-    for component_id, component in enumerate(ordered_components):
-        component_size = int(component["size"])
-        if component_size < min_region_pixels:
-            continue
-        member_linear = np.asarray(component["member_linear"], dtype=np.int32)
-        member_x = flat_x[member_linear].astype(np.float32)
-        member_y = flat_y[member_linear].astype(np.float32)
-        remaining = np.ones(member_linear.shape[0], dtype=bool)
-        seed_queue: deque[tuple[float, float]] = deque()
-        seen_seeds: set[tuple[int, int]] = set()
-        accepted_any = False
-        axis_x = float(component["axis_x"])
-        axis_y = float(component["axis_y"])
-        linearity = float(component["linearity"])
-        major_span = float(component["major_span"])
-        minor_span = float(component["minor_span"])
-        stroke_component = (
-            linearity >= stroke_linearity_threshold
-            and major_span >= max(cell_w, cell_h) * 1.1
-            and minor_span <= max(1.0, min(cell_w, cell_h) * stroke_minor_limit_scale)
-        )
-        stroke_major_half = max(
-            0.5,
-            0.5 * (abs(axis_x) * cell_w + abs(axis_y) * cell_h) * stroke_step_scale,
-            0.45 * np.hypot(axis_x * cell_w, axis_y * cell_h),
-        )
-        stroke_minor_half = max(0.5, 0.5 * min(cell_w, cell_h) * stroke_minor_limit_scale)
-        component_tiles: list[dict[str, float | int | np.ndarray]] = []
-
-        def enqueue(seed_y: float, seed_x: float) -> None:
-            key = (int(round(seed_y * 2.0)), int(round(seed_x * 2.0)))
-            if key in seen_seeds:
-                return
-            seen_seeds.add(key)
-            seed_queue.append((float(seed_y), float(seed_x)))
-
-        if stroke_component:
-            for seed_y, seed_x in _stroke_seed_centers(
-                component=component,
-                member_x=member_x,
-                member_y=member_y,
-                flat_x=flat_x,
-                flat_y=flat_y,
-                cell_w=cell_w,
-                cell_h=cell_h,
-                step_scale=stroke_step_scale,
-            ):
-                enqueue(seed_y, seed_x)
-        else:
-            enqueue(float(component["centroid_y"]), float(component["centroid_x"]))
-            edge_peak_linear = int(component["edge_peak_linear"])
-            enqueue(float(flat_y[edge_peak_linear]), float(flat_x[edge_peak_linear]))
-
-        while seed_queue:
-            center_y, center_x = seed_queue.popleft()
-            if stroke_component:
-                in_window = _stroke_window_mask(
-                    member_x=member_x,
-                    member_y=member_y,
-                    remaining=remaining,
-                    center_x=center_x,
-                    center_y=center_y,
-                    axis_x=axis_x,
-                    axis_y=axis_y,
-                    major_half=stroke_major_half,
-                    minor_half=stroke_minor_half,
-                )
-                if not np.any(in_window):
-                    in_window = remaining & (np.abs(member_x - center_x) <= half_w) & (np.abs(member_y - center_y) <= half_h)
-            else:
-                in_window = remaining & (np.abs(member_x - center_x) <= half_w) & (np.abs(member_y - center_y) <= half_h)
-            footprint_count = int(np.count_nonzero(in_window))
-            if footprint_count <= 0:
+    segment_index_by_key = {
+        int(segment_component[idx]) * output_area + int(segment_cell[idx]): idx
+        for idx in range(segment_cell.shape[0])
+    }
+    rep_rgba = flat_rgba[rep_linear].astype(np.float32)
+    neighbor_rgba = np.zeros((segment_cell.shape[0], 4, 4), dtype=np.float32)
+    neighbor_mask = np.zeros((segment_cell.shape[0], 4), dtype=bool)
+    for segment_index, flat_index in enumerate(segment_cell.tolist()):
+        coord_y = int(flat_index // target_width)
+        coord_x = int(flat_index % target_width)
+        component_id = int(segment_component[segment_index])
+        for direction, dy, dx in _DIRS:
+            neighbor_x = coord_x + dx
+            neighbor_y = coord_y + dy
+            if neighbor_x < 0 or neighbor_x >= target_width or neighbor_y < 0 or neighbor_y >= target_height:
                 continue
-            area_ratio = float(footprint_count / cell_area)
-            if area_ratio < min_window_coverage:
+            neighbor_flat_index = neighbor_y * target_width + neighbor_x
+            neighbor_segment = segment_index_by_key.get(component_id * output_area + neighbor_flat_index)
+            if neighbor_segment is None:
                 continue
+            neighbor_rgba[segment_index, direction] = rep_rgba[neighbor_segment]
+            neighbor_mask[segment_index, direction] = True
 
-            accepted_any = True
-            window_linear = member_linear[in_window]
-            window_x = member_x[in_window]
-            window_y = member_y[in_window]
-            window_edge = flat_edge[window_linear]
-            if stroke_component:
-                accepted_center_x = float(center_x * 0.75 + np.mean(window_x) * 0.25)
-                accepted_center_y = float(center_y * 0.75 + np.mean(window_y) * 0.25)
-            else:
-                accepted_center_x = float(np.mean(window_x))
-                accepted_center_y = float(np.mean(window_y))
-            edge_peak = float(np.max(window_edge)) if window_edge.size else 0.0
-            if stroke_component:
-                center_dist = (window_x - accepted_center_x) ** 2 + (window_y - accepted_center_y) ** 2
-                rep_linear = int(window_linear[int(np.argmin(center_dist))])
-            elif edge_peak > 0.0:
-                rep_linear = int(window_linear[int(np.argmax(window_edge))])
-            else:
-                centroid_dist = (window_x - accepted_center_x) ** 2 + (window_y - accepted_center_y) ** 2
-                rep_linear = int(window_linear[int(np.argmin(centroid_dist))])
-
-            coord_y, coord_x, flat_index = _project_source_point_to_output_coord(
-                x=accepted_center_x,
-                y=accepted_center_y,
-                cell_w=cell_w,
-                cell_h=cell_h,
-                target_width=target_width,
-                target_height=target_height,
-                phase_x=phase_x,
-                phase_y=phase_y,
-            )
-            component_tiles.append(
-                {
-                    "rep_linear": rep_linear,
-                    "rep_rgba": flat_rgba[rep_linear].astype(np.float32),
-                    "area_ratio": area_ratio,
-                    "coverage": float(np.clip(area_ratio, 0.0, 1.0)),
-                    "edge_peak": edge_peak,
-                    "source_center_x": accepted_center_x,
-                    "source_center_y": accepted_center_y,
-                    "coord_x": coord_x,
-                    "coord_y": coord_y,
-                    "flat_index": flat_index,
-                    "component_id": component_id,
-                }
-            )
-            remaining[in_window] = False
-            if int(np.count_nonzero(remaining)) < min_region_pixels:
-                break
-            if not stroke_component:
-                for _, dy, dx in _DIRS:
-                    enqueue(accepted_center_y + dy * cell_h, accepted_center_x + dx * cell_w)
-
-        if accepted_any:
-            if stroke_component and component_tiles:
-                dominant_vertical = abs(axis_y) >= abs(axis_x)
-                grouped_tiles: dict[int, list[dict[str, float | int | np.ndarray]]] = {}
-                for tile in component_tiles:
-                    group_key = int(tile["coord_y"]) if dominant_vertical else int(tile["coord_x"])
-                    grouped_tiles.setdefault(group_key, []).append(tile)
-                filtered_tiles: list[dict[str, float | int | np.ndarray]] = []
-                ordered_keys = sorted(grouped_tiles)
-                secondary_step = (
-                    axis_x / max(abs(axis_y), 1e-6)
-                    if dominant_vertical
-                    else axis_y / max(abs(axis_x), 1e-6)
-                )
-                previous_primary: int | None = None
-                previous_secondary: float | None = None
-
-                def tile_score(
-                    tile: dict[str, float | int | np.ndarray],
-                    *,
-                    expected_secondary: float | None,
-                ) -> tuple[float, float, float, float]:
-                    continuous_coord = (
-                        (float(tile["source_center_x"]) + 0.5) / max(cell_w, 1e-6) - phase_x
-                        if dominant_vertical
-                        else (float(tile["source_center_y"]) + 0.5) / max(cell_h, 1e-6) - phase_y
-                    )
-                    discrete_coord = float(tile["coord_x"] if dominant_vertical else tile["coord_y"])
-                    path_error = abs(discrete_coord - expected_secondary) if expected_secondary is not None else 0.0
-                    return (
-                        path_error,
-                        abs(discrete_coord - continuous_coord),
-                        abs(float(tile["area_ratio"]) - 1.0),
-                        -float(tile["coverage"]),
-                    )
-
-                for group_key in ordered_keys:
-                    group_tiles = grouped_tiles[group_key]
-                    expected_secondary = None
-                    if previous_primary is not None and previous_secondary is not None:
-                        expected_secondary = previous_secondary + secondary_step * float(group_key - previous_primary)
-
-                    best_tile = min(
-                        group_tiles,
-                        key=lambda tile: tile_score(tile, expected_secondary=expected_secondary),
-                    )
-                    filtered_tiles.append(best_tile)
-                    previous_primary = group_key
-                    previous_secondary = float(best_tile["coord_x"] if dominant_vertical else best_tile["coord_y"])
-                component_tiles = filtered_tiles
-            for tile in component_tiles:
-                primary_tiles.append(tile)
-            continue
-
-        component_area_ratio = float(component_size / cell_area)
-        if component_area_ratio < min_window_coverage:
-            continue
-        centroid_linear = int(component["centroid_linear"])
-        center_x = float(component["centroid_x"])
-        center_y = float(component["centroid_y"])
-        coord_y, coord_x, flat_index = _project_source_point_to_output_coord(
-            x=center_x,
-            y=center_y,
-            cell_w=cell_w,
-            cell_h=cell_h,
-            target_width=target_width,
-            target_height=target_height,
-            phase_x=phase_x,
-            phase_y=phase_y,
-        )
-        buckets[flat_index].append(
-            {
-                "rep_linear": centroid_linear,
-                "rep_rgba": flat_rgba[centroid_linear].astype(np.float32),
-                "area_ratio": component_area_ratio,
-                "coverage": float(np.clip(component_area_ratio, 0.0, 1.0)),
-                "edge_peak": float(component["edge_peak"]),
-                "source_center_x": center_x,
-                "source_center_y": center_y,
-                "coord_x": coord_x,
-                "coord_y": coord_y,
-                "flat_index": flat_index,
-                "component_id": component_id,
-            }
-        )
-
-    for tile in primary_tiles:
-        buckets[int(tile["flat_index"])].append(tile)
-    for component_id, component in enumerate(ordered_components):
-        for tile in overlap_tiles_for_component(component, component_id=component_id):
-            flat_index = int(tile["flat_index"])
-            if buckets[flat_index]:
-                continue
-            buckets[flat_index].append(tile)
-
-    for flat_index, bucket in enumerate(buckets):
-        if not bucket:
-            continue
-        coord_y = flat_index // target_width
-        coord_x = flat_index % target_width
+    for bucket in buckets:
         for tile in bucket:
-            neighbor_rgba = np.zeros((4, 4), dtype=np.float32)
-            neighbor_mask = np.zeros((4,), dtype=bool)
-            for direction, dy, dx in _DIRS:
-                neighbor_x = coord_x + dx
-                neighbor_y = coord_y + dy
-                if neighbor_x < 0 or neighbor_x >= target_width or neighbor_y < 0 or neighbor_y >= target_height:
-                    continue
-                neighbor_bucket = buckets[neighbor_y * target_width + neighbor_x]
-                if not neighbor_bucket:
-                    continue
-                expected_x = float(tile["source_center_x"]) + dx * cell_w
-                expected_y = float(tile["source_center_y"]) + dy * cell_h
-
-                def neighbor_score(candidate: dict[str, float | int | np.ndarray]) -> tuple[float, int, float, float, float]:
-                    return (
-                        abs(float(candidate["source_center_x"]) - expected_x)
-                        + abs(float(candidate["source_center_y"]) - expected_y),
-                        0 if int(candidate["component_id"]) == int(tile["component_id"]) else 1,
-                        abs(float(candidate["area_ratio"]) - 1.0),
-                        -float(candidate["coverage"]),
-                        -float(candidate["edge_peak"]),
-                    )
-
-                best_neighbor = min(neighbor_bucket, key=neighbor_score)
-                neighbor_rgba[direction] = np.asarray(best_neighbor["rep_rgba"], dtype=np.float32)
-                neighbor_mask[direction] = True
-            tile["neighbor_rgba"] = neighbor_rgba
-            tile["neighbor_mask"] = neighbor_mask
+            key = int(tile["component_id"]) * output_area + int(tile["flat_index"])
+            segment_index = segment_index_by_key[key]
+            tile["neighbor_rgba"] = neighbor_rgba[segment_index]
+            tile["neighbor_mask"] = neighbor_mask[segment_index]
 
     return buckets
 
@@ -986,7 +649,7 @@ def build_tile_graph_model(
         device=resolved_device,
     )
     region_buckets = _extract_source_region_tiles(
-        components=global_components,
+        labeling=global_components,
         flat_rgba=flat_rgba_np,
         flat_edge=flat_edge_np,
         flat_x=flat_x_np,
@@ -999,9 +662,6 @@ def build_tile_graph_model(
         phase_y=inference.phase_y,
         min_region_area_ratio=float(getattr(solver_params, "tile_graph_source_region_min_area_ratio", 0.06)),
         min_window_coverage=float(getattr(solver_params, "tile_graph_source_region_window_coverage", 0.12)),
-        stroke_linearity_threshold=float(getattr(solver_params, "tile_graph_stroke_linearity_threshold", 0.72)),
-        stroke_step_scale=float(getattr(solver_params, "tile_graph_stroke_step_scale", 0.95)),
-        stroke_minor_limit_scale=float(getattr(solver_params, "tile_graph_stroke_minor_limit_scale", 0.55)),
     )
 
     candidate_rgba: list[np.ndarray] = []
@@ -1011,7 +671,7 @@ def build_tile_graph_model(
     candidate_neighbor_rgba: list[np.ndarray] = []
     candidate_neighbor_mask: list[np.ndarray] = []
     choice_counts_list: list[int] = []
-    component_total = len(global_components)
+    component_total = int(global_components.component_count)
     edge_candidate_cap = max(max_candidates_per_coord, int(getattr(solver_params, "tile_graph_edge_candidates_per_coord", max_candidates_per_coord)))
     for flat_index in range(output_area):
         seen_pixels: set[int] = set()
