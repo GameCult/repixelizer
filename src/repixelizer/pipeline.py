@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from .observe import PipelineObserver, emit_observer
 from .analysis import analyze_phase_field_source
 from .diagnostics import (
     summarize_run,
@@ -50,12 +51,56 @@ def run_pipeline(
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
     enable_phase_rerank: bool = True,
+    observer: PipelineObserver | None = None,
+) -> RunResult:
+    source = load_rgba(input_path)
+    return run_pipeline_rgba(
+        source,
+        output_path=output_path,
+        target_size=target_size,
+        target_width=target_width,
+        target_height=target_height,
+        phase_x=phase_x,
+        phase_y=phase_y,
+        palette_path=palette_path,
+        palette_mode=palette_mode,
+        diagnostics_dir=diagnostics_dir,
+        seed=seed,
+        steps=steps,
+        device=device,
+        solver_params=solver_params,
+        strip_background=strip_background,
+        enable_phase_rerank=enable_phase_rerank,
+        observer=observer,
+    )
+
+
+def run_pipeline_rgba(
+    source: np.ndarray,
+    *,
+    output_path: str | Path | None = None,
+    target_size: int | None = None,
+    target_width: int | None = None,
+    target_height: int | None = None,
+    phase_x: float | None = None,
+    phase_y: float | None = None,
+    palette_path: str | Path | None = None,
+    palette_mode: str = "off",
+    diagnostics_dir: str | Path | None = None,
+    seed: int = 7,
+    steps: int = 200,
+    device: str = "auto",
+    solver_params: SolverHyperParams | None = None,
+    strip_background: bool = False,
+    enable_phase_rerank: bool = True,
+    observer: PipelineObserver | None = None,
 ) -> RunResult:
     started = time.perf_counter()
     solver_params = solver_params or SolverHyperParams()
-    source = load_rgba(input_path)
+    emit_observer(observer, "source_loaded", source_rgba=source.copy())
     if strip_background:
         source = strip_edge_background(source)
+        emit_observer(observer, "preprocess_completed", source_rgba=source.copy(), operation="strip_background")
     fixed_dims = _resolve_requested_target_dims(
         source_width=source.shape[1],
         source_height=source.shape[0],
@@ -78,11 +123,13 @@ def run_pipeline(
             device=device,
         )
         inference_mode = "fixed"
+    emit_observer(observer, "inference_candidates_ready", inference=inference, inference_mode=inference_mode)
     analysis = _prepare_analysis(
         source,
         seed=seed,
         device=device,
     )
+    emit_observer(observer, "analysis_completed", edge_map=analysis.edge_map.copy())
     inference = _select_phase_candidate(
         source,
         inference,
@@ -92,7 +139,9 @@ def run_pipeline(
         device=device,
         solver_params=solver_params,
         enable_phase_rerank=enable_phase_rerank,
+        observer=observer,
     )
+    emit_observer(observer, "phase_selection_completed", inference=inference, inference_mode=inference_mode)
     solver, reconstruction_diagnostics = _run_reconstruction(
         source,
         inference=inference,
@@ -101,13 +150,28 @@ def run_pipeline(
         seed=seed,
         device=device,
         solver_params=solver_params,
+        observer=observer,
     )
     cleanup = cleanup_pixels(solver.target_rgba, source_guidance=solver.guidance_strength)
+    emit_observer(
+        observer,
+        "cleanup_completed",
+        cleaned_rgba=cleanup.cleaned_rgba.copy(),
+        isolated_heatmap=cleanup.isolated_heatmap.copy(),
+    )
     palette = load_palette(palette_path) if palette_path else None
     palette_result = quantize_rgba(cleanup.cleaned_rgba, mode=palette_mode, palette=palette)
     output_rgba = palette_result.rgba if palette_result else cleanup.cleaned_rgba
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    save_rgba(output_path, output_rgba)
+    if output_path is not None:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        save_rgba(output_path, output_rgba)
+    emit_observer(
+        observer,
+        "palette_completed",
+        output_rgba=output_rgba.copy(),
+        palette_mode=palette_mode,
+        palette_result=palette_result,
+    )
 
     diagnostics: dict[str, Any] = {
         "elapsed_seconds": time.perf_counter() - started,
@@ -122,6 +186,34 @@ def run_pipeline(
         cleanup=cleanup,
         palette_result=palette_result,
         diagnostics=diagnostics,
+    )
+    run_summary: dict[str, Any] | None = None
+    if diagnostics_dir or observer is not None:
+        run_summary = summarize_run(result)
+        run_summary["inference"] = inference_to_json(inference)
+        run_summary["settings"] = {
+            "target_size": target_size,
+            "target_width": target_width,
+            "target_height": target_height,
+            "phase_x": phase_x,
+            "phase_y": phase_y,
+            "palette_mode": palette_mode,
+            "seed": seed,
+            "steps": steps,
+            "device": device,
+            "strip_background": strip_background,
+            "enable_phase_rerank": enable_phase_rerank,
+            "inference_mode": inference_mode,
+            "solver_params": solver_params.to_dict(),
+        }
+        if diagnostics.get("reconstruction"):
+            run_summary["reconstruction"] = diagnostics["reconstruction"]
+    emit_observer(
+        observer,
+        "pipeline_completed",
+        output_rgba=output_rgba.copy(),
+        diagnostics=diagnostics.copy(),
+        run_summary=run_summary,
     )
     if diagnostics_dir:
         diagnostics_path = Path(diagnostics_dir)
@@ -154,26 +246,7 @@ def run_pipeline(
                         height=output_rgba.shape[0] * 8,
                     ),
                 )
-        run_json = summarize_run(result)
-        run_json["inference"] = inference_to_json(inference)
-        run_json["settings"] = {
-            "target_size": target_size,
-            "target_width": target_width,
-            "target_height": target_height,
-            "phase_x": phase_x,
-            "phase_y": phase_y,
-            "palette_mode": palette_mode,
-            "seed": seed,
-            "steps": steps,
-            "device": device,
-            "strip_background": strip_background,
-            "enable_phase_rerank": enable_phase_rerank,
-            "inference_mode": inference_mode,
-            "solver_params": solver_params.to_dict(),
-        }
-        if diagnostics.get("reconstruction"):
-            run_json["reconstruction"] = diagnostics["reconstruction"]
-        write_json(diagnostics_path / "run.json", run_json)
+        write_json(diagnostics_path / "run.json", run_summary or {})
         if palette_result is not None:
             save_palette_report(diagnostics_path / "palette-report.json", palette_result.palette)
     return result
@@ -198,6 +271,7 @@ def _select_phase_candidate(
     device: str,
     solver_params: SolverHyperParams | None = None,
     enable_phase_rerank: bool = True,
+    observer: PipelineObserver | None = None,
 ) -> InferenceResult:
     return _select_phase_candidate_with_reconstruction(
         source,
@@ -208,6 +282,7 @@ def _select_phase_candidate(
         device=device,
         solver_params=solver_params,
         enable_phase_rerank=enable_phase_rerank,
+        observer=observer,
     )
 
 
@@ -221,6 +296,7 @@ def _select_phase_candidate_with_reconstruction(
     device: str,
     solver_params: SolverHyperParams | None = None,
     enable_phase_rerank: bool = True,
+    observer: PipelineObserver | None = None,
 ) -> InferenceResult:
     solver_params = solver_params or SolverHyperParams()
     if not enable_phase_rerank:
@@ -230,6 +306,13 @@ def _select_phase_candidate_with_reconstruction(
 
     preview_steps = min(max(0, int(steps)), max(0, int(solver_params.phase_rerank_preview_steps)))
     top_score = float(inference.top_candidates[0].score)
+    emit_observer(
+        observer,
+        "phase_rerank_started",
+        preview_steps=preview_steps,
+        candidate_count=min(8, len(inference.top_candidates)),
+        confidence=float(inference.confidence),
+    )
     candidate_records: list[dict[str, float | InferenceResult]] = []
     for candidate in inference.top_candidates[:8]:
         candidate_inference = InferenceResult(
@@ -248,6 +331,7 @@ def _select_phase_candidate_with_reconstruction(
             seed=seed,
             device=device,
             solver_params=solver_params,
+            observer=None,
         )
         support = source_lattice_consistency_breakdown(
             source,
@@ -418,16 +502,29 @@ def _run_reconstruction(
     seed: int,
     device: str,
     solver_params: SolverHyperParams,
+    observer: PipelineObserver | None = None,
 ):
-    solver = optimize_phase_field(
-        source,
-        inference=inference,
-        analysis=analysis,
-        steps=steps,
-        seed=seed,
-        device=device,
-        solver_params=solver_params,
-    )
+    if observer is None:
+        solver = optimize_phase_field(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=steps,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+        )
+    else:
+        solver = optimize_phase_field(
+            source,
+            inference=inference,
+            analysis=analysis,
+            steps=steps,
+            seed=seed,
+            device=device,
+            solver_params=solver_params,
+            observer=observer,
+        )
     phase_field_metrics = getattr(solver, "stage_diagnostics", {}).get("phase_field", {})
     return solver, {
         "mode": "phase-field",

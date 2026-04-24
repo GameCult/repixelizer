@@ -6,6 +6,7 @@ import sys
 from .benchmark import run_roundtrip_benchmark
 from .compare import run_compare
 from .corpus import prepare_corpus
+from .gui import main as gui_main
 from .pipeline import run_pipeline
 from .tuning import tune_solver_hyperparams
 
@@ -113,12 +114,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     prepare_parser = subparsers.add_parser("prepare-corpus", help="Normalize imported corpus sheets into single sprites.")
     prepare_parser.add_argument("--corpus-dir", default="examples/corpus", help="Corpus root containing originals/")
+    gui_parser = subparsers.add_parser("gui", help="Launch the web GUI.")
+    gui_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
+    gui_parser.add_argument("--port", type=int, default=8000, help="Port to bind")
+    gui_parser.add_argument("--reload", action="store_true", help="Enable autoreload while developing the GUI server")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    if not raw_argv or raw_argv[0] not in {"run", "compare", "benchmark", "tune", "prepare-corpus", "-h", "--help"}:
+    if not raw_argv or raw_argv[0] not in {"run", "compare", "benchmark", "tune", "prepare-corpus", "gui", "-h", "--help"}:
         raw_argv = ["run", *raw_argv]
     parser = build_parser()
     args = parser.parse_args(raw_argv)
@@ -175,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
     if command == "prepare-corpus":
         prepare_corpus(args.corpus_dir)
         return 0
+    if command == "gui":
+        return gui_main(host=args.host, port=args.port, reload=args.reload)
 
     run_pipeline(
         args.input,

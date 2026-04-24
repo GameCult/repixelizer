@@ -55,3 +55,18 @@ def test_default_command_accepts_fixed_lattice_flags(tmp_path: Path) -> None:
     )
     assert exit_code == 0
     assert output_path.exists()
+
+
+def test_gui_command_dispatches_to_gui_main(monkeypatch) -> None:
+    called = {}
+
+    def fake_gui_main(*, host: str, port: int, reload: bool) -> int:
+        called["host"] = host
+        called["port"] = port
+        called["reload"] = reload
+        return 0
+
+    monkeypatch.setattr("repixelizer.cli.gui_main", fake_gui_main)
+    exit_code = main(["gui", "--host", "127.0.0.1", "--port", "8123", "--reload"])
+    assert exit_code == 0
+    assert called == {"host": "127.0.0.1", "port": 8123, "reload": True}

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .io import premultiply
+from .observe import PipelineObserver, emit_observer
 from .types import InferenceResult, PhaseFieldSourceAnalysis, SolverArtifacts
 from .params import SolverHyperParams
 
@@ -342,6 +343,31 @@ def _nearest_source_rgba(source_rgba: np.ndarray, sample_x: np.ndarray, sample_y
     return source_rgba[sample_y, sample_x]
 
 
+def _observer_snapshot(
+    prep: _PhaseFieldPrep,
+    rgba: np.ndarray,
+    pos_px: np.ndarray,
+) -> dict[str, np.ndarray]:
+    sample_x = np.rint(pos_px[..., 0]).astype(np.int32).clip(0, prep.width - 1)
+    sample_y = np.rint(pos_px[..., 1]).astype(np.int32).clip(0, prep.height - 1)
+    displacement = _displacement_diagnostics(
+        prep.uv0_norm,
+        sample_x,
+        sample_y,
+        width=prep.width,
+        height=prep.height,
+    )
+    return {
+        "target_rgba": _nearest_source_rgba(rgba, sample_x, sample_y),
+        "sample_x": sample_x,
+        "sample_y": sample_y,
+        "pos_x_px": pos_px[..., 0].astype(np.float32),
+        "pos_y_px": pos_px[..., 1].astype(np.float32),
+        "displacement_x": displacement["displacement_x"],
+        "displacement_y": displacement["displacement_y"],
+    }
+
+
 def optimize_phase_field(
     rgba: np.ndarray,
     inference: InferenceResult,
@@ -350,6 +376,7 @@ def optimize_phase_field(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
+    observer: PipelineObserver | None = None,
 ) -> SolverArtifacts:
     torch, F = _require_torch()
     device = _resolve_device(torch, device)
@@ -367,6 +394,16 @@ def optimize_phase_field(
         solver_params,
         device=device,
     )
+    emit_observer(
+        observer,
+        "phase_field_prepared",
+        uv0_px=prep.uv0_px_t[0].detach().cpu().numpy().astype(np.float32),
+        guidance=prep.guidance.copy(),
+        cell_x=float(prep.cell_x),
+        cell_y=float(prep.cell_y),
+        target_width=int(inference.target_width),
+        target_height=int(inference.target_height),
+    )
 
     disp_t = torch.zeros_like(prep.uv0_px_t, device=device, dtype=torch.float32, requires_grad=True)
     optimizer = torch.optim.Adam([disp_t], lr=solver_params.phase_field_learning_rate)
@@ -374,6 +411,13 @@ def optimize_phase_field(
     initial_x = np.rint(prep.uv0_px_t[0, ..., 0].detach().cpu().numpy()).astype(np.int32).clip(0, prep.width - 1)
     initial_y = np.rint(prep.uv0_px_t[0, ..., 1].detach().cpu().numpy()).astype(np.int32).clip(0, prep.height - 1)
     initial_rgba = _nearest_source_rgba(rgba, initial_x, initial_y)
+    emit_observer(
+        observer,
+        "phase_field_initial",
+        step=0,
+        total_steps=int(max(0, steps)),
+        **_observer_snapshot(prep, rgba, prep.uv0_px_t[0].detach().cpu().numpy().astype(np.float32)),
+    )
 
     loss_history: list[float] = []
     final_terms: dict[str, float] = {}
@@ -382,7 +426,7 @@ def optimize_phase_field(
     max_dx = solver_params.phase_field_max_displacement_ratio * prep.cell_x
     max_dy = solver_params.phase_field_max_displacement_ratio * prep.cell_y
 
-    for _ in range(max(0, steps)):
+    for step_index in range(max(0, steps)):
         optimizer.zero_grad(set_to_none=True)
         loss, _sampled_rgba, terms = _phase_field_loss(torch, F, prep, disp_t, solver_params)
         loss.backward()
@@ -399,8 +443,20 @@ def optimize_phase_field(
             width=prep.width,
             height=prep.height,
         )
-        loss_history.append(float(loss.detach().cpu().item()))
+        loss_value = float(loss.detach().cpu().item())
+        loss_history.append(loss_value)
         final_terms = terms
+        if observer is not None:
+            current_pos = (prep.uv0_px_t + disp_t)[0].detach().cpu().numpy().astype(np.float32)
+            emit_observer(
+                observer,
+                "phase_field_step",
+                step=int(step_index + 1),
+                total_steps=int(max(0, steps)),
+                loss=loss_value,
+                terms=terms.copy(),
+                **_observer_snapshot(prep, rgba, current_pos),
+            )
 
     with torch.no_grad():
         if steps <= 0:
@@ -439,6 +495,15 @@ def optimize_phase_field(
             **final_terms,
         },
     }
+    emit_observer(
+        observer,
+        "phase_field_final",
+        step=int(max(0, steps)),
+        total_steps=int(max(0, steps)),
+        phase_metrics=stage_diagnostics["phase_field"].copy(),
+        loss_history=loss_history.copy(),
+        **_observer_snapshot(prep, rgba, final_px[0].detach().cpu().numpy().astype(np.float32)),
+    )
     return SolverArtifacts(
         target_rgba=target_rgba,
         uv_field=final_pos_norm,

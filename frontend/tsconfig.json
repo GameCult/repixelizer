@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "lib": ["DOM", "ES2022"],
+    "rootDir": "./src",
+    "outDir": "../src/repixelizer/gui_static",
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"]
+}
