@@ -582,6 +582,10 @@ function renderLossPlaceholder(context: CanvasRenderingContext2D, width: number,
 }
 
 function renderLossChart(): void {
+  lossCanvas.hidden = state.stageKey !== "solver";
+  if (lossCanvas.hidden) {
+    return;
+  }
   const context = lossCanvas.getContext("2d");
   if (!context) {
     return;
@@ -599,10 +603,6 @@ function renderLossChart(): void {
     context.moveTo(0, y);
     context.lineTo(width, y);
     context.stroke();
-  }
-  if (state.stageKey !== "solver") {
-    renderLossPlaceholder(context, width, state.stageLabel, state.statusText);
-    return;
   }
   const losses = state.frames
     .filter((frame) => typeof frame.loss === "number")
