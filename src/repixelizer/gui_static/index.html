@@ -145,7 +145,17 @@
             </div>
             <form id="controlsForm" class="controls-grid">
               <label class="field">
-                <span>Device</span>
+                <span class="field-heading">
+                  <span>Device</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Choose where analysis and solving run. auto picks the best available backend, cpu forces the safe path, and cuda forces the GPU if your PyTorch build supports it."
+                    aria-label="Choose where analysis and solving run. auto picks the best available backend, cpu forces the safe path, and cuda forces the GPU if your PyTorch build supports it."
+                    >?</span
+                  >
+                </span>
                 <select id="deviceInput" name="device">
                   <option value="auto" selected>auto</option>
                   <option value="cpu">cpu</option>
@@ -153,40 +163,130 @@
                 </select>
               </label>
               <label class="field">
-                <span>Target Size</span>
+                <span class="field-heading">
+                  <span>Target Size</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Override the inferred output size by pinning the larger lattice dimension. The other dimension follows the input aspect ratio. Do not combine this with Target Width or Target Height."
+                    aria-label="Override the inferred output size by pinning the larger lattice dimension. The other dimension follows the input aspect ratio. Do not combine this with Target Width or Target Height."
+                    >?</span
+                  >
+                </span>
                 <input id="targetSizeInput" name="targetSize" type="number" min="1" placeholder="auto" />
               </label>
               <label class="field">
-                <span>Target Width</span>
+                <span class="field-heading">
+                  <span>Target Width</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Pin the output lattice width directly. If Target Height is blank, the height is derived from the input aspect ratio. Do not combine this with Target Size."
+                    aria-label="Pin the output lattice width directly. If Target Height is blank, the height is derived from the input aspect ratio. Do not combine this with Target Size."
+                    >?</span
+                  >
+                </span>
                 <input id="targetWidthInput" name="targetWidth" type="number" min="1" placeholder="auto" />
               </label>
               <label class="field">
-                <span>Target Height</span>
+                <span class="field-heading">
+                  <span>Target Height</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Pin the output lattice height directly. If Target Width is blank, the width is derived from the input aspect ratio. Do not combine this with Target Size."
+                    aria-label="Pin the output lattice height directly. If Target Width is blank, the width is derived from the input aspect ratio. Do not combine this with Target Size."
+                    >?</span
+                  >
+                </span>
                 <input id="targetHeightInput" name="targetHeight" type="number" min="1" placeholder="auto" />
               </label>
               <label class="field">
-                <span>Phase X</span>
+                <span class="field-heading">
+                  <span>Phase X</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Pin the horizontal lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
+                    aria-label="Pin the horizontal lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
+                    >?</span
+                  >
+                </span>
                 <input id="phaseXInput" name="phaseX" type="number" step="0.05" placeholder="search" />
               </label>
               <label class="field">
-                <span>Phase Y</span>
+                <span class="field-heading">
+                  <span>Phase Y</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Pin the vertical lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
+                    aria-label="Pin the vertical lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
+                    >?</span
+                  >
+                </span>
                 <input id="phaseYInput" name="phaseY" type="number" step="0.05" placeholder="search" />
               </label>
               <label class="field">
-                <span>Steps</span>
+                <span class="field-heading">
+                  <span>Steps</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Number of optimizer steps for the phase-field solver. Higher values take longer but can refine the result. Set this to 0 to keep the initial placement without solver drift."
+                    aria-label="Number of optimizer steps for the phase-field solver. Higher values take longer but can refine the result. Set this to 0 to keep the initial placement without solver drift."
+                    >?</span
+                  >
+                </span>
                 <input id="stepsInput" name="steps" type="number" min="0" value="48" />
               </label>
               <label class="field">
-                <span>Seed</span>
+                <span class="field-heading">
+                  <span>Seed</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Random seed used by the solver and any stochastic analysis bits. Reusing the same seed makes runs more repeatable."
+                    aria-label="Random seed used by the solver and any stochastic analysis bits. Reusing the same seed makes runs more repeatable."
+                    >?</span
+                  >
+                </span>
                 <input id="seedInput" name="seed" type="number" min="0" value="7" />
               </label>
               <label class="toggle-row">
                 <input id="stripBackgroundInput" name="stripBackground" type="checkbox" />
-                <span>Strip checkerboard-ish junk</span>
+                <span class="toggle-copy">
+                  <span>Strip checkerboard-ish junk</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Remove light neutral backgrounds connected to the image edge before inference. Useful for fake transparency grids and similar edge junk."
+                    aria-label="Remove light neutral backgrounds connected to the image edge before inference. Useful for fake transparency grids and similar edge junk."
+                    >?</span
+                  >
+                </span>
               </label>
               <label class="toggle-row">
                 <input id="skipRerankInput" name="skipRerank" type="checkbox" />
-                <span>Skip low-confidence phase rerank</span>
+                <span class="toggle-copy">
+                  <span>Skip low-confidence phase rerank</span>
+                  <span
+                    class="help-tip"
+                    tabindex="0"
+                    role="note"
+                    title="Skip the preview rerank pass that rescues shaky size or phase picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
+                    aria-label="Skip the preview rerank pass that rescues shaky size or phase picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
+                    >?</span
+                  >
+                </span>
               </label>
             </form>
             <button id="runButton" class="button" type="button">Run The Machine</button>
