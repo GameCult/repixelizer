@@ -287,6 +287,7 @@ def _save_summary(path: Path, payload: dict[str, object]) -> None:
 def _build_engine_comparison_sheet(
     *,
     source_rgba: np.ndarray,
+    lanczos_rgba: np.ndarray,
     phase_field_rgba: np.ndarray,
     tile_graph_rgba: np.ndarray,
     focus_source_bbox: tuple[int, int, int, int],
@@ -316,6 +317,14 @@ def _build_engine_comparison_sheet(
             subtitle="Cleaned AI fake pixel badge",
         ),
         _render_panel(
+            "Lanczos",
+            rgba=lanczos_rgba,
+            pixelated=True,
+            panel_width=top_panel_width,
+            panel_height=top_panel_height,
+            subtitle=f"{target_width}x{target_height} naive baseline",
+        ),
+        _render_panel(
             "Phase-field",
             rgba=phase_field_rgba,
             pixelated=True,
@@ -341,11 +350,17 @@ def _build_engine_comparison_sheet(
     _draw_source_bbox(
         top_panels[1],
         focus_cell_bbox,
+        source_width=lanczos_rgba.shape[1],
+        source_height=lanczos_rgba.shape[0],
+    )
+    _draw_source_bbox(
+        top_panels[2],
+        focus_cell_bbox,
         source_width=phase_field_rgba.shape[1],
         source_height=phase_field_rgba.shape[0],
     )
     _draw_source_bbox(
-        top_panels[2],
+        top_panels[3],
         focus_cell_bbox,
         source_width=tile_graph_rgba.shape[1],
         source_height=tile_graph_rgba.shape[0],
@@ -359,6 +374,14 @@ def _build_engine_comparison_sheet(
             panel_width=crop_panel_width,
             panel_height=crop_panel_height,
             subtitle="Tracked sword-tip crop",
+        ),
+        _render_panel(
+            "Lanczos focus",
+            rgba=_crop_rgba(lanczos_rgba, focus_cell_bbox),
+            pixelated=True,
+            panel_width=crop_panel_width,
+            panel_height=crop_panel_height,
+            subtitle="Naive resize",
         ),
         _render_panel(
             "Phase-field focus",
@@ -378,7 +401,7 @@ def _build_engine_comparison_sheet(
         ),
     ]
 
-    width = margin * 2 + top_panel_width * 3 + col_gap * 2
+    width = margin * 2 + top_panel_width * 4 + col_gap * 3
     height = (
         margin * 2
         + title_height
@@ -427,13 +450,31 @@ def main() -> None:
     out_guard_crop.parent.mkdir(parents=True, exist_ok=True)
     out_engine_sheet.parent.mkdir(parents=True, exist_ok=True)
 
-    vector_result = run_pipeline(
+    vector_phase_field_result = run_pipeline(
         vector_input,
-        scratch_dir / "badge-vector-repixelized.png",
-        target_size=args.vector_target_size,
-        diagnostics_dir=scratch_dir / "vector-diag",
+        scratch_dir / "badge-vector-phase-field.png",
+        target_width=args.vector_target_size,
+        target_height=args.vector_target_size,
+        phase_x=0.0,
+        phase_y=0.0,
+        diagnostics_dir=scratch_dir / "vector-phase-field-diag",
         steps=args.steps,
         device=args.device,
+        reconstruction_mode="phase-field",
+        enable_phase_rerank=False,
+    )
+    vector_tile_graph_result = run_pipeline(
+        vector_input,
+        scratch_dir / "badge-vector-tile-graph.png",
+        target_width=args.vector_target_size,
+        target_height=args.vector_target_size,
+        phase_x=0.0,
+        phase_y=0.0,
+        diagnostics_dir=scratch_dir / "vector-tile-graph-diag",
+        steps=args.steps,
+        device=args.device,
+        reconstruction_mode="tile-graph",
+        enable_phase_rerank=False,
     )
     ai_result = run_pipeline(
         ai_input,
@@ -503,15 +544,23 @@ def main() -> None:
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
-            subtitle=f"{args.vector_target_size}x{args.vector_target_size}",
+            subtitle=f"{args.vector_target_size}x{args.vector_target_size} naive baseline",
         ),
         _render_panel(
-            "Repixelized",
-            rgba=vector_result.output_rgba,
+            "Phase-field",
+            rgba=vector_phase_field_result.output_rgba,
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
-            subtitle=f"{vector_result.inference.target_width}x{vector_result.inference.target_height}",
+            subtitle=f"{args.vector_target_size}x{args.vector_target_size} pinned lattice",
+        ),
+        _render_panel(
+            "Tile-graph",
+            rgba=vector_tile_graph_result.output_rgba,
+            pixelated=True,
+            panel_width=panel_width,
+            panel_height=panel_height,
+            subtitle=f"{args.vector_target_size}x{args.vector_target_size} pinned lattice",
         ),
     ]
     ai_panels = [
@@ -529,15 +578,23 @@ def main() -> None:
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
-            subtitle=f"{ai_result.inference.target_width}x{ai_result.inference.target_height}",
+            subtitle=f"{args.engine_target_width}x{args.engine_target_height} naive baseline",
         ),
         _render_panel(
-            "Repixelized",
-            rgba=ai_result.output_rgba,
+            "Phase-field",
+            rgba=phase_field_engine_result.output_rgba,
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
-            subtitle=f"{ai_result.inference.target_width}x{ai_result.inference.target_height} auto",
+            subtitle=f"{args.engine_target_width}x{args.engine_target_height} pinned lattice",
+        ),
+        _render_panel(
+            "Tile-graph",
+            rgba=tile_graph_engine_result.output_rgba,
+            pixelated=True,
+            panel_width=panel_width,
+            panel_height=panel_height,
+            subtitle=f"{args.engine_target_width}x{args.engine_target_height} pinned lattice",
         ),
     ]
 
@@ -557,8 +614,13 @@ def main() -> None:
     )
     vector_guard_inset_bbox = _shrink_bbox_bottom_right(vector_guard_bbox, scale_x=0.5, scale_y=0.5)
     vector_lanczos_preview = nearest_resize(vector_lanczos, width=vector_source.shape[1], height=vector_source.shape[0])
-    vector_repixelized_preview = nearest_resize(
-        vector_result.output_rgba,
+    vector_phase_field_preview = nearest_resize(
+        vector_phase_field_result.output_rgba,
+        width=vector_source.shape[1],
+        height=vector_source.shape[0],
+    )
+    vector_tile_graph_preview = nearest_resize(
+        vector_tile_graph_result.output_rgba,
         width=vector_source.shape[1],
         height=vector_source.shape[0],
     )
@@ -572,13 +634,17 @@ def main() -> None:
     vector_crops = [
         _crop_rgba(vector_source, vector_guard_inset_bbox),
         _crop_rgba(vector_lanczos_preview, vector_guard_inset_bbox),
-        _crop_rgba(vector_repixelized_preview, vector_guard_inset_bbox),
+        _crop_rgba(vector_phase_field_preview, vector_guard_inset_bbox),
+        _crop_rgba(vector_tile_graph_preview, vector_guard_inset_bbox),
     ]
     for panel, crop in zip(vector_panels, vector_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
-    ai_lanczos_preview = nearest_resize(ai_lanczos, width=ai_source.shape[1], height=ai_source.shape[0])
-    ai_repixelized_preview = nearest_resize(ai_result.output_rgba, width=ai_source.shape[1], height=ai_source.shape[0])
+    ai_lanczos_preview = nearest_resize(
+        ai_lanczos,
+        width=phase_field_engine_result.output_rgba.shape[1],
+        height=phase_field_engine_result.output_rgba.shape[0],
+    )
     ai_guard_inset_bbox = _shrink_bbox_bottom_right(guard_bbox, scale_x=0.5, scale_y=0.5)
     for panel in ai_panels:
         _draw_source_bbox(
@@ -590,25 +656,30 @@ def main() -> None:
 
     guard_strip = _build_guard_strip(
         _crop_rgba(ai_source, guard_bbox),
-        _crop_rgba(ai_lanczos_preview, guard_bbox),
-        _crop_rgba(ai_repixelized_preview, guard_bbox),
+        _crop_rgba(ai_lanczos, tuple(args.engine_cell_bbox)),
+        _crop_rgba(phase_field_engine_result.output_rgba, tuple(args.engine_cell_bbox)),
         title=None,
     )
     guard_strip.save(out_guard_crop)
     ai_crops = [
         _crop_rgba(ai_source, ai_guard_inset_bbox),
-        _crop_rgba(ai_lanczos_preview, ai_guard_inset_bbox),
-        _crop_rgba(ai_repixelized_preview, ai_guard_inset_bbox),
+        _crop_rgba(ai_lanczos, tuple(_shrink_bbox_bottom_right(tuple(args.engine_cell_bbox), scale_x=0.5, scale_y=0.5))),
+        _crop_rgba(phase_field_engine_result.output_rgba, tuple(_shrink_bbox_bottom_right(tuple(args.engine_cell_bbox), scale_x=0.5, scale_y=0.5))),
+        _crop_rgba(tile_graph_engine_result.output_rgba, tuple(_shrink_bbox_bottom_right(tuple(args.engine_cell_bbox), scale_x=0.5, scale_y=0.5))),
     ]
     for panel, crop in zip(ai_panels, ai_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
-    width = margin * 2 + panel_width * 3 + col_gap * 2
+    width = margin * 2 + panel_width * 4 + col_gap * 3
     height = margin * 2 + row_title_height * 2 + panel_height * 2 + row_gap
     canvas = Image.new("RGBA", (width, height), (11, 11, 13, 255))
     draw = ImageDraw.Draw(canvas)
-    draw.text((margin, margin - 2), "Non-pixel source -> 128x128", fill=(255, 255, 255, 255))
-    draw.text((margin, margin + row_title_height + panel_height + row_gap - 2), "AI fake pixel art -> auto lattice", fill=(255, 255, 255, 255))
+    draw.text((margin, margin - 2), "Non-pixel source -> 128x128 pinned lattice", fill=(255, 255, 255, 255))
+    draw.text(
+        (margin, margin + row_title_height + panel_height + row_gap - 2),
+        f"AI fake pixel art -> {args.engine_target_width}x{args.engine_target_height} pinned lattice @ ({args.engine_phase_x:.1f}, {args.engine_phase_y:.1f})",
+        fill=(255, 255, 255, 255),
+    )
 
     row1_y = margin + row_title_height
     row2_y = row1_y + panel_height + row_gap + row_title_height
@@ -633,6 +704,7 @@ def main() -> None:
     )
     engine_sheet = _build_engine_comparison_sheet(
         source_rgba=ai_source,
+        lanczos_rgba=ai_lanczos,
         phase_field_rgba=phase_field_engine_result.output_rgba,
         tile_graph_rgba=tile_graph_engine_result.output_rgba,
         focus_source_bbox=engine_focus_source_bbox,

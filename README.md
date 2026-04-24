@@ -10,22 +10,11 @@ Instead of pretending this is a resize problem, Repixelizer treats it as lattice
 
 Repixelizer was built to rescue fake pixel art, but it can also be used to generate pixel art directly from non-pixel source art when the shapes are clean and the local structure is doing something useful.
 
-Rows show the source art, a plain Lanczos downscale to the same target size, and the repixelized result. The bottom row also carries a sword-guard picture-in-picture, because that tiny region is one of the more honest tests of whether the tool is preserving local cell adjacency instead of just getting the vibes approximately correct.
+Rows show the source art, a plain Lanczos downscale, the default `phase-field` solver, and the `tile-graph` alternate solver. The bottom row also carries the tracked sword-tip closeup, because that tiny patch is one of the more honest tests of whether the machine is preserving structure instead of just faking confidence.
 
 ![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
-That is the two-headed pitch in one image: force non-pixel art onto a coherent grid, or take AI pixel art that only respects the grid locally and make it commit.
-
-## Two Engines
-
-There are two lean mean repixelating machines in here now.
-
-- `phase-field` is the default path. It lays down one displacement vector per output cell and nudges that field until the cells settle into quieter source paint without collapsing into each other. It is the best-looking solver in the repo right now, especially on internal linework and overall structure.
-- `tile-graph` is the source-owned alternate path. It extracts candidate tiles from source regions and solves a local adjacency problem instead of optimizing one displacement field. It is slower, moodier, and useful precisely because it fails differently.
-
-Here is the pinned badge comparison on the same lattice, so the machines have to fight fair instead of hiding behind different size guesses:
-
-![Phase-field vs tile-graph comparison](docs/readme-assets/engine-comparison-sheet.png)
+That is the pitch in one image: two different machines, same mess, same ruler, nowhere to hide.
 
 ## Current Status
 
@@ -160,10 +149,10 @@ Run the focused test suite with:
 The README images are generated from repo-tracked fixtures, not from random artifacts left lying around:
 
 ```powershell
-.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --out-engine-sheet docs\readme-assets\engine-comparison-sheet.png --scratch-dir artifacts\readme-build --device auto
+.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
 ```
 
-That regenerates the main README sheet, the standalone sword-guard closeup strip, the pinned phase-field-vs-tile-graph comparison sheet, and scratch outputs under `artifacts/readme-build/` so you can inspect the actual low-res results used to build the docs sample.
+That regenerates the main README sheet, the standalone sword-guard closeup strip, and scratch outputs under `artifacts/readme-build/` so you can inspect the actual low-res results used to build the docs sample.
 
 ## Diagnostic Closeups
 
