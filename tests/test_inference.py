@@ -5,6 +5,7 @@ from repixelizer.inference import (
     _candidate_dims,
     _combine_axis_priors,
     _hint_target_sizes_from_spacing,
+    _resolve_candidate_dims_from_spacing,
     _top_candidates_by_size,
     infer_fixed_lattice,
     infer_lattice,
@@ -35,6 +36,35 @@ def test_spacing_hints_can_add_dense_candidates_around_true_size() -> None:
     dims = _candidate_dims(1024, 1024, None, hinted_sizes=hinted_sizes)
     sizes = {width for width, _ in dims}
     assert 128 in sizes
+
+
+def test_strong_spacing_signal_can_collapse_candidate_search_to_single_size() -> None:
+    dims = _resolve_candidate_dims_from_spacing(
+        1024,
+        1024,
+        None,
+        hinted_sizes=[128],
+        spacing_x=(8.0, 0.82),
+        spacing_y=(8.02, 0.78),
+        prior_reliability=0.74,
+    )
+    sizes = {width for width, _ in dims}
+    assert sizes == {128}
+
+
+def test_weak_spacing_signal_keeps_broad_candidate_search() -> None:
+    dims = _resolve_candidate_dims_from_spacing(
+        1024,
+        1024,
+        None,
+        hinted_sizes=[128],
+        spacing_x=(8.0, 0.18),
+        spacing_y=(8.1, 0.12),
+        prior_reliability=0.24,
+    )
+    sizes = {width for width, _ in dims}
+    assert 128 in sizes
+    assert len(sizes) > 10
 
 
 def test_top_candidates_are_diversified_by_size() -> None:

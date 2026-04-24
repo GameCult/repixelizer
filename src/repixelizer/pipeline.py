@@ -439,7 +439,9 @@ def _select_phase_candidate_with_reconstruction(
             phase_y=float(candidate.phase_y),
             total_steps=preview_steps,
             final_loss=(
-                None if not candidate_artifacts.loss_history else float(candidate_artifacts.loss_history[-1])
+                None
+                if not getattr(candidate_artifacts, "loss_history", None)
+                else float(candidate_artifacts.loss_history[-1])
             ),
         )
         support = source_lattice_consistency_breakdown(

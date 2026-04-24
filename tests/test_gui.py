@@ -100,7 +100,7 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
     monkeypatch.setattr(inference_module, "_require_torch", lambda: (_FakeTorch(), object()))
     monkeypatch.setattr(inference_module, "_estimate_lattice_spacing", lambda rgba: ((None, 0.0), (None, 0.0)))
     monkeypatch.setattr(inference_module, "_hint_target_sizes_from_spacing", lambda width, height, spacing_x, spacing_y: [])
-    monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba: (4.0, 4.0, 0.5))
+    monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba, **kwargs: (4.0, 4.0, 0.5))
     monkeypatch.setattr(
         inference_module,
         "_candidate_dims",

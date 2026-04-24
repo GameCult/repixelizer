@@ -61,6 +61,52 @@ def _candidate_dims(
     return dims
 
 
+def _strong_spacing_size_window(
+    hinted_sizes: list[int],
+    *,
+    spacing_x: tuple[float | None, float],
+    spacing_y: tuple[float | None, float],
+    prior_reliability: float,
+) -> tuple[int, int] | None:
+    if not hinted_sizes:
+        return None
+    axis_confidences = [float(confidence) for _spacing, confidence in (spacing_x, spacing_y) if confidence > 1e-6]
+    if not axis_confidences:
+        return None
+    center = int(round(float(np.median(np.asarray(hinted_sizes, dtype=np.float32)))))
+    spread = max(abs(int(size) - center) for size in hinted_sizes)
+    mean_confidence = float(np.mean(axis_confidences))
+    max_confidence = float(max(axis_confidences))
+    if prior_reliability < 0.45 or max_confidence < 0.55 or spread > 2:
+        return None
+    radius = 0 if spread == 0 and mean_confidence >= 0.72 and prior_reliability >= 0.68 else 1
+    return center, radius
+
+
+def _resolve_candidate_dims_from_spacing(
+    width: int,
+    height: int,
+    target_size: int | None,
+    *,
+    hinted_sizes: list[int],
+    spacing_x: tuple[float | None, float],
+    spacing_y: tuple[float | None, float],
+    prior_reliability: float,
+) -> list[tuple[int, int]]:
+    dims = _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes)
+    size_window = _strong_spacing_size_window(
+        hinted_sizes,
+        spacing_x=spacing_x,
+        spacing_y=spacing_y,
+        prior_reliability=prior_reliability,
+    )
+    if size_window is None:
+        return dims
+    center, radius = size_window
+    narrowed = [dim for dim in dims if abs(max(dim) - center) <= radius]
+    return narrowed or dims
+
+
 def _estimate_cell_size(profile: np.ndarray) -> float:
     centered = profile.astype(np.float32) - float(np.mean(profile))
     max_lag = min(64, max(4, profile.shape[0] // 3))
@@ -192,7 +238,12 @@ def _combine_axis_priors(axis_priors: list[tuple[float, float]]) -> tuple[float,
     return shared_prior, reliability
 
 
-def _estimate_lattice_prior_details(rgba: np.ndarray) -> tuple[float, float, float]:
+def _estimate_lattice_prior_details(
+    rgba: np.ndarray,
+    *,
+    spacing_x: tuple[float | None, float] | None = None,
+    spacing_y: tuple[float | None, float] | None = None,
+) -> tuple[float, float, float]:
     alpha = rgba[..., 3]
     luminance = rgba[..., 0] * 0.2126 + rgba[..., 1] * 0.7152 + rgba[..., 2] * 0.0722
     dx = np.zeros_like(luminance)
@@ -201,7 +252,10 @@ def _estimate_lattice_prior_details(rgba: np.ndarray) -> tuple[float, float, flo
     dy[1:, :] = np.abs(luminance[1:, :] - luminance[:-1, :]) + np.abs(alpha[1:, :] - alpha[:-1, :])
     profile_x = (dx.mean(axis=0) + alpha.mean(axis=0) * 0.1).astype(np.float32)
     profile_y = (dy.mean(axis=1) + alpha.mean(axis=1) * 0.1).astype(np.float32)
-    spacing_x, spacing_y = _estimate_lattice_spacing(rgba)
+    if spacing_x is None or spacing_y is None:
+        inferred_spacing_x, inferred_spacing_y = _estimate_lattice_spacing(rgba)
+        spacing_x = inferred_spacing_x if spacing_x is None else spacing_x
+        spacing_y = inferred_spacing_y if spacing_y is None else spacing_y
     autocorr_x = _estimate_cell_size(profile_x)
     autocorr_y = _estimate_cell_size(profile_y)
     axis_x = _axis_prior_from_estimates(spacing_x[0], spacing_x[1], autocorr_x)
@@ -483,9 +537,21 @@ def infer_lattice(
     height, width = rgba.shape[:2]
     spacing_x, spacing_y = _estimate_lattice_spacing(rgba)
     hinted_sizes = _hint_target_sizes_from_spacing(width, height, spacing_x, spacing_y)
-    prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
+    prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(
+        rgba,
+        spacing_x=spacing_x,
+        spacing_y=spacing_y,
+    )
     phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
-    candidate_dims = _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes)
+    candidate_dims = _resolve_candidate_dims_from_spacing(
+        width,
+        height,
+        target_size,
+        hinted_sizes=hinted_sizes,
+        spacing_x=spacing_x,
+        spacing_y=spacing_y,
+        prior_reliability=prior_reliability,
+    )
     phase_sample_count = int(phase_values.size * phase_values.size)
 
     emit_observer(
