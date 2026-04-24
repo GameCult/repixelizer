@@ -16,6 +16,17 @@ Rows show the source art, a plain Lanczos downscale to the same target size, and
 
 That is the two-headed pitch in one image: force non-pixel art onto a coherent grid, or take AI pixel art that only respects the grid locally and make it commit.
 
+## Two Engines
+
+There are two lean mean repixelating machines in here now.
+
+- `phase-field` is the default path. It lays down one displacement vector per output cell and nudges that field until the cells settle into quieter source paint without collapsing into each other. It is the best-looking solver in the repo right now, especially on internal linework and overall structure.
+- `tile-graph` is the source-owned alternate path. It extracts candidate tiles from source regions and solves a local adjacency problem instead of optimizing one displacement field. It is slower, moodier, and useful precisely because it fails differently.
+
+Here is the pinned badge comparison on the same lattice, so the machines have to fight fair instead of hiding behind different size guesses:
+
+![Phase-field vs tile-graph comparison](docs/readme-assets/engine-comparison-sheet.png)
+
 ## Current Status
 
 This repo is past the "pile of hopeful heuristics" stage and into "real machine, still experimental."
@@ -24,7 +35,7 @@ What exists now:
 
 - lattice inference with CUDA support
 - a lean displacement-field optimizer in `src/repixelizer/phase_field.py`
-- a source-owned alternate solver in `--reconstruction-mode tile-graph`
+- a source-owned alternate solver in `src/repixelizer/tile_graph.py`
 - automatic diagnostics, comparisons, and benchmark runs
 - a tuning harness for offline parameter sweeps
 - metrics that finally care about visible structure instead of only pleasing the lattice accountant
@@ -38,14 +49,14 @@ What changed recently:
 
 Current read on the engines:
 
-- `phase-field` is the main line now. It is the best-looking badge result the repo has produced so far, especially on internal structure, even though it still widens the sword-tip stroke a bit too much in the tracked focus crop.
-- `tile-graph` is still useful and still very real, but it remains slower and more temperamental on messy badge-scale inputs. Its best full-emblem probe under `artifacts/full-emblem-tile-graph-atomic-v3-cuda/` is still a strong result.
+- `phase-field` is the release path. It currently produces the best-looking badge result in the repo, especially on internal linework, even though it still widens the tracked sword-tip stroke a bit too much.
+- `tile-graph` is still valuable as the alternate machine. It keeps hard source ownership and often preserves cell identity in a different, sometimes more stubborn way, but it is slower and more temperamental on badge-scale inputs.
 
 Current weak spots:
 
 - `phase-field` still needs better along-stroke versus across-stroke behavior near tapered contours
 - tile-graph cold-build time is still dominated by connected-component labeling / region extraction on large fixtures
-- lattice selection is still low-confidence on some ugly generated inputs, so pinned-size iteration remains an important workflow
+- lattice selection is still low-confidence on some ugly generated inputs, so pinned-size iteration remains an important workflow for both engines
 
 ## Quickstart
 
@@ -146,13 +157,13 @@ Run the focused test suite with:
 
 ## Regenerating README Assets
 
-The README comparison sheet is generated from repo-tracked fixtures, not from random artifacts left lying around:
+The README images are generated from repo-tracked fixtures, not from random artifacts left lying around:
 
 ```powershell
-.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device cpu
+.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --out-engine-sheet docs\readme-assets\engine-comparison-sheet.png --scratch-dir artifacts\readme-build --device auto
 ```
 
-That regenerates the README sheet, the standalone sword-guard closeup strip, and scratch outputs under `artifacts/readme-build/` so you can inspect the actual low-res results used to build the docs sample.
+That regenerates the main README sheet, the standalone sword-guard closeup strip, the pinned phase-field-vs-tile-graph comparison sheet, and scratch outputs under `artifacts/readme-build/` so you can inspect the actual low-res results used to build the docs sample.
 
 ## Diagnostic Closeups
 
