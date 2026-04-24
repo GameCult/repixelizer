@@ -64,6 +64,14 @@
             </div>
             <form id="controlsForm" class="controls-grid">
               <label class="field">
+                <span>Device</span>
+                <select id="deviceInput" name="device">
+                  <option value="auto" selected>auto</option>
+                  <option value="cpu">cpu</option>
+                  <option value="cuda">cuda</option>
+                </select>
+              </label>
+              <label class="field">
                 <span>Target Size</span>
                 <input id="targetSizeInput" name="targetSize" type="number" min="1" placeholder="auto" />
               </label>
@@ -90,14 +98,6 @@
               <label class="field">
                 <span>Seed</span>
                 <input id="seedInput" name="seed" type="number" min="0" value="7" />
-              </label>
-              <label class="field">
-                <span>Device</span>
-                <select id="deviceInput" name="device">
-                  <option value="auto" selected>auto</option>
-                  <option value="cpu">cpu</option>
-                  <option value="cuda">cuda</option>
-                </select>
               </label>
               <label class="toggle-row">
                 <input id="stripBackgroundInput" name="stripBackground" type="checkbox" />
