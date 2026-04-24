@@ -94,7 +94,6 @@ const statusText = byId<HTMLParagraphElement>("statusText");
 const inferenceSummary = byId<HTMLDivElement>("inferenceSummary");
 const candidateList = byId<HTMLDivElement>("candidateList");
 const eventLog = byId<HTMLDivElement>("eventLog");
-const viewerTitle = byId<HTMLHeadingElement>("viewerTitle");
 const stepSlider = byId<HTMLInputElement>("stepSlider");
 const stepValue = byId<HTMLSpanElement>("stepValue");
 const lossCanvas = byId<HTMLCanvasElement>("lossCanvas");
@@ -158,7 +157,7 @@ const state: AppState = {
   file: null,
   jobId: null,
   status: "idle",
-  statusText: "Drop a fake sprite in here and let the machine explain itself for once.",
+  statusText: "Waiting for input.",
   inputPreviewImage: null,
   sourceImage: null,
   preprocessedImage: null,
@@ -431,9 +430,8 @@ function renderInference(): void {
 function renderMetrics(): void {
   metricsPanel.innerHTML = "";
   const frame = getSelectedFrame();
-  const items: Array<[string, string]> = [];
+  const items: Array<[string, string]> = [["Stage", state.currentStage]];
   if (frame) {
-    items.push(["Frame", `${frame.step}/${frame.totalSteps}`]);
     items.push(["Loss", frame.loss === null ? "n/a" : formatNumber(frame.loss, 4)]);
     for (const [key, value] of Object.entries(frame.terms)) {
       items.push([key.replaceAll("_", " "), formatNumber(value, 4)]);
@@ -445,8 +443,6 @@ function renderMetrics(): void {
       formatNumber(readNestedNumber(state.runSummary, ["source_fidelity", "final_output", "score"])),
     ]);
     items.push(["Source color ratio", formatNumber(readNestedNumber(state.runSummary, ["output_colors_from_source_ratio"]))]);
-  } else {
-    items.push(["Status", state.currentStage]);
   }
   for (const [label, value] of items) {
     const node = document.createElement("div");
@@ -485,7 +481,6 @@ async function renderViewer(): Promise<void> {
   let leftLabel = "Source";
   let middleLabel = "Edge Scout";
   let rightLabel = "Output";
-  let title = state.currentStage;
 
   if (state.latticeImage) {
     leftAsset = state.latticeImage;
@@ -502,16 +497,13 @@ async function renderViewer(): Promise<void> {
     leftLabel = "Sampling Overlay";
     middleLabel = "Displacement";
     rightLabel = "Current Output";
-    title = frame.step === 0 ? "Initial nearest-sample placement" : `Solver step ${frame.step} / ${frame.totalSteps}`;
   } else if (state.cleanupImage) {
     middleAsset = state.heatmapImage ?? middleAsset;
     middleLabel = "Cleanup Heatmap";
     rightAsset = state.cleanupImage;
     rightLabel = "Cleaned Output";
-    title = state.finalOutputImage ? "Finalized output" : "Cleanup pass";
   }
 
-  viewerTitle.textContent = title;
   leftVizLabel.textContent = leftLabel;
   middleVizLabel.textContent = middleLabel;
   rightVizLabel.textContent = rightLabel;

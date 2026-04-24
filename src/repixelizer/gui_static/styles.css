@@ -262,8 +262,9 @@ p {
 .brand,
 .brand-lockup,
 .copy-stack,
-.viewer-head-summary,
-.viewer-status-panel {
+.viewer-heading,
+.viewer-metrics,
+.metrics-status {
   display: grid;
   gap: 10px;
 }
@@ -532,54 +533,35 @@ p {
 }
 
 .viewer-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-  gap: 18px 24px;
-  align-items: start;
-}
-
-.viewer-head-summary {
-  display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(320px, 1fr);
-  gap: 18px 24px;
-  min-width: 0;
-  align-items: start;
-}
-
-.viewer-title-block {
-  align-content: start;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 12px;
 }
 
-.viewer-status-panel {
-  align-content: start;
-  gap: 8px;
+.viewer-heading {
   min-width: 0;
-  padding-left: 20px;
-  border-left: 3px solid rgba(255, 216, 74, 0.22);
+  align-content: start;
 }
 
-.viewer-status-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.viewer-metrics {
+  gap: 12px;
 }
 
-.viewer-status-label {
-  font-size: 0.74rem;
-  line-height: 1;
-  color: var(--ui-text-muted);
-  text-transform: uppercase;
+.metrics-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 16px 20px;
+  align-items: start;
 }
 
-.status-text {
-  max-width: 26ch;
+.metrics-status {
+  min-width: 0;
+  align-content: start;
 }
 
-.viewer-status-note {
-  font-size: 1rem;
-  line-height: 1.12;
-  max-width: 34ch;
+.metrics-status-text {
+  max-width: 42ch;
 }
 
 .scrubber {
@@ -587,8 +569,6 @@ p {
   display: grid;
   gap: 10px;
   align-content: start;
-  padding-left: 20px;
-  border-left: 3px solid rgba(255, 216, 74, 0.22);
 }
 
 .step-value {
@@ -793,9 +773,8 @@ select:focus-visible {
 }
 
 @media (min-width: 1500px) {
-  .viewer-head-summary {
-    grid-template-columns: minmax(240px, auto) minmax(300px, 1fr);
-    align-items: start;
+  .metrics-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
   }
 }
 
@@ -805,15 +784,8 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .viewer-head {
+  .metrics-toolbar {
     grid-template-columns: 1fr;
-  }
-
-  .scrubber {
-    padding-left: 0;
-    padding-top: 14px;
-    border-left: 0;
-    border-top: 3px solid rgba(255, 216, 74, 0.22);
   }
 }
 
@@ -827,16 +799,8 @@ select:focus-visible {
     flex-wrap: wrap;
   }
 
-  .viewer-head-summary {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-
-  .viewer-status-panel {
-    padding-left: 0;
-    padding-top: 12px;
-    border-left: 0;
-    border-top: 3px solid rgba(255, 216, 74, 0.22);
+  .viewer-head {
+    align-items: flex-start;
   }
 
   .brand-lockup {

@@ -127,24 +127,8 @@
         <main class="workspace page-content">
           <section class="hero viewer-panel">
             <div class="card-head viewer-head">
-              <div class="viewer-head-summary">
-                <div class="copy-stack card-copy viewer-title-block">
-                  <p class="eyebrow">Algorithm View</p>
-                  <h2 id="viewerTitle">Pipeline Stages</h2>
-                </div>
-                <div class="viewer-status-panel">
-                  <span class="viewer-status-label">Instrument Panel</span>
-                  <div class="viewer-status-row">
-                    <strong id="statusBadge" class="status-badge">Idle</strong>
-                  </div>
-                  <p id="statusText" class="status-text">Drop a fake sprite in here and let the machine explain itself for once.</p>
-                  <p class="muted viewer-status-note">Watch inference, edge scouting, field prep, solver drift, cleanup, then patch any stubborn pixels yourself.</p>
-                </div>
-              </div>
-              <div class="scrubber">
-                <label for="stepSlider">Solver Step</label>
-                <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
-                <span id="stepValue" class="step-value">No frames yet</span>
+              <div class="copy-stack card-copy viewer-heading">
+                <h2 id="viewerTitle">Pipeline Stages</h2>
               </div>
             </div>
             <canvas id="lossCanvas" class="loss-canvas" width="800" height="120"></canvas>
@@ -162,7 +146,20 @@
                 <canvas id="rightCanvas"></canvas>
               </figure>
             </div>
-            <div id="metricsPanel" class="metrics-panel stats-grid"></div>
+            <div class="viewer-metrics">
+              <div class="metrics-toolbar">
+                <div class="metrics-status">
+                  <strong id="statusBadge" class="status-badge">Idle</strong>
+                  <p id="statusText" class="status-text metrics-status-text">Waiting for input.</p>
+                </div>
+                <div class="scrubber">
+                  <label for="stepSlider">Solver Step</label>
+                  <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
+                  <span id="stepValue" class="step-value">No frames yet</span>
+                </div>
+              </div>
+              <div id="metricsPanel" class="metrics-panel stats-grid"></div>
+            </div>
           </section>
 
           <section class="card editor-panel">
