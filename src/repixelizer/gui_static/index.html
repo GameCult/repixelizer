@@ -37,7 +37,7 @@
                 <h2 id="viewerTitle">Pipeline Stages</h2>
               </div>
             </div>
-            <div id="metricsPanel" class="metrics-panel stats-grid">
+            <div id="metricsPanel" class="metrics-panel">
               <div id="statusPanel" class="metric-chip metric-status-block" data-job-state="idle">
                 <div class="status-heading">
                   <span id="statusBadge" class="status-badge">Idle</span>
@@ -49,7 +49,7 @@
                 </div>
                 <div id="statusMetrics" class="status-metrics"></div>
               </div>
-              <div class="metric-chip scrubber metric-scrubber">
+              <div id="scrubberPanel" class="metric-chip scrubber metric-scrubber" hidden>
                 <label for="stepSlider">Solver Step</label>
                 <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
                 <span id="stepValue" class="step-value">No frames yet</span>
@@ -143,10 +143,6 @@
               <strong>Drop image</strong>
               <span id="dropzoneLabel">PNG, sprite scrap, cursed logo. Whatever started this.</span>
             </button>
-            <figure class="input-preview-card">
-              <div class="viz-label">Selected Input</div>
-              <canvas id="inputPreviewCanvas"></canvas>
-            </figure>
           </section>
 
           <section class="card section-block">

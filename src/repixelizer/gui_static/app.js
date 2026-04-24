@@ -9,7 +9,6 @@ function byId(id) {
 const fileInput = byId("fileInput");
 const dropzone = byId("dropzone");
 const dropzoneLabel = byId("dropzoneLabel");
-const inputPreviewCanvas = byId("inputPreviewCanvas");
 const pickFileButton = byId("pickFileButton");
 const runButton = byId("runButton");
 const statusPanel = byId("statusPanel");
@@ -20,6 +19,7 @@ const statusMetrics = byId("statusMetrics");
 const inferenceSummary = byId("inferenceSummary");
 const candidateList = byId("candidateList");
 const eventLog = byId("eventLog");
+const scrubberPanel = byId("scrubberPanel");
 const stepSlider = byId("stepSlider");
 const stepValue = byId("stepValue");
 const lossCanvas = byId("lossCanvas");
@@ -80,7 +80,6 @@ const state = {
     stageKey: "idle",
     stageLabel: "Waiting for input",
     statusText: "Choose a file, then run the machine.",
-    inputPreviewImage: null,
     sourceImage: null,
     preprocessedImage: null,
     latticeImage: null,
@@ -168,9 +167,12 @@ function setStage(stageKey, label, detail) {
     statusStage.textContent = label;
     statusText.textContent = detail;
 }
-function resetRunArtifacts() {
+function resetRunArtifacts(options = {}) {
+    const preserveSourceImage = options.preserveSourceImage ?? false;
     state.jobId = null;
-    state.sourceImage = null;
+    if (!preserveSourceImage) {
+        state.sourceImage = null;
+    }
     state.preprocessedImage = null;
     state.latticeImage = null;
     state.guidanceImage = null;
@@ -259,30 +261,6 @@ async function fileToImageAsset(file) {
         width: image.naturalWidth || 1,
         height: image.naturalHeight || 1,
     };
-}
-async function renderInputPreview() {
-    const context = inputPreviewCanvas.getContext("2d");
-    if (!context) {
-        return;
-    }
-    const asset = state.inputPreviewImage;
-    if (!asset) {
-        inputPreviewCanvas.width = 320;
-        inputPreviewCanvas.height = 180;
-        context.clearRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
-        context.fillStyle = "#081012";
-        context.fillRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
-        context.fillStyle = "rgba(255,255,255,0.2)";
-        context.font = "16px sans-serif";
-        context.fillText("No input loaded yet", 20, 32);
-        return;
-    }
-    const image = await loadImage(asset);
-    inputPreviewCanvas.width = image.naturalWidth || asset.width;
-    inputPreviewCanvas.height = image.naturalHeight || asset.height;
-    context.imageSmoothingEnabled = false;
-    context.clearRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
-    context.drawImage(image, 0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
 }
 function readNestedNumber(root, path) {
     let current = root;
@@ -431,6 +409,7 @@ async function renderViewer() {
     await Promise.all([drawAsset(leftCanvas, leftAsset), drawAsset(rightCanvas, rightAsset)]);
 }
 function renderSlider() {
+    scrubberPanel.hidden = state.frames.length === 0;
     if (state.frames.length === 0) {
         stepSlider.disabled = true;
         stepSlider.max = "0";
@@ -873,7 +852,7 @@ async function startRun() {
         setStage("idle", "Waiting for input", "Pick a file first. The machine is not clairvoyant.");
         return;
     }
-    resetRunArtifacts();
+    resetRunArtifacts({ preserveSourceImage: true });
     renderEventLog();
     runButton.disabled = true;
     setJobState("queued");
@@ -901,25 +880,30 @@ async function startRun() {
 }
 async function acceptFile(file) {
     state.file = file;
+    resetRunArtifacts();
     dropzoneLabel.textContent = file.name;
-    setJobState("idle");
-    setStage("ready", "Ready to run", `${file.name} is loaded. Hit run when you want the machine to start sweating.`);
+    setJobState("waiting");
+    setStage("loading_input", "Loading input", `Reading ${file.name} so the panels stop sitting around empty.`);
+    renderEventLog();
+    await renderEverything();
     try {
         const previewImage = await fileToImageAsset(file);
         if (state.file !== file) {
             return;
         }
-        state.inputPreviewImage = previewImage;
+        state.sourceImage = previewImage;
+        setJobState("idle");
+        setStage("ready", "Ready to run", `${file.name} is loaded. Hit run when you want the machine to start sweating.`);
     }
     catch (error) {
         if (state.file !== file) {
             return;
         }
-        state.inputPreviewImage = null;
+        state.sourceImage = null;
         setJobState("failed");
         setStage("failed", "Preview failed", error instanceof Error ? error.message : "Failed to load image preview.");
     }
-    await renderInputPreview();
+    await renderEverything();
 }
 dropzone.addEventListener("click", () => fileInput.click());
 pickFileButton.addEventListener("click", () => fileInput.click());
@@ -1072,5 +1056,4 @@ setPaintColor(state.paintColor);
 syncEditorCursorState();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
-void renderInputPreview();
 void renderEverything();
