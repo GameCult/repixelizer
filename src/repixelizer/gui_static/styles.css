@@ -612,6 +612,7 @@ p {
 .metrics-panel {
   display: grid;
   gap: 10px;
+  align-items: start;
 }
 
 .metric-status-block {
@@ -625,10 +626,11 @@ p {
 
 .metric-scrubber {
   min-width: 0;
+  width: 100%;
 }
 
 .stats-grid {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: fit-content(26ch) minmax(0, 1fr);
 }
 
 .candidate-card,
