@@ -616,10 +616,11 @@ p {
 
 .metric-status-block {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   align-content: start;
   align-self: stretch;
   justify-self: start;
+  padding: 14px 16px;
   width: fit-content;
   max-width: min(100%, 26ch);
 }
