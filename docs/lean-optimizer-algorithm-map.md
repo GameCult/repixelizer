@@ -97,7 +97,7 @@ The pipeline first decides whether the lattice is:
 - it scores a small phase grid for each size
 - it keeps the best candidate plus top alternates
 
-After that, phase rerank may still happen, but only for `phase-field`, only when confidence is low, and only when rerank is enabled. The rerank probe is not a full solve. It calls `_run_reconstruction(...)` with `steps=0`, which means it evaluates the lattice using the zero-displacement field before any optimization movement.
+After that, phase rerank may still happen, but only for `phase-field`, only when confidence is low, and only when rerank is enabled. The rerank probe is a short preview solve. It calls `_run_reconstruction(...)` with a small bounded step count, capped by both the requested solver steps and `phase_rerank_preview_steps`.
 
 That part matters. The pipeline is effectively asking:
 
@@ -239,7 +239,7 @@ Then it immediately computes a baseline image by rounding the fixed lattice cent
 - `initial_y = round(uv0_px[..., 1])`
 - `initial_rgba = source[initial_y, initial_x]`
 
-This is the zero-displacement output. Diagnostics still call this `snap_initial`, which is a fossil from the old optimizer. There is no snap stage anymore. It is just "the field before it moves."
+This is the zero-displacement output. Diagnostics call this `initial_output`. It is simply "the field before it moves."
 
 ### Metaphor
 
@@ -550,8 +550,7 @@ These pieces all belong to the same model of the machine.
 
 ## Current seams
 
-- `snap_initial` is still a legacy label for the zero-displacement baseline
-- low-confidence phase rerank judges lattices using a `steps=0` probe, not the full optimized field
+- low-confidence phase rerank uses only a short preview solve, not the full optimized field
 - the edge scout only knows edge magnitude, not direction, so the solver still struggles with along-stroke versus across-stroke behavior near tapered contours
 
 These are the places where the current implementation is still a little awkward or incomplete.

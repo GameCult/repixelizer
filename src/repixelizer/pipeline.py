@@ -90,6 +90,7 @@ def run_pipeline(
         source,
         inference,
         analysis=analysis,
+        steps=steps,
         seed=seed,
         device=device,
         solver_params=solver_params,
@@ -201,6 +202,7 @@ def _select_phase_candidate(
     inference: InferenceResult,
     *,
     analysis,
+    steps: int = 0,
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
@@ -211,6 +213,7 @@ def _select_phase_candidate(
         source,
         inference,
         analysis=analysis,
+        steps=steps,
         seed=seed,
         device=device,
         solver_params=solver_params,
@@ -224,6 +227,7 @@ def _select_phase_candidate_with_reconstruction(
     inference: InferenceResult,
     *,
     analysis,
+    steps: int = 0,
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
@@ -238,6 +242,7 @@ def _select_phase_candidate_with_reconstruction(
     if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
         return inference
 
+    preview_steps = min(max(0, int(steps)), max(0, int(solver_params.phase_rerank_preview_steps)))
     top_score = float(inference.top_candidates[0].score)
     candidate_records: list[dict[str, float | InferenceResult]] = []
     for candidate in inference.top_candidates[:8]:
@@ -253,7 +258,7 @@ def _select_phase_candidate_with_reconstruction(
             source,
             inference=candidate_inference,
             analysis=analysis,
-            steps=0,
+            steps=preview_steps,
             seed=seed,
             device=device,
             solver_params=solver_params,

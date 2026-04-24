@@ -151,7 +151,7 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         height=result.source_rgba.shape[0],
     )
     source_fidelity = {
-        "snap_initial": source_lattice_consistency_breakdown(
+        "initial_output": source_lattice_consistency_breakdown(
             result.source_rgba,
             result.solver.initial_rgba,
             target_width=result.inference.target_width,

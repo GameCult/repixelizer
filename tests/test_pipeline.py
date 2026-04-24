@@ -35,7 +35,7 @@ def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
     import json
 
     run_json = json.loads((diagnostics_dir / "run.json").read_text(encoding="utf-8"))
-    assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
+    assert set(run_json["source_fidelity"].keys()) == {"initial_output", "solver_target", "final_output"}
     assert "source_structure" in run_json
     assert {"edge_f1", "exact_match_ratio", "score"} <= set(run_json["source_structure"].keys())
     assert "phase_rerank_candidates" in run_json
@@ -220,14 +220,40 @@ def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) ->
             self.target_rgba = rgba
 
     def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
-        assert steps == 0
+        assert steps == 8
         return DummyArtifacts(outputs[(inference.phase_x, inference.phase_y)])
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.phase_x == candidate_b.phase_x
     assert selected.phase_y == candidate_b.phase_y
+
+
+def test_phase_rerank_preview_respects_requested_zero_steps(monkeypatch) -> None:
+    source = np.zeros((2, 2, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.4, phase_y=0.2, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.4, phase_y=0.2, score=0.909, breakdown={})
+    inference = InferenceResult(
+        target_width=2,
+        target_height=2,
+        phase_x=candidate_a.phase_x,
+        phase_y=candidate_a.phase_y,
+        confidence=0.1,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class DummyArtifacts:
+        def __init__(self, rgba: np.ndarray) -> None:
+            self.target_rgba = rgba
+
+    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        assert steps == 0
+        return DummyArtifacts(np.zeros_like(source_rgba))
+
+    monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
+
+    _select_phase_candidate(source, inference, analysis=object(), steps=0, seed=7, device="cpu")
 
 
 def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None:
@@ -259,7 +285,7 @@ def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
 
@@ -293,7 +319,7 @@ def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
 
@@ -319,6 +345,7 @@ def test_select_phase_candidate_can_skip_phase_rerank(monkeypatch) -> None:
         source,
         inference,
         analysis=object(),
+        steps=32,
         seed=7,
         device="cpu",
         enable_phase_rerank=False,
@@ -348,6 +375,7 @@ def test_select_phase_candidate_skips_phase_rerank_for_tile_graph(monkeypatch) -
         source,
         inference,
         analysis=object(),
+        steps=32,
         seed=7,
         device="cpu",
         reconstruction_mode="tile-graph",
@@ -595,7 +623,7 @@ def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(mo
     monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
     monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
 
@@ -617,7 +645,7 @@ def test_phase_rerank_keeps_high_confidence_candidate_without_probe(monkeypatch)
         raise AssertionError("rerank probe should not run for high-confidence inference")
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fail)
-    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
 
@@ -665,6 +693,6 @@ def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
     monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
     monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), seed=7, device="cpu")
+    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.phase_x == candidate_b.phase_x
     assert selected.phase_y == candidate_b.phase_y

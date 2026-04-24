@@ -533,5 +533,5 @@ def test_pipeline_tile_graph_mode_writes_reconstruction_diagnostics(tmp_path: Pa
     assert run_json["reconstruction"]["tile_graph_model_device"] == "cpu"
     assert "tile_graph_model_cache_hit" in run_json["reconstruction"]
     assert run_json["reconstruction"]["tile_graph_candidate_count"] > 0
-    assert set(run_json["source_fidelity"].keys()) == {"snap_initial", "solver_target", "final_output"}
+    assert set(run_json["source_fidelity"].keys()) == {"initial_output", "solver_target", "final_output"}
     assert result.diagnostics["reconstruction"]["mode"] == "tile-graph"
