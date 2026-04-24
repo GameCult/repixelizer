@@ -69,6 +69,11 @@ type AppState = {
   currentStage: string;
 };
 
+type ViewportAnchor = {
+  clientX: number;
+  clientY: number;
+};
+
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) {
@@ -177,12 +182,29 @@ const state: AppState = {
 
 let currentEventSource: EventSource | null = null;
 let painting = false;
+let panning = false;
+let activePanPointerId: number | null = null;
+let panStartClientX = 0;
+let panStartClientY = 0;
+let panStartScrollLeft = 0;
+let panStartScrollTop = 0;
 let offscreenCanvas: HTMLCanvasElement | null = null;
 let offscreenContext: CanvasRenderingContext2D | null = null;
 let singlePixel = new ImageData(1, 1);
 
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function clampZoom(value: number): number {
+  const minZoom = Number(zoomInput.min) || 1;
+  const maxZoom = Number(zoomInput.max) || 64;
+  return Math.max(minZoom, Math.min(maxZoom, Math.round(value)));
+}
+
+function syncEditorCursorState(): void {
+  editorSurface.classList.toggle("is-panning", panning);
+  editorSurface.classList.toggle("is-eyedropper", state.altHeld);
 }
 
 function setPaintColor(color: [number, number, number, number]): void {
@@ -607,6 +629,42 @@ function renderEditor(): void {
   `;
 }
 
+function setZoom(nextZoom: number, anchor: ViewportAnchor | null = null): void {
+  const clampedZoom = clampZoom(nextZoom);
+  const previousZoom = state.zoom;
+  if (clampedZoom === previousZoom) {
+    zoomInput.value = String(clampedZoom);
+    zoomValue.textContent = `${clampedZoom}x`;
+    return;
+  }
+
+  let viewportX = 0;
+  let viewportY = 0;
+  let imageX: number | null = null;
+  let imageY: number | null = null;
+  if (offscreenCanvas && anchor) {
+    const surfaceRect = editorSurface.getBoundingClientRect();
+    viewportX = anchor.clientX - surfaceRect.left;
+    viewportY = anchor.clientY - surfaceRect.top;
+    imageX = (editorSurface.scrollLeft + viewportX - editorCanvas.offsetLeft) / previousZoom;
+    imageY = (editorSurface.scrollTop + viewportY - editorCanvas.offsetTop) / previousZoom;
+  }
+
+  state.zoom = clampedZoom;
+  zoomInput.value = String(clampedZoom);
+  zoomValue.textContent = `${clampedZoom}x`;
+  renderEditor();
+
+  if (offscreenCanvas && imageX !== null && imageY !== null) {
+    const nextScrollLeft = imageX * clampedZoom + editorCanvas.offsetLeft - viewportX;
+    const nextScrollTop = imageY * clampedZoom + editorCanvas.offsetTop - viewportY;
+    const maxScrollLeft = Math.max(0, editorSurface.scrollWidth - editorSurface.clientWidth);
+    const maxScrollTop = Math.max(0, editorSurface.scrollHeight - editorSurface.clientHeight);
+    editorSurface.scrollLeft = Math.max(0, Math.min(maxScrollLeft, nextScrollLeft));
+    editorSurface.scrollTop = Math.max(0, Math.min(maxScrollTop, nextScrollTop));
+  }
+}
+
 function editorPixelFromPointer(event: PointerEvent): { x: number; y: number } | null {
   if (!offscreenCanvas) {
     return null;
@@ -652,6 +710,29 @@ function exportEditorPng(): void {
   link.href = offscreenCanvas.toDataURL("image/png");
   link.download = (state.file?.name?.replace(/\.[^.]+$/, "") || "repixelized") + "-edited.png";
   link.click();
+}
+
+function beginPan(event: PointerEvent): void {
+  panning = true;
+  activePanPointerId = event.pointerId;
+  panStartClientX = event.clientX;
+  panStartClientY = event.clientY;
+  panStartScrollLeft = editorSurface.scrollLeft;
+  panStartScrollTop = editorSurface.scrollTop;
+  editorSurface.setPointerCapture(event.pointerId);
+  syncEditorCursorState();
+}
+
+function endPan(pointerId: number | null = null): void {
+  if (pointerId !== null && activePanPointerId !== pointerId) {
+    return;
+  }
+  if (activePanPointerId !== null && editorSurface.hasPointerCapture(activePanPointerId)) {
+    editorSurface.releasePointerCapture(activePanPointerId);
+  }
+  panning = false;
+  activePanPointerId = null;
+  syncEditorCursorState();
 }
 
 function buildFormData(): FormData {
@@ -869,9 +950,7 @@ stepSlider.addEventListener("input", () => {
 });
 
 zoomInput.addEventListener("input", () => {
-  state.zoom = Number(zoomInput.value);
-  zoomValue.textContent = `${state.zoom}x`;
-  renderEditor();
+  setZoom(Number(zoomInput.value));
 });
 
 gridToggle.addEventListener("change", () => {
@@ -893,16 +972,78 @@ for (const input of Object.values(paintInputs)) {
 window.addEventListener("keydown", (event) => {
   if (event.key === "Alt") {
     state.altHeld = true;
+    syncEditorCursorState();
   }
 });
 
 window.addEventListener("keyup", (event) => {
   if (event.key === "Alt") {
     state.altHeld = false;
+    syncEditorCursorState();
   }
 });
 
+window.addEventListener("blur", () => {
+  state.altHeld = false;
+  painting = false;
+  endPan();
+  syncEditorCursorState();
+});
+
+editorSurface.addEventListener("mousedown", (event) => {
+  if (event.button === 1) {
+    event.preventDefault();
+  }
+});
+
+editorSurface.addEventListener("auxclick", (event) => {
+  if (event.button === 1) {
+    event.preventDefault();
+  }
+});
+
+editorSurface.addEventListener(
+  "wheel",
+  (event) => {
+    if (!offscreenCanvas) {
+      return;
+    }
+    event.preventDefault();
+    const delta = event.deltaY < 0 ? 1 : -1;
+    setZoom(state.zoom + delta, { clientX: event.clientX, clientY: event.clientY });
+  },
+  { passive: false },
+);
+
+editorSurface.addEventListener("pointerdown", (event) => {
+  if (event.button !== 1 || !offscreenCanvas) {
+    return;
+  }
+  event.preventDefault();
+  beginPan(event);
+});
+
+editorSurface.addEventListener("pointermove", (event) => {
+  if (!panning || activePanPointerId !== event.pointerId) {
+    return;
+  }
+  event.preventDefault();
+  editorSurface.scrollLeft = panStartScrollLeft - (event.clientX - panStartClientX);
+  editorSurface.scrollTop = panStartScrollTop - (event.clientY - panStartClientY);
+});
+
+editorSurface.addEventListener("pointerup", (event) => {
+  endPan(event.pointerId);
+});
+
+editorSurface.addEventListener("pointercancel", (event) => {
+  endPan(event.pointerId);
+});
+
 editorCanvas.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) {
+    return;
+  }
   const pixel = editorPixelFromPointer(event);
   if (!pixel) {
     return;
@@ -918,6 +1059,9 @@ editorCanvas.addEventListener("pointerdown", (event) => {
 });
 
 editorCanvas.addEventListener("pointermove", (event) => {
+  if (panning) {
+    return;
+  }
   const pixel = editorPixelFromPointer(event);
   if (!pixel) {
     return;
@@ -950,6 +1094,7 @@ downloadButton.addEventListener("click", () => {
 });
 
 setPaintColor(state.paintColor);
+syncEditorCursorState();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
 void renderEverything();

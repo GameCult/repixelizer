@@ -713,12 +713,23 @@ p {
   min-height: 420px;
   overflow: auto;
   padding: 16px;
+  overscroll-behavior: contain;
 }
 
 .editor-surface canvas {
   position: absolute;
   top: 16px;
   left: 16px;
+  cursor: crosshair;
+}
+
+.editor-surface.is-eyedropper canvas {
+  cursor: copy;
+}
+
+.editor-surface.is-panning,
+.editor-surface.is-panning canvas {
+  cursor: grabbing;
 }
 
 #editorGridCanvas {
