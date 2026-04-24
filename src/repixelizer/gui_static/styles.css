@@ -126,7 +126,7 @@ p {
 
 .eyebrow {
   margin: 0;
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   color: var(--ui-accent);
   text-transform: uppercase;
 }
@@ -366,7 +366,7 @@ p {
   background: rgba(255, 216, 74, 0.12);
   border: 2px solid rgba(255, 216, 74, 0.28);
   text-transform: uppercase;
-  font-size: 0.58rem;
+  font-size: 0.68rem;
 }
 
 .status-text {
@@ -433,7 +433,8 @@ p {
 .field span,
 .scrubber label,
 .zoom-block label {
-  font-size: 0.66rem;
+  font-size: 0.84rem;
+  line-height: 1;
   text-transform: uppercase;
   color: var(--ui-text-muted);
 }
@@ -553,7 +554,7 @@ p {
 }
 
 .viewer-status-label {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: var(--ui-text-muted);
   text-transform: uppercase;
 }
@@ -602,7 +603,7 @@ p {
 }
 
 .viz-label {
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: var(--ui-accent);
   text-transform: uppercase;
 }
@@ -653,7 +654,7 @@ p {
 .summary-card strong {
   display: block;
   margin-bottom: 5px;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   color: var(--ui-accent);
   text-transform: uppercase;
 }
