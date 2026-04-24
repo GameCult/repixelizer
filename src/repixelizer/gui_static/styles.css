@@ -622,7 +622,6 @@ p {
 
 .metric-scrubber {
   min-width: 0;
-  grid-column: 1 / -1;
 }
 
 .stats-grid {
