@@ -44,8 +44,8 @@ body {
     linear-gradient(180deg, var(--ui-bg-top) 0%, var(--ui-bg-mid) 46%, var(--ui-bg-bottom) 100%);
   color: var(--ui-text);
   font-family: "VT323", "Courier New", Courier, monospace;
-  font-size: 26px;
-  line-height: 1.22;
+  font-size: 18px;
+  line-height: 1.28;
   letter-spacing: 0.012em;
   position: relative;
   overflow-x: hidden;
@@ -96,10 +96,8 @@ button,
 h1,
 h2,
 h3,
-strong,
 .button,
 .eyebrow,
-.copy-tag,
 .viz-label,
 .status-badge {
   font-family: "Press Start 2P", "VT323", monospace;
@@ -128,9 +126,14 @@ p {
 
 .eyebrow {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   color: var(--ui-accent);
   text-transform: uppercase;
+}
+
+.copy-tag {
+  font-size: 1rem;
+  line-height: 1.15;
 }
 
 .copy-tag,
@@ -330,6 +333,7 @@ p {
 }
 
 .brand-tag {
+  font-size: 1.12rem;
   max-width: 40ch;
 }
 
@@ -344,6 +348,15 @@ p {
 .metric-chip,
 .summary-card {
   padding: 10px;
+}
+
+.mini-card > strong,
+.candidate-card strong,
+.event-item strong,
+.metric-chip strong,
+.summary-card strong {
+  font-family: "Press Start 2P", "VT323", monospace;
+  letter-spacing: 0.06em;
 }
 
 .mini-card > *,
@@ -376,11 +389,13 @@ p {
   background: rgba(255, 216, 74, 0.12);
   border: 2px solid rgba(255, 216, 74, 0.28);
   text-transform: uppercase;
-  font-size: 0.62rem;
+  font-size: 0.5rem;
 }
 
 .status-text {
   color: var(--ui-text);
+  font-size: 1.08rem;
+  line-height: 1.2;
 }
 
 .card-head {
@@ -418,8 +433,13 @@ p {
 }
 
 .dropzone strong {
-  font-size: 0.82rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
+}
+
+.dropzone span {
+  font-size: 1.05rem;
+  line-height: 1.18;
 }
 
 .controls-grid {
@@ -436,7 +456,7 @@ p {
 .field span,
 .scrubber label,
 .zoom-block label {
-  font-size: 0.72rem;
+  font-size: 0.54rem;
   text-transform: uppercase;
   color: var(--ui-text-muted);
 }
@@ -446,6 +466,8 @@ p {
   width: 100%;
   min-height: 42px;
   padding: 8px 10px;
+  font-size: 1.02rem;
+  line-height: 1.1;
   color: var(--ui-text);
   border: 3px solid var(--ui-panel-border);
   border-bottom-width: 4px;
@@ -480,6 +502,8 @@ p {
   gap: 8px;
   min-height: 38px;
   padding: 10px 14px;
+  font-size: 0.64rem;
+  line-height: 1.15;
   border: 4px solid var(--ui-panel-border);
   border-bottom-width: 5px;
   color: var(--ui-text-bright);
@@ -505,6 +529,7 @@ p {
 .button-small {
   min-height: 32px;
   padding: 8px 12px;
+  font-size: 0.56rem;
 }
 
 .button:hover,
@@ -536,6 +561,7 @@ p {
 
 .step-value {
   color: var(--ui-text-muted);
+  font-size: 1rem;
 }
 
 .loss-canvas {
@@ -564,7 +590,7 @@ p {
 }
 
 .viz-label {
-  font-size: 0.66rem;
+  font-size: 0.56rem;
   color: var(--ui-accent);
   text-transform: uppercase;
 }
@@ -609,7 +635,7 @@ p {
 .summary-card strong {
   display: block;
   margin-bottom: 5px;
-  font-size: 0.62rem;
+  font-size: 0.54rem;
   color: var(--ui-accent);
   text-transform: uppercase;
 }
@@ -624,6 +650,7 @@ p {
 
 .tool-hint {
   color: var(--ui-text-muted);
+  font-size: 1rem;
 }
 
 .editor-toolbar {
@@ -739,6 +766,10 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .card-head {
+    flex-wrap: wrap;
+  }
+
   .brand-lockup {
     flex-direction: column;
     align-items: flex-start;
@@ -751,7 +782,7 @@ select:focus-visible {
 
 @media (max-width: 700px) {
   body {
-    font-size: 22px;
+    font-size: 17px;
   }
 
   .shell {
@@ -770,6 +801,11 @@ select:focus-visible {
   .brand-emblem {
     width: 108px;
     height: 108px;
+  }
+
+  .brand-tag,
+  .copy-tag {
+    font-size: 0.92rem;
   }
 
   .button {
