@@ -409,12 +409,13 @@ p {
 }
 
 .dropzone strong {
-  font-size: 1.18rem;
+  font-size: 1.56rem;
+  line-height: 1.08;
   text-transform: uppercase;
 }
 
 .dropzone span {
-  font-size: 1.34rem;
+  font-size: 1.08rem;
   line-height: 1.18;
 }
 
