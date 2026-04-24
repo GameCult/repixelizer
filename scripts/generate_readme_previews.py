@@ -640,11 +640,7 @@ def main() -> None:
     for panel, crop in zip(vector_panels, vector_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
-    ai_lanczos_preview = nearest_resize(
-        ai_lanczos,
-        width=phase_field_engine_result.output_rgba.shape[1],
-        height=phase_field_engine_result.output_rgba.shape[0],
-    )
+    ai_guard_cell_inset_bbox = _shrink_bbox_bottom_right(tuple(args.guard_cell_bbox), scale_x=0.5, scale_y=0.5)
     ai_guard_inset_bbox = _shrink_bbox_bottom_right(guard_bbox, scale_x=0.5, scale_y=0.5)
     for panel in ai_panels:
         _draw_source_bbox(
@@ -656,16 +652,16 @@ def main() -> None:
 
     guard_strip = _build_guard_strip(
         _crop_rgba(ai_source, guard_bbox),
-        _crop_rgba(ai_lanczos, tuple(args.engine_cell_bbox)),
-        _crop_rgba(phase_field_engine_result.output_rgba, tuple(args.engine_cell_bbox)),
+        _crop_rgba(ai_lanczos, tuple(args.guard_cell_bbox)),
+        _crop_rgba(phase_field_engine_result.output_rgba, tuple(args.guard_cell_bbox)),
         title=None,
     )
     guard_strip.save(out_guard_crop)
     ai_crops = [
         _crop_rgba(ai_source, ai_guard_inset_bbox),
-        _crop_rgba(ai_lanczos, tuple(_shrink_bbox_bottom_right(tuple(args.engine_cell_bbox), scale_x=0.5, scale_y=0.5))),
-        _crop_rgba(phase_field_engine_result.output_rgba, tuple(_shrink_bbox_bottom_right(tuple(args.engine_cell_bbox), scale_x=0.5, scale_y=0.5))),
-        _crop_rgba(tile_graph_engine_result.output_rgba, tuple(_shrink_bbox_bottom_right(tuple(args.engine_cell_bbox), scale_x=0.5, scale_y=0.5))),
+        _crop_rgba(ai_lanczos, ai_guard_cell_inset_bbox),
+        _crop_rgba(phase_field_engine_result.output_rgba, ai_guard_cell_inset_bbox),
+        _crop_rgba(tile_graph_engine_result.output_rgba, ai_guard_cell_inset_bbox),
     ]
     for panel, crop in zip(ai_panels, ai_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
