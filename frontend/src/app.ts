@@ -547,7 +547,8 @@ function renderLossChart(): void {
   if (losses.length === 0) {
     context.fillStyle = "rgba(255,255,255,0.28)";
     context.font = "14px sans-serif";
-    context.fillText("Loss curve wakes up once the solver starts moving.", 18, 28);
+    context.textBaseline = "top";
+    context.fillText("Loss curve wakes up once the solver starts moving.", 18, 16);
     return;
   }
   const minLoss = Math.min(...losses);
