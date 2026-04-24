@@ -2,20 +2,20 @@
 
 :root {
   color-scheme: dark;
-  --ui-bg-top: #041327;
-  --ui-bg-mid: #071f38;
-  --ui-bg-bottom: #07172c;
+  --ui-bg-top: #020914;
+  --ui-bg-mid: #051220;
+  --ui-bg-bottom: #030c17;
   --ui-text-bright: #f7efd8;
   --ui-text: #efe5c9;
   --ui-text-muted: #d3bb7f;
-  --ui-panel-surface-top: #0f3458;
-  --ui-panel-surface-bottom: #09213e;
+  --ui-panel-surface-top: #0a2239;
+  --ui-panel-surface-bottom: #061627;
   --ui-accent: #ffd84a;
   --ui-accent-strong: #ffae1a;
   --ui-accent-glow-soft: rgba(255, 216, 74, 0.18);
   --ui-accent-glow: rgba(255, 216, 74, 0.42);
-  --ui-panel-border: #0d3558;
-  --ui-panel-border-deep: #08243e;
+  --ui-panel-border: #0a2740;
+  --ui-panel-border-deep: #06192a;
   --ui-shadow: rgba(0, 0, 0, 0.55);
   --ui-corner-accent: #ffb72a;
   --ui-noise: rgba(255, 216, 74, 0.16);
@@ -342,7 +342,7 @@ p {
   border: 3px solid rgba(8, 36, 62, 0.88);
   background:
     radial-gradient(circle at top left, rgba(255, 216, 74, 0.12), transparent 32%),
-    linear-gradient(180deg, rgba(18, 58, 94, 0.95), rgba(9, 33, 62, 0.92));
+    linear-gradient(180deg, rgba(11, 33, 53, 0.96), rgba(6, 19, 35, 0.94));
   box-shadow:
     inset 0 0 0 1px rgba(255, 216, 74, 0.22),
     0 0 14px rgba(255, 216, 74, 0.08);
@@ -431,7 +431,7 @@ p {
   color: var(--ui-text-bright);
   background:
     radial-gradient(circle at top left, rgba(255, 216, 74, 0.14), transparent 36%),
-    linear-gradient(180deg, #123e67, #0a223d);
+    linear-gradient(180deg, #0d2d49, #061626);
 }
 
 .dropzone strong {
@@ -504,7 +504,7 @@ p {
   color: var(--ui-text);
   border: 3px solid var(--ui-panel-border);
   border-bottom-width: 4px;
-  background: linear-gradient(180deg, #133a5f, #0b2544);
+  background: linear-gradient(180deg, #0d2944, #07182b);
 }
 
 .field input::placeholder {
@@ -519,7 +519,7 @@ p {
   min-height: 44px;
   padding: 8px 10px;
   color: var(--ui-text);
-  background: linear-gradient(180deg, #123a5e, #0b2442);
+  background: linear-gradient(180deg, #0c2842, #061726);
 }
 
 .toggle-row input {
@@ -541,7 +541,7 @@ p {
   border-bottom-width: 5px;
   color: var(--ui-text-bright);
   text-transform: uppercase;
-  background: linear-gradient(180deg, #1e5f8f, #0f3762);
+  background: linear-gradient(180deg, #15466c, #0a233d);
   box-shadow:
     inset 0 0 12px rgba(255, 216, 74, 0.08),
     0 0 0 1px rgba(255, 216, 74, 0.1),
@@ -556,7 +556,7 @@ p {
 }
 
 .button-secondary {
-  background: linear-gradient(180deg, #1d4f7d, #12345f);
+  background: linear-gradient(180deg, #143b5d, #091f36);
 }
 
 .button-small {
@@ -634,7 +634,7 @@ p {
   display: block;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    linear-gradient(180deg, #112f4f, #081c33);
+    linear-gradient(180deg, #0b2138, #050f1c);
 }
 
 .loss-canvas[hidden] {
@@ -654,7 +654,7 @@ p {
   gap: 10px;
   background:
     radial-gradient(circle at top left, rgba(255, 216, 74, 0.08), transparent 34%),
-    linear-gradient(180deg, #0f3153, #091f38);
+    linear-gradient(180deg, #0b233b, #061321);
 }
 
 .viz-label {
@@ -707,7 +707,7 @@ p {
   overflow: hidden;
   border: 2px solid rgba(255, 216, 74, 0.18);
   background:
-    linear-gradient(180deg, rgba(7, 20, 36, 0.85), rgba(8, 28, 48, 0.92));
+    linear-gradient(180deg, rgba(5, 14, 24, 0.9), rgba(6, 18, 31, 0.94));
 }
 
 .status-activity-bar {
@@ -751,7 +751,7 @@ p {
   min-width: 0;
   padding: 8px 10px;
   border: 2px solid rgba(8, 36, 62, 0.88);
-  background: linear-gradient(180deg, rgba(10, 35, 58, 0.96), rgba(7, 23, 42, 0.94));
+  background: linear-gradient(180deg, rgba(9, 27, 44, 0.96), rgba(5, 16, 28, 0.95));
 }
 
 .status-metric strong {
@@ -785,7 +785,7 @@ p {
 .summary-card {
   border: 3px solid rgba(8, 36, 62, 0.88);
   background:
-    linear-gradient(180deg, rgba(18, 58, 94, 0.95), rgba(9, 33, 62, 0.92));
+    linear-gradient(180deg, rgba(11, 32, 52, 0.96), rgba(6, 19, 35, 0.94));
   box-shadow:
     inset 0 0 0 1px rgba(255, 216, 74, 0.22),
     0 0 14px rgba(255, 216, 74, 0.08);
@@ -816,7 +816,7 @@ p {
   gap: 16px;
   flex-wrap: wrap;
   padding: 10px;
-  background: linear-gradient(180deg, #103355, #081f37);
+  background: linear-gradient(180deg, #0b233b, #061321);
 }
 
 .paint-block {
