@@ -7,24 +7,46 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="masthead panel">
-        <div>
-          <p class="eyebrow">Live Pipeline</p>
-          <h1>Repixelizer</h1>
-        </div>
-        <div class="status-cluster">
-          <span id="statusBadge" class="status-badge">Idle</span>
-          <p id="statusText" class="status-text">Drop a fake sprite in here and let the machine explain itself for once.</p>
-        </div>
-      </header>
+    <div class="shell app-shell">
+      <div class="app-shell-header-row">
+        <header class="app-shell-header">
+          <div class="brand">
+            <div class="brand-lockup">
+              <div class="brand-emblem" aria-hidden="true">
+                <span class="brand-emblem-core"></span>
+              </div>
+              <div class="copy-stack brand-copy">
+                <p class="eyebrow">Live Pipeline</p>
+                <h1>Repixelizer</h1>
+                <p class="copy-tag brand-tag">Take fake pixel art, force it onto a real lattice, then inspect the crime scene frame by frame.</p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <aside class="header-panel">
+          <div class="header-panel-grid">
+            <div class="mini-card status-card">
+              <strong id="statusBadge" class="status-badge">Idle</strong>
+              <p id="statusText" class="status-text">Drop a fake sprite in here and let the machine explain itself for once.</p>
+            </div>
+            <div class="mini-card">
+              <strong>Instrument Panel</strong>
+              <p class="muted">Watch inference, edge scouting, field prep, solver drift, cleanup, then patch any stubborn pixels yourself.</p>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       <div class="app-grid">
-        <aside class="sidebar panel">
-          <section class="section-block">
-            <div class="section-head">
-              <h2>Input</h2>
-              <button id="pickFileButton" class="ghost-button" type="button">Choose File</button>
+        <aside class="sidebar">
+          <section class="card section-block">
+            <div class="card-head">
+              <div class="copy-stack card-copy">
+                <h2>Input</h2>
+                <p class="copy-tag">Start with the ugly source.</p>
+              </div>
+              <button id="pickFileButton" class="button button-small button-secondary" type="button">Choose File</button>
             </div>
             <input id="fileInput" type="file" accept="image/png,image/*" hidden />
             <button id="dropzone" class="dropzone" type="button">
@@ -33,40 +55,43 @@
             </button>
           </section>
 
-          <section class="section-block">
-            <div class="section-head">
-              <h2>Run Controls</h2>
+          <section class="card section-block">
+            <div class="card-head">
+              <div class="copy-stack card-copy">
+                <h2>Run Controls</h2>
+                <p class="copy-tag">Pin what you know. Search what you do not.</p>
+              </div>
             </div>
             <form id="controlsForm" class="controls-grid">
-              <label>
+              <label class="field">
                 <span>Target Size</span>
                 <input id="targetSizeInput" name="targetSize" type="number" min="1" placeholder="auto" />
               </label>
-              <label>
+              <label class="field">
                 <span>Target Width</span>
                 <input id="targetWidthInput" name="targetWidth" type="number" min="1" placeholder="auto" />
               </label>
-              <label>
+              <label class="field">
                 <span>Target Height</span>
                 <input id="targetHeightInput" name="targetHeight" type="number" min="1" placeholder="auto" />
               </label>
-              <label>
+              <label class="field">
                 <span>Phase X</span>
                 <input id="phaseXInput" name="phaseX" type="number" step="0.05" placeholder="search" />
               </label>
-              <label>
+              <label class="field">
                 <span>Phase Y</span>
                 <input id="phaseYInput" name="phaseY" type="number" step="0.05" placeholder="search" />
               </label>
-              <label>
+              <label class="field">
                 <span>Steps</span>
                 <input id="stepsInput" name="steps" type="number" min="0" value="48" />
               </label>
-              <label>
+              <label class="field">
                 <span>Seed</span>
                 <input id="seedInput" name="seed" type="number" min="0" value="7" />
               </label>
-              <label>
+              <label class="field">
                 <span>Device</span>
                 <select id="deviceInput" name="device">
                   <option value="auto" selected>auto</option>
@@ -83,12 +108,15 @@
                 <span>Skip low-confidence phase rerank</span>
               </label>
             </form>
-            <button id="runButton" class="primary-button" type="button">Run The Machine</button>
+            <button id="runButton" class="button" type="button">Run The Machine</button>
           </section>
 
-          <section class="section-block">
-            <div class="section-head">
-              <h2>Inference</h2>
+          <section class="card section-block">
+            <div class="card-head">
+              <div class="copy-stack card-copy">
+                <h2>Inference</h2>
+                <p class="copy-tag">The ruler and where it landed.</p>
+              </div>
             </div>
             <div id="inferenceSummary" class="info-stack">
               <p class="muted">No lattice picked yet.</p>
@@ -96,18 +124,21 @@
             <div id="candidateList" class="candidate-list"></div>
           </section>
 
-          <section class="section-block">
-            <div class="section-head">
-              <h2>Run Notes</h2>
+          <section class="card section-block">
+            <div class="card-head">
+              <div class="copy-stack card-copy">
+                <h2>Run Notes</h2>
+                <p class="copy-tag">A small log of what the machine thinks it is doing.</p>
+              </div>
             </div>
             <div id="eventLog" class="event-log"></div>
           </section>
         </aside>
 
-        <main class="workspace">
-          <section class="panel viewer-panel">
-            <div class="section-head viewer-head">
-              <div>
+        <main class="workspace page-content">
+          <section class="hero viewer-panel">
+            <div class="card-head viewer-head">
+              <div class="copy-stack card-copy">
                 <p class="eyebrow">Algorithm View</p>
                 <h2 id="viewerTitle">Pipeline Stages</h2>
               </div>
@@ -132,19 +163,20 @@
                 <canvas id="rightCanvas"></canvas>
               </figure>
             </div>
-            <div id="metricsPanel" class="metrics-panel"></div>
+            <div id="metricsPanel" class="metrics-panel stats-grid"></div>
           </section>
 
-          <section class="panel editor-panel">
-            <div class="section-head editor-head">
-              <div>
+          <section class="card editor-panel">
+            <div class="card-head editor-head">
+              <div class="copy-stack card-copy">
                 <p class="eyebrow">Pixel Fixes</p>
                 <h2>Output Editor</h2>
+                <p class="copy-tag">Pencil the stragglers. Hold Alt to steal color straight from the panel.</p>
               </div>
               <div class="editor-actions">
                 <span id="toolMode" class="tool-hint">Pencil. Hold Alt for eyedropper.</span>
-                <button id="resetEditorButton" class="ghost-button" type="button">Reset Output</button>
-                <button id="downloadButton" class="primary-button subdued" type="button">Export PNG</button>
+                <button id="resetEditorButton" class="button button-small button-secondary" type="button">Reset Output</button>
+                <button id="downloadButton" class="button button-small" type="button">Export PNG</button>
               </div>
             </div>
 
@@ -152,25 +184,25 @@
               <div class="paint-block">
                 <div id="paintSwatch" class="paint-swatch"></div>
                 <div class="rgba-inputs">
-                  <label>
+                  <label class="field">
                     <span>R</span>
                     <input id="paintR" type="number" min="0" max="255" value="255" />
                   </label>
-                  <label>
+                  <label class="field">
                     <span>G</span>
                     <input id="paintG" type="number" min="0" max="255" value="255" />
                   </label>
-                  <label>
+                  <label class="field">
                     <span>B</span>
                     <input id="paintB" type="number" min="0" max="255" value="255" />
                   </label>
-                  <label>
+                  <label class="field">
                     <span>A</span>
                     <input id="paintA" type="number" min="0" max="255" value="255" />
                   </label>
                 </div>
               </div>
-              <div class="zoom-block">
+              <div class="zoom-block field">
                 <label for="zoomInput">Zoom</label>
                 <input id="zoomInput" type="range" min="4" max="32" step="1" value="12" />
                 <span id="zoomValue">12x</span>
