@@ -99,7 +99,6 @@ const middleVizLabel = byId<HTMLDivElement>("middleVizLabel");
 const rightVizLabel = byId<HTMLDivElement>("rightVizLabel");
 const metricsPanel = byId<HTMLDivElement>("metricsPanel");
 const paintSwatch = byId<HTMLDivElement>("paintSwatch");
-const toolMode = byId<HTMLSpanElement>("toolMode");
 const zoomInput = byId<HTMLInputElement>("zoomInput");
 const zoomValue = byId<HTMLSpanElement>("zoomValue");
 const gridToggle = byId<HTMLInputElement>("gridToggle");
@@ -193,10 +192,6 @@ function setPaintColor(color: [number, number, number, number]): void {
   paintInputs.b.value = String(color[2]);
   paintInputs.a.value = String(color[3]);
   paintSwatch.style.background = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
-}
-
-function updateToolMode(): void {
-  toolMode.textContent = state.altHeld ? "Eyedropper armed. Sample a pixel." : "Pencil. Hold Alt for eyedropper.";
 }
 
 function addLog(label: string, detail: string): void {
@@ -898,14 +893,12 @@ for (const input of Object.values(paintInputs)) {
 window.addEventListener("keydown", (event) => {
   if (event.key === "Alt") {
     state.altHeld = true;
-    updateToolMode();
   }
 });
 
 window.addEventListener("keyup", (event) => {
   if (event.key === "Alt") {
     state.altHeld = false;
-    updateToolMode();
   }
 });
 
@@ -918,7 +911,6 @@ editorCanvas.addEventListener("pointerdown", (event) => {
   editorCanvas.setPointerCapture(event.pointerId);
   if (event.altKey || state.altHeld) {
     samplePaintColor(pixel.x, pixel.y);
-    updateToolMode();
     return;
   }
   painting = true;
@@ -931,7 +923,6 @@ editorCanvas.addEventListener("pointermove", (event) => {
     return;
   }
   if (event.altKey || state.altHeld) {
-    updateToolMode();
     if (event.buttons === 1) {
       samplePaintColor(pixel.x, pixel.y);
     }
@@ -959,7 +950,6 @@ downloadButton.addEventListener("click", () => {
 });
 
 setPaintColor(state.paintColor);
-updateToolMode();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
 void renderEverything();
