@@ -9,6 +9,7 @@ function byId(id) {
 const fileInput = byId("fileInput");
 const dropzone = byId("dropzone");
 const dropzoneLabel = byId("dropzoneLabel");
+const inputPreviewCanvas = byId("inputPreviewCanvas");
 const pickFileButton = byId("pickFileButton");
 const runButton = byId("runButton");
 const statusBadge = byId("statusBadge");
@@ -77,6 +78,7 @@ const state = {
     jobId: null,
     status: "idle",
     statusText: "Drop a fake sprite in here and let the machine explain itself for once.",
+    inputPreviewImage: null,
     sourceImage: null,
     preprocessedImage: null,
     edgeMapImage: null,
@@ -224,6 +226,50 @@ async function drawAsset(canvas, asset) {
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
+}
+async function fileToImageAsset(file) {
+    const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result !== "string") {
+                reject(new Error("Failed to read image preview."));
+                return;
+            }
+            resolve(reader.result);
+        };
+        reader.onerror = () => reject(reader.error ?? new Error("Failed to read image preview."));
+        reader.readAsDataURL(file);
+    });
+    const image = await loadImage({ dataUrl, width: 1, height: 1 });
+    return {
+        dataUrl,
+        width: image.naturalWidth || 1,
+        height: image.naturalHeight || 1,
+    };
+}
+async function renderInputPreview() {
+    const context = inputPreviewCanvas.getContext("2d");
+    if (!context) {
+        return;
+    }
+    const asset = state.inputPreviewImage;
+    if (!asset) {
+        inputPreviewCanvas.width = 320;
+        inputPreviewCanvas.height = 180;
+        context.clearRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
+        context.fillStyle = "#081012";
+        context.fillRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
+        context.fillStyle = "rgba(255,255,255,0.2)";
+        context.font = "16px sans-serif";
+        context.fillText("No source loaded yet", 20, 32);
+        return;
+    }
+    const image = await loadImage(asset);
+    inputPreviewCanvas.width = image.naturalWidth || asset.width;
+    inputPreviewCanvas.height = image.naturalHeight || asset.height;
+    context.imageSmoothingEnabled = false;
+    context.clearRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
+    context.drawImage(image, 0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
 }
 function readNestedNumber(root, path) {
     let current = root;
@@ -791,17 +837,32 @@ async function startRun() {
         addLog("Failure", error instanceof Error ? error.message : "Failed to start GUI job.");
     }
 }
-function acceptFile(file) {
+async function acceptFile(file) {
     state.file = file;
     dropzoneLabel.textContent = file.name;
     setStatus("idle", `${file.name} is loaded. Hit run when you want the machine to start sweating.`);
+    try {
+        const previewImage = await fileToImageAsset(file);
+        if (state.file !== file) {
+            return;
+        }
+        state.inputPreviewImage = previewImage;
+    }
+    catch (error) {
+        if (state.file !== file) {
+            return;
+        }
+        state.inputPreviewImage = null;
+        setStatus("failed", error instanceof Error ? error.message : "Failed to load image preview.");
+    }
+    await renderInputPreview();
 }
 dropzone.addEventListener("click", () => fileInput.click());
 pickFileButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
     if (file) {
-        acceptFile(file);
+        void acceptFile(file);
     }
 });
 dropzone.addEventListener("dragover", (event) => {
@@ -811,7 +872,7 @@ dropzone.addEventListener("drop", (event) => {
     event.preventDefault();
     const file = event.dataTransfer?.files?.[0];
     if (file) {
-        acceptFile(file);
+        void acceptFile(file);
     }
 });
 runButton.addEventListener("click", () => {
@@ -947,4 +1008,5 @@ setPaintColor(state.paintColor);
 syncEditorCursorState();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
+void renderInputPreview();
 void renderEverything();

@@ -46,6 +46,7 @@ type AppState = {
   jobId: string | null;
   status: string;
   statusText: string;
+  inputPreviewImage: ImageAsset | null;
   sourceImage: ImageAsset | null;
   preprocessedImage: ImageAsset | null;
   edgeMapImage: ImageAsset | null;
@@ -85,6 +86,7 @@ function byId<T extends HTMLElement>(id: string): T {
 const fileInput = byId<HTMLInputElement>("fileInput");
 const dropzone = byId<HTMLButtonElement>("dropzone");
 const dropzoneLabel = byId<HTMLSpanElement>("dropzoneLabel");
+const inputPreviewCanvas = byId<HTMLCanvasElement>("inputPreviewCanvas");
 const pickFileButton = byId<HTMLButtonElement>("pickFileButton");
 const runButton = byId<HTMLButtonElement>("runButton");
 const statusBadge = byId<HTMLSpanElement>("statusBadge");
@@ -157,6 +159,7 @@ const state: AppState = {
   jobId: null,
   status: "idle",
   statusText: "Drop a fake sprite in here and let the machine explain itself for once.",
+  inputPreviewImage: null,
   sourceImage: null,
   preprocessedImage: null,
   edgeMapImage: null,
@@ -317,6 +320,52 @@ async function drawAsset(canvas: HTMLCanvasElement, asset: ImageAsset | null): P
   context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
+}
+
+async function fileToImageAsset(file: File): Promise<ImageAsset> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Failed to read image preview."));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read image preview."));
+    reader.readAsDataURL(file);
+  });
+  const image = await loadImage({ dataUrl, width: 1, height: 1 });
+  return {
+    dataUrl,
+    width: image.naturalWidth || 1,
+    height: image.naturalHeight || 1,
+  };
+}
+
+async function renderInputPreview(): Promise<void> {
+  const context = inputPreviewCanvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+  const asset = state.inputPreviewImage;
+  if (!asset) {
+    inputPreviewCanvas.width = 320;
+    inputPreviewCanvas.height = 180;
+    context.clearRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
+    context.fillStyle = "#081012";
+    context.fillRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
+    context.fillStyle = "rgba(255,255,255,0.2)";
+    context.font = "16px sans-serif";
+    context.fillText("No source loaded yet", 20, 32);
+    return;
+  }
+  const image = await loadImage(asset);
+  inputPreviewCanvas.width = image.naturalWidth || asset.width;
+  inputPreviewCanvas.height = image.naturalHeight || asset.height;
+  context.imageSmoothingEnabled = false;
+  context.clearRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
+  context.drawImage(image, 0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
 }
 
 function readNestedNumber(root: JsonRecord | null, path: string[]): number | null {
@@ -913,10 +962,24 @@ async function startRun(): Promise<void> {
   }
 }
 
-function acceptFile(file: File): void {
+async function acceptFile(file: File): Promise<void> {
   state.file = file;
   dropzoneLabel.textContent = file.name;
   setStatus("idle", `${file.name} is loaded. Hit run when you want the machine to start sweating.`);
+  try {
+    const previewImage = await fileToImageAsset(file);
+    if (state.file !== file) {
+      return;
+    }
+    state.inputPreviewImage = previewImage;
+  } catch (error) {
+    if (state.file !== file) {
+      return;
+    }
+    state.inputPreviewImage = null;
+    setStatus("failed", error instanceof Error ? error.message : "Failed to load image preview.");
+  }
+  await renderInputPreview();
 }
 
 dropzone.addEventListener("click", () => fileInput.click());
@@ -924,7 +987,7 @@ pickFileButton.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", () => {
   const file = fileInput.files?.[0];
   if (file) {
-    acceptFile(file);
+    void acceptFile(file);
   }
 });
 
@@ -935,7 +998,7 @@ dropzone.addEventListener("drop", (event) => {
   event.preventDefault();
   const file = event.dataTransfer?.files?.[0];
   if (file) {
-    acceptFile(file);
+    void acceptFile(file);
   }
 });
 
@@ -1097,4 +1160,5 @@ setPaintColor(state.paintColor);
 syncEditorCursorState();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
+void renderInputPreview();
 void renderEverything();
