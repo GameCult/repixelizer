@@ -4,6 +4,7 @@ import numpy as np
 
 from .io import premultiply
 from .metrics import source_lattice_evidence_breakdown
+from .observe import PipelineObserver, emit_observer
 from .types import InferenceCandidate, InferenceResult
 
 
@@ -471,7 +472,12 @@ def _score_phase_group(
     return candidates
 
 
-def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str = "auto") -> InferenceResult:
+def infer_lattice(
+    rgba: np.ndarray,
+    target_size: int | None = None,
+    device: str = "auto",
+    observer: PipelineObserver | None = None,
+) -> InferenceResult:
     torch, _ = _require_torch()
     resolved_device = _resolve_device(torch, device)
     height, width = rgba.shape[:2]
@@ -479,21 +485,40 @@ def infer_lattice(rgba: np.ndarray, target_size: int | None = None, device: str 
     hinted_sizes = _hint_target_sizes_from_spacing(width, height, spacing_x, spacing_y)
     prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
     phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
+    candidate_dims = _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes)
+    phase_sample_count = int(phase_values.size * phase_values.size)
+
+    emit_observer(
+        observer,
+        "lattice_search_started",
+        candidate_count=len(candidate_dims),
+        phase_sample_count=phase_sample_count,
+        device=resolved_device,
+    )
 
     candidates: list[InferenceCandidate] = []
-    for target_width, target_height in _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes):
-        candidates.extend(
-            _score_phase_group(
-                rgba,
-                target_width=target_width,
-                target_height=target_height,
-                prior_cell_x=prior_cell_x,
-                prior_cell_y=prior_cell_y,
-                prior_reliability=prior_reliability,
-                phase_x_values=phase_values,
-                phase_y_values=phase_values,
-                device=resolved_device,
-            )
+    for candidate_index, (target_width, target_height) in enumerate(candidate_dims, start=1):
+        scored_group = _score_phase_group(
+            rgba,
+            target_width=target_width,
+            target_height=target_height,
+            prior_cell_x=prior_cell_x,
+            prior_cell_y=prior_cell_y,
+            prior_reliability=prior_reliability,
+            phase_x_values=phase_values,
+            phase_y_values=phase_values,
+            device=resolved_device,
+        )
+        candidates.extend(scored_group)
+        emit_observer(
+            observer,
+            "lattice_search_progress",
+            completed_candidates=candidate_index,
+            total_candidates=len(candidate_dims),
+            target_width=int(target_width),
+            target_height=int(target_height),
+            phase_sample_count=phase_sample_count,
+            best_score=None if not scored_group else float(max(candidate.score for candidate in scored_group)),
         )
 
     candidates.sort(key=lambda item: item.score, reverse=True)

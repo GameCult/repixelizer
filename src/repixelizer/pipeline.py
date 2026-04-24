@@ -125,7 +125,7 @@ def run_pipeline_rgba(
             label="Lattice search",
             detail="Searching for the output size and phase that best fit the input.",
         )
-        inference = infer_lattice(source, target_size=target_size, device=device)
+        inference = infer_lattice(source, target_size=target_size, device=device, observer=observer)
         inference_mode = "searched"
     else:
         emit_observer(
@@ -373,8 +373,9 @@ def _select_phase_candidate_with_reconstruction(
         candidate_count=min(8, len(inference.top_candidates)),
         confidence=float(inference.confidence),
     )
+    total_candidates = min(8, len(inference.top_candidates))
     candidate_records: list[dict[str, float | InferenceResult]] = []
-    for candidate in inference.top_candidates[:8]:
+    for candidate_index, candidate in enumerate(inference.top_candidates[:total_candidates], start=1):
         candidate_inference = InferenceResult(
             target_width=candidate.target_width,
             target_height=candidate.target_height,
@@ -383,6 +384,39 @@ def _select_phase_candidate_with_reconstruction(
             confidence=inference.confidence,
             top_candidates=inference.top_candidates,
         )
+        emit_observer(
+            observer,
+            "phase_rerank_candidate_started",
+            candidate_index=candidate_index,
+            total_candidates=total_candidates,
+            target_width=int(candidate.target_width),
+            target_height=int(candidate.target_height),
+            phase_x=float(candidate.phase_x),
+            phase_y=float(candidate.phase_y),
+            preview_steps=preview_steps,
+        )
+
+        def rerank_observer(event: str, payload: dict[str, Any]) -> None:
+            if observer is None:
+                return
+            common = {
+                "candidate_index": candidate_index,
+                "total_candidates": total_candidates,
+                "target_width": int(candidate.target_width),
+                "target_height": int(candidate.target_height),
+                "phase_x": float(candidate.phase_x),
+                "phase_y": float(candidate.phase_y),
+            }
+            if event in {"phase_field_initial", "phase_field_step"}:
+                emit_observer(
+                    observer,
+                    "phase_rerank_candidate_step",
+                    step=int(payload["step"]),
+                    total_steps=int(payload["total_steps"]),
+                    loss=None if payload.get("loss") is None else float(payload["loss"]),
+                    **common,
+                )
+
         candidate_artifacts, _candidate_diagnostics = _run_reconstruction(
             source,
             inference=candidate_inference,
@@ -391,7 +425,22 @@ def _select_phase_candidate_with_reconstruction(
             seed=seed,
             device=device,
             solver_params=solver_params,
-            observer=None,
+            observer=rerank_observer if observer is not None else None,
+        )
+        emit_observer(
+            observer,
+            "phase_rerank_candidate_completed",
+            candidate_index=candidate_index,
+            total_candidates=total_candidates,
+            completed_candidates=candidate_index,
+            target_width=int(candidate.target_width),
+            target_height=int(candidate.target_height),
+            phase_x=float(candidate.phase_x),
+            phase_y=float(candidate.phase_y),
+            total_steps=preview_steps,
+            final_loss=(
+                None if not candidate_artifacts.loss_history else float(candidate_artifacts.loss_history[-1])
+            ),
         )
         support = source_lattice_consistency_breakdown(
             source,

@@ -41,10 +41,29 @@ type LogItem = {
   detail: string;
 };
 
+type LatticeSearchInfo = {
+  candidateCount: number;
+  completedCandidates: number;
+  phaseSampleCount: number;
+  device: string | null;
+  currentTargetWidth: number | null;
+  currentTargetHeight: number | null;
+  bestScore: number | null;
+};
+
 type PhaseRerankInfo = {
   previewSteps: number;
   candidateCount: number;
   confidence: number;
+  completedCandidates: number;
+  currentCandidateIndex: number;
+  currentTargetWidth: number | null;
+  currentTargetHeight: number | null;
+  currentPhaseX: number | null;
+  currentPhaseY: number | null;
+  currentStep: number;
+  currentTotalSteps: number;
+  currentLoss: number | null;
 };
 
 type PhaseFieldPrepInfo = {
@@ -67,6 +86,7 @@ type AppState = {
   guidanceImage: ImageAsset | null;
   inference: InferencePayload | null;
   inferenceMode: string | null;
+  latticeSearch: LatticeSearchInfo | null;
   phaseRerank: PhaseRerankInfo | null;
   phaseFieldPrep: PhaseFieldPrepInfo | null;
   frames: FramePayload[];
@@ -156,8 +176,13 @@ const eventTypes = [
   "stage_started",
   "source_loaded",
   "preprocess_completed",
+  "lattice_search_started",
+  "lattice_search_progress",
   "inference_candidates_ready",
   "phase_rerank_started",
+  "phase_rerank_candidate_started",
+  "phase_rerank_candidate_step",
+  "phase_rerank_candidate_completed",
   "phase_selection_completed",
   "analysis_completed",
   "phase_field_prepared",
@@ -182,6 +207,7 @@ const state: AppState = {
   guidanceImage: null,
   inference: null,
   inferenceMode: null,
+  latticeSearch: null,
   phaseRerank: null,
   phaseFieldPrep: null,
   frames: [],
@@ -285,6 +311,7 @@ function resetRunArtifacts(options: { preserveSourceImage?: boolean } = {}): voi
   state.guidanceImage = null;
   state.inference = null;
   state.inferenceMode = null;
+  state.latticeSearch = null;
   state.phaseRerank = null;
   state.phaseFieldPrep = null;
   state.frames = [];
@@ -439,7 +466,21 @@ function renderStatusMetrics(): void {
   statusMetrics.innerHTML = "";
   const items: Array<[string, string]> = [];
   const frame = getSelectedFrame();
-  if (state.stageKey === "inference" || state.stageKey === "analysis" || state.stageKey === "selection") {
+  if (state.stageKey === "inference") {
+    if (state.latticeSearch) {
+      items.push(["Sizes", `${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}`]);
+      items.push(["Phase samples", String(state.latticeSearch.phaseSampleCount)]);
+      if (state.latticeSearch.currentTargetWidth && state.latticeSearch.currentTargetHeight) {
+        items.push(["Current grid", `${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight}`]);
+      }
+      if (state.latticeSearch.device) {
+        items.push(["Device", state.latticeSearch.device]);
+      }
+      if (state.latticeSearch.bestScore !== null) {
+        items.push(["Best score", formatNumber(state.latticeSearch.bestScore, 3)]);
+      }
+    }
+  } else if (state.stageKey === "analysis" || state.stageKey === "selection") {
     if (state.inference) {
       items.push(["Mode", state.inferenceMode === "fixed" ? "pinned" : state.inferenceMode ?? "search"]);
       items.push(["Grid", `${state.inference.target_width} x ${state.inference.target_height}`]);
@@ -448,8 +489,25 @@ function renderStatusMetrics(): void {
     }
   } else if (state.stageKey === "rerank") {
     if (state.phaseRerank) {
-      items.push(["Preview steps", String(state.phaseRerank.previewSteps)]);
-      items.push(["Candidates", String(state.phaseRerank.candidateCount)]);
+      items.push(["Candidates", `${state.phaseRerank.completedCandidates} / ${state.phaseRerank.candidateCount}`]);
+      if (state.phaseRerank.currentCandidateIndex > 0) {
+        items.push(["Active candidate", `${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}`]);
+      }
+      items.push([
+        "Preview step",
+        state.phaseRerank.currentTotalSteps > 0
+          ? `${state.phaseRerank.currentStep} / ${state.phaseRerank.currentTotalSteps}`
+          : String(state.phaseRerank.previewSteps),
+      ]);
+      if (state.phaseRerank.currentTargetWidth && state.phaseRerank.currentTargetHeight) {
+        items.push(["Grid", `${state.phaseRerank.currentTargetWidth} x ${state.phaseRerank.currentTargetHeight}`]);
+      }
+      if (state.phaseRerank.currentPhaseX !== null && state.phaseRerank.currentPhaseY !== null) {
+        items.push(["Phase", `${formatNumber(state.phaseRerank.currentPhaseX, 2)}, ${formatNumber(state.phaseRerank.currentPhaseY, 2)}`]);
+      }
+      if (state.phaseRerank.currentLoss !== null) {
+        items.push(["Loss", formatNumber(state.phaseRerank.currentLoss, 4)]);
+      }
       items.push(["Confidence", formatNumber(state.phaseRerank.confidence, 3)]);
     }
   } else if (state.stageKey === "solver") {
@@ -892,6 +950,48 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       state.preprocessedImage = payload.sourceImage as ImageAsset;
       addLog("Preprocess", "Stripped edge-connected background noise.");
       break;
+    case "lattice_search_started":
+      state.latticeSearch = {
+        candidateCount: Number(payload.candidateCount ?? 0),
+        completedCandidates: 0,
+        phaseSampleCount: Number(payload.phaseSampleCount ?? 0),
+        device: typeof payload.device === "string" ? payload.device : null,
+        currentTargetWidth: null,
+        currentTargetHeight: null,
+        bestScore: null,
+      };
+      setStage(
+        "inference",
+        "Lattice search",
+        `Testing ${state.latticeSearch.candidateCount} size candidates with ${state.latticeSearch.phaseSampleCount} phase samples each.`,
+      );
+      addLog("Search", `Started lattice search across ${String(payload.candidateCount)} size candidates.`);
+      break;
+    case "lattice_search_progress":
+      if (!state.latticeSearch) {
+        state.latticeSearch = {
+          candidateCount: Number(payload.totalCandidates ?? 0),
+          completedCandidates: 0,
+          phaseSampleCount: Number(payload.phaseSampleCount ?? 0),
+          device: null,
+          currentTargetWidth: null,
+          currentTargetHeight: null,
+          bestScore: null,
+        };
+      }
+      state.latticeSearch.completedCandidates = Number(payload.completedCandidates ?? state.latticeSearch.completedCandidates);
+      state.latticeSearch.candidateCount = Number(payload.totalCandidates ?? state.latticeSearch.candidateCount);
+      state.latticeSearch.phaseSampleCount = Number(payload.phaseSampleCount ?? state.latticeSearch.phaseSampleCount);
+      state.latticeSearch.currentTargetWidth = Number(payload.targetWidth ?? 0);
+      state.latticeSearch.currentTargetHeight = Number(payload.targetHeight ?? 0);
+      state.latticeSearch.bestScore =
+        payload.bestScore === null || payload.bestScore === undefined ? state.latticeSearch.bestScore : Number(payload.bestScore);
+      setStage(
+        "inference",
+        "Lattice search",
+        `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} over ${state.latticeSearch.phaseSampleCount} phase samples.`,
+      );
+      break;
     case "inference_candidates_ready":
       state.inference = payload.inference as InferencePayload;
       state.inferenceMode = typeof payload.inferenceMode === "string" ? payload.inferenceMode : state.inferenceMode;
@@ -902,6 +1002,15 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
         previewSteps: Number(payload.previewSteps ?? 0),
         candidateCount: Number(payload.candidateCount ?? 0),
         confidence: Number(payload.confidence ?? 0),
+        completedCandidates: 0,
+        currentCandidateIndex: 0,
+        currentTargetWidth: null,
+        currentTargetHeight: null,
+        currentPhaseX: null,
+        currentPhaseY: null,
+        currentStep: 0,
+        currentTotalSteps: 0,
+        currentLoss: null,
       };
       setStage(
         "rerank",
@@ -912,6 +1021,62 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
         "Rerank",
         `Running ${String(payload.previewSteps)} preview steps across ${String(payload.candidateCount)} low-confidence candidates.`,
       );
+      break;
+    case "phase_rerank_candidate_started":
+      if (state.phaseRerank) {
+        state.phaseRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.phaseRerank.currentCandidateIndex);
+        state.phaseRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
+        state.phaseRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
+        state.phaseRerank.currentPhaseX = Number(payload.phaseX ?? 0);
+        state.phaseRerank.currentPhaseY = Number(payload.phaseY ?? 0);
+        state.phaseRerank.currentStep = 0;
+        state.phaseRerank.currentTotalSteps = Number(payload.previewSteps ?? state.phaseRerank.previewSteps);
+        state.phaseRerank.currentLoss = null;
+        setStage(
+          "rerank",
+          "Phase rerank",
+          `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}: previewing ${state.phaseRerank.currentTargetWidth} x ${state.phaseRerank.currentTargetHeight} at phase ${formatNumber(state.phaseRerank.currentPhaseX, 2)}, ${formatNumber(state.phaseRerank.currentPhaseY, 2)}.`,
+        );
+      }
+      break;
+    case "phase_rerank_candidate_step":
+      if (state.phaseRerank) {
+        state.phaseRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.phaseRerank.currentCandidateIndex);
+        state.phaseRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
+        state.phaseRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
+        state.phaseRerank.currentPhaseX = Number(payload.phaseX ?? 0);
+        state.phaseRerank.currentPhaseY = Number(payload.phaseY ?? 0);
+        state.phaseRerank.currentStep = Number(payload.step ?? 0);
+        state.phaseRerank.currentTotalSteps = Number(payload.totalSteps ?? 0);
+        state.phaseRerank.currentLoss =
+          payload.loss === null || payload.loss === undefined ? null : Number(payload.loss);
+        setStage(
+          "rerank",
+          "Phase rerank",
+          state.phaseRerank.currentTotalSteps <= 0
+            ? `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}: preview solve skipped.`
+            : `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}, preview step ${state.phaseRerank.currentStep} / ${state.phaseRerank.currentTotalSteps} on ${state.phaseRerank.currentTargetWidth} x ${state.phaseRerank.currentTargetHeight}.`,
+        );
+      }
+      break;
+    case "phase_rerank_candidate_completed":
+      if (state.phaseRerank) {
+        state.phaseRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.phaseRerank.currentCandidateIndex);
+        state.phaseRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
+        state.phaseRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
+        state.phaseRerank.currentPhaseX = Number(payload.phaseX ?? 0);
+        state.phaseRerank.currentPhaseY = Number(payload.phaseY ?? 0);
+        state.phaseRerank.completedCandidates = Number(payload.completedCandidates ?? state.phaseRerank.completedCandidates);
+        state.phaseRerank.currentStep = Number(payload.totalSteps ?? state.phaseRerank.currentStep);
+        state.phaseRerank.currentTotalSteps = Number(payload.totalSteps ?? state.phaseRerank.currentTotalSteps);
+        state.phaseRerank.currentLoss =
+          payload.finalLoss === null || payload.finalLoss === undefined ? state.phaseRerank.currentLoss : Number(payload.finalLoss);
+        setStage(
+          "rerank",
+          "Phase rerank",
+          `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount} scored. ${state.phaseRerank.completedCandidates} of ${state.phaseRerank.candidateCount} previews finished.`,
+        );
+      }
       break;
     case "phase_selection_completed":
       state.inference = payload.inference as InferencePayload;

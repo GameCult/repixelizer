@@ -208,6 +208,55 @@ class GuiJob:
                 "candidateCount": int(payload["candidate_count"]),
                 "confidence": float(payload["confidence"]),
             }
+        if event == "lattice_search_started":
+            return {
+                "candidateCount": int(payload["candidate_count"]),
+                "phaseSampleCount": int(payload["phase_sample_count"]),
+                "device": str(payload["device"]),
+            }
+        if event == "lattice_search_progress":
+            return {
+                "completedCandidates": int(payload["completed_candidates"]),
+                "totalCandidates": int(payload["total_candidates"]),
+                "targetWidth": int(payload["target_width"]),
+                "targetHeight": int(payload["target_height"]),
+                "phaseSampleCount": int(payload["phase_sample_count"]),
+                "bestScore": None if payload.get("best_score") is None else float(payload["best_score"]),
+            }
+        if event == "phase_rerank_candidate_started":
+            return {
+                "candidateIndex": int(payload["candidate_index"]),
+                "totalCandidates": int(payload["total_candidates"]),
+                "targetWidth": int(payload["target_width"]),
+                "targetHeight": int(payload["target_height"]),
+                "phaseX": float(payload["phase_x"]),
+                "phaseY": float(payload["phase_y"]),
+                "previewSteps": int(payload["preview_steps"]),
+            }
+        if event == "phase_rerank_candidate_step":
+            return {
+                "candidateIndex": int(payload["candidate_index"]),
+                "totalCandidates": int(payload["total_candidates"]),
+                "targetWidth": int(payload["target_width"]),
+                "targetHeight": int(payload["target_height"]),
+                "phaseX": float(payload["phase_x"]),
+                "phaseY": float(payload["phase_y"]),
+                "step": int(payload["step"]),
+                "totalSteps": int(payload["total_steps"]),
+                "loss": None if payload.get("loss") is None else float(payload["loss"]),
+            }
+        if event == "phase_rerank_candidate_completed":
+            return {
+                "candidateIndex": int(payload["candidate_index"]),
+                "totalCandidates": int(payload["total_candidates"]),
+                "completedCandidates": int(payload["completed_candidates"]),
+                "targetWidth": int(payload["target_width"]),
+                "targetHeight": int(payload["target_height"]),
+                "phaseX": float(payload["phase_x"]),
+                "phaseY": float(payload["phase_y"]),
+                "totalSteps": int(payload["total_steps"]),
+                "finalLoss": None if payload.get("final_loss") is None else float(payload["final_loss"]),
+            }
         if event == "stage_started":
             return {
                 "stage": str(payload["stage"]),
