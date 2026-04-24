@@ -637,6 +637,10 @@ p {
     linear-gradient(180deg, #112f4f, #081c33);
 }
 
+.loss-canvas[hidden] {
+  display: none;
+}
+
 .viewer-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
