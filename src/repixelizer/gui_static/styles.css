@@ -532,43 +532,63 @@ p {
 }
 
 .viewer-head {
-  gap: 16px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 18px 24px;
+  align-items: start;
 }
 
 .viewer-head-summary {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(320px, 1fr);
+  gap: 18px 24px;
   min-width: 0;
-  flex: 1 1 520px;
+  align-items: start;
+}
+
+.viewer-title-block {
+  align-content: start;
+  gap: 12px;
 }
 
 .viewer-status-panel {
   align-content: start;
-  max-width: 48ch;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 20px;
+  border-left: 3px solid rgba(255, 216, 74, 0.22);
 }
 
 .viewer-status-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 .viewer-status-label {
   font-size: 0.74rem;
+  line-height: 1;
   color: var(--ui-text-muted);
   text-transform: uppercase;
+}
+
+.status-text {
+  max-width: 26ch;
 }
 
 .viewer-status-note {
   font-size: 1rem;
   line-height: 1.12;
+  max-width: 34ch;
 }
 
 .scrubber {
-  flex: 0 1 420px;
-  min-width: min(420px, 100%);
+  min-width: 0;
   display: grid;
-  gap: 6px;
+  gap: 10px;
+  align-content: start;
+  padding-left: 20px;
+  border-left: 3px solid rgba(255, 216, 74, 0.22);
 }
 
 .step-value {
@@ -772,7 +792,7 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1500px) {
   .viewer-head-summary {
     grid-template-columns: minmax(240px, auto) minmax(300px, 1fr);
     align-items: start;
@@ -784,6 +804,17 @@ select:focus-visible {
   .editor-stage {
     grid-template-columns: 1fr;
   }
+
+  .viewer-head {
+    grid-template-columns: 1fr;
+  }
+
+  .scrubber {
+    padding-left: 0;
+    padding-top: 14px;
+    border-left: 0;
+    border-top: 3px solid rgba(255, 216, 74, 0.22);
+  }
 }
 
 @media (max-width: 940px) {
@@ -794,6 +825,18 @@ select:focus-visible {
 
   .card-head {
     flex-wrap: wrap;
+  }
+
+  .viewer-head-summary {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .viewer-status-panel {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 3px solid rgba(255, 216, 74, 0.22);
   }
 
   .brand-lockup {
