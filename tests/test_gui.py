@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 from pathlib import Path
+
+from PIL import Image
+from starlette.datastructures import UploadFile
 
 from repixelizer.pipeline import run_pipeline_rgba
 from repixelizer.synthetic import fake_pixelize, make_emblem
@@ -61,3 +65,20 @@ def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch) -> None:
     exit_code = module.main(["--host", "127.0.0.1", "--port", "8123", "--reload"])
     assert exit_code == 0
     assert called == {"host": "127.0.0.1", "port": 8123, "reload": True}
+
+
+def test_create_job_upload_field_validates_without_forward_ref_errors() -> None:
+    from repixelizer.gui import create_app
+
+    image = Image.new("RGBA", (1, 1), (12, 34, 56, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+
+    app = create_app()
+    route = next(route for route in app.routes if getattr(route, "path", None) == "/api/jobs")
+    image_field = next(field for field in route.dependant.body_params if field.name == "image")
+    upload = UploadFile(filename="tiny.png", file=io.BytesIO(buffer.getvalue()))
+    value, errors = image_field.validate(upload, {}, loc=("body", "image"))
+
+    assert errors == []
+    assert value.filename == "tiny.png"
