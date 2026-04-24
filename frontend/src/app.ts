@@ -348,7 +348,7 @@ async function renderInputPreview(): Promise<void> {
     context.fillRect(0, 0, inputPreviewCanvas.width, inputPreviewCanvas.height);
     context.fillStyle = "rgba(255,255,255,0.2)";
     context.font = "16px sans-serif";
-    context.fillText("No source loaded yet", 20, 32);
+    context.fillText("No input loaded yet", 20, 32);
     return;
   }
   const image = await loadImage(asset);
@@ -436,7 +436,7 @@ function renderMetrics(): void {
       "Final fidelity",
       formatNumber(readNestedNumber(state.runSummary, ["source_fidelity", "final_output", "score"])),
     ]);
-    items.push(["Source color ratio", formatNumber(readNestedNumber(state.runSummary, ["output_colors_from_source_ratio"]))]);
+    items.push(["Input color ratio", formatNumber(readNestedNumber(state.runSummary, ["output_colors_from_source_ratio"]))]);
   }
   for (const [label, value] of items) {
     const node = document.createElement("div");
@@ -472,7 +472,7 @@ async function renderViewer(): Promise<void> {
   const frame = getSelectedFrame();
   let leftAsset = state.preprocessedImage ?? state.sourceImage;
   let rightAsset = state.finalOutputImage ?? state.cleanupImage ?? state.sourceImage;
-  let leftLabel = "Source";
+  let leftLabel = "Input";
   let rightLabel = "Output";
 
   if (state.latticeImage) {
@@ -816,8 +816,8 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       break;
     case "source_loaded":
       state.sourceImage = payload.sourceImage as ImageAsset;
-      setStatus("running", "Source loaded. Survey crew is measuring the mess.");
-      addLog("Source", "Loaded the input image.");
+      setStatus("running", "Input loaded. Survey crew is measuring the mess.");
+      addLog("Input", "Loaded the input image.");
       break;
     case "preprocess_completed":
       state.preprocessedImage = payload.sourceImage as ImageAsset;
@@ -860,7 +860,7 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
           state.selectedFrameIndex = Math.max(0, state.frames.findIndex((candidate) => candidate.step === frame.step));
         }
         if (eventName === "phase_field_final") {
-          addLog("Solver", "Final nearest-source sample committed.");
+          addLog("Solver", "Final nearest-input sample committed.");
         }
         break;
       }
