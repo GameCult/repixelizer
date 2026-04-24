@@ -8,22 +8,114 @@
   </head>
   <body>
     <div class="shell app-shell">
-      <header class="app-shell-header">
-        <div class="brand">
-          <div class="brand-lockup">
-            <div class="brand-emblem" aria-hidden="true">
-              <span class="brand-emblem-core"></span>
-            </div>
-            <div class="copy-stack brand-copy">
-              <p class="eyebrow">Live Pipeline</p>
-              <h1>Repixelizer</h1>
-              <p class="copy-tag brand-tag">Take fake pixel art, force it onto a real lattice, then inspect the crime scene frame by frame.</p>
-            </div>
-          </div>
-        </div>
-      </header>
-
       <div class="app-grid">
+        <main class="workspace page-content">
+          <header class="app-shell-header">
+            <div class="brand">
+              <div class="brand-lockup">
+                <div class="brand-emblem" aria-hidden="true">
+                  <span class="brand-emblem-core"></span>
+                </div>
+                <div class="copy-stack brand-copy">
+                  <p class="eyebrow">Live Pipeline</p>
+                  <h1>Repixelizer</h1>
+                  <p class="copy-tag brand-tag">Take fake pixel art, force it onto a real lattice, then inspect the crime scene frame by frame.</p>
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <section class="hero viewer-panel">
+            <div class="card-head viewer-head">
+              <div class="copy-stack card-copy viewer-heading">
+                <h2 id="viewerTitle">Pipeline Stages</h2>
+              </div>
+            </div>
+            <div id="metricsPanel" class="metrics-panel stats-grid">
+              <div class="metric-chip metric-status-block">
+                <span id="statusBadge" class="status-badge">Idle</span>
+                <p id="statusText" class="status-text metrics-status-text">Waiting for input.</p>
+              </div>
+              <div class="metric-chip scrubber metric-scrubber">
+                <label for="stepSlider">Solver Step</label>
+                <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
+                <span id="stepValue" class="step-value">No frames yet</span>
+              </div>
+            </div>
+            <canvas id="lossCanvas" class="loss-canvas" width="800" height="120"></canvas>
+            <div class="viewer-grid viewer-grid-dual">
+              <figure class="viz-card">
+                <div class="viz-label" id="leftVizLabel">Source</div>
+                <canvas id="leftCanvas"></canvas>
+              </figure>
+              <figure class="viz-card">
+                <div class="viz-label" id="rightVizLabel">Output</div>
+                <canvas id="rightCanvas"></canvas>
+              </figure>
+            </div>
+          </section>
+
+          <section class="card editor-panel">
+            <div class="card-head editor-head">
+              <div class="copy-stack card-copy">
+                <p class="eyebrow">Pixel Fixes</p>
+                <h2>Output Editor</h2>
+                <p class="copy-tag">Pencil the stragglers. Wheel zooms to cursor, middle mouse pans, Alt steals color.</p>
+              </div>
+              <div class="editor-actions">
+                <button id="resetEditorButton" class="button button-small button-secondary" type="button">Reset Output</button>
+                <button id="downloadButton" class="button button-small" type="button">Export PNG</button>
+              </div>
+            </div>
+
+            <div class="editor-toolbar">
+              <div class="paint-block">
+                <div id="paintSwatch" class="paint-swatch"></div>
+                <div class="rgba-inputs">
+                  <label class="field">
+                    <span>R</span>
+                    <input id="paintR" type="number" min="0" max="255" value="255" />
+                  </label>
+                  <label class="field">
+                    <span>G</span>
+                    <input id="paintG" type="number" min="0" max="255" value="255" />
+                  </label>
+                  <label class="field">
+                    <span>B</span>
+                    <input id="paintB" type="number" min="0" max="255" value="255" />
+                  </label>
+                  <label class="field">
+                    <span>A</span>
+                    <input id="paintA" type="number" min="0" max="255" value="255" />
+                  </label>
+                </div>
+              </div>
+              <div class="zoom-block field">
+                <label for="zoomInput">Zoom</label>
+                <input id="zoomInput" type="range" min="4" max="32" step="1" value="12" />
+                <span id="zoomValue">12x</span>
+              </div>
+              <label class="toggle-row compact">
+                <input id="gridToggle" type="checkbox" checked />
+                <span>Grid</span>
+              </label>
+            </div>
+
+            <div class="editor-stage">
+              <div class="checkerboard editor-surface" id="editorSurface">
+                <canvas id="editorCanvas"></canvas>
+                <canvas id="editorGridCanvas"></canvas>
+              </div>
+              <div class="editor-meta">
+                <div id="editorMeta" class="info-stack">
+                  <p class="muted">Final output lands here once the solver finishes its little pilgrimage.</p>
+                </div>
+                <div id="summaryPanel" class="summary-panel"></div>
+              </div>
+            </div>
+          </section>
+        </main>
+
         <aside class="sidebar">
           <section class="card section-block">
             <div class="card-head">
@@ -123,102 +215,6 @@
             <div id="eventLog" class="event-log"></div>
           </section>
         </aside>
-
-        <main class="workspace page-content">
-          <section class="hero viewer-panel">
-            <div class="card-head viewer-head">
-              <div class="copy-stack card-copy viewer-heading">
-                <h2 id="viewerTitle">Pipeline Stages</h2>
-              </div>
-            </div>
-            <canvas id="lossCanvas" class="loss-canvas" width="800" height="120"></canvas>
-            <div class="viewer-grid">
-              <figure class="viz-card">
-                <div class="viz-label" id="leftVizLabel">Source</div>
-                <canvas id="leftCanvas"></canvas>
-              </figure>
-              <figure class="viz-card">
-                <div class="viz-label" id="middleVizLabel">Scout</div>
-                <canvas id="middleCanvas"></canvas>
-              </figure>
-              <figure class="viz-card">
-                <div class="viz-label" id="rightVizLabel">Output</div>
-                <canvas id="rightCanvas"></canvas>
-              </figure>
-            </div>
-            <div id="metricsPanel" class="metrics-panel stats-grid">
-              <div class="metric-chip metric-status-block">
-                <span id="statusBadge" class="status-badge">Idle</span>
-                <p id="statusText" class="status-text metrics-status-text">Waiting for input.</p>
-              </div>
-              <div class="metric-chip scrubber metric-scrubber">
-                <label for="stepSlider">Solver Step</label>
-                <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
-                <span id="stepValue" class="step-value">No frames yet</span>
-              </div>
-            </div>
-          </section>
-
-          <section class="card editor-panel">
-            <div class="card-head editor-head">
-              <div class="copy-stack card-copy">
-                <p class="eyebrow">Pixel Fixes</p>
-                <h2>Output Editor</h2>
-                <p class="copy-tag">Pencil the stragglers. Wheel zooms to cursor, middle mouse pans, Alt steals color.</p>
-              </div>
-              <div class="editor-actions">
-                <button id="resetEditorButton" class="button button-small button-secondary" type="button">Reset Output</button>
-                <button id="downloadButton" class="button button-small" type="button">Export PNG</button>
-              </div>
-            </div>
-
-            <div class="editor-toolbar">
-              <div class="paint-block">
-                <div id="paintSwatch" class="paint-swatch"></div>
-                <div class="rgba-inputs">
-                  <label class="field">
-                    <span>R</span>
-                    <input id="paintR" type="number" min="0" max="255" value="255" />
-                  </label>
-                  <label class="field">
-                    <span>G</span>
-                    <input id="paintG" type="number" min="0" max="255" value="255" />
-                  </label>
-                  <label class="field">
-                    <span>B</span>
-                    <input id="paintB" type="number" min="0" max="255" value="255" />
-                  </label>
-                  <label class="field">
-                    <span>A</span>
-                    <input id="paintA" type="number" min="0" max="255" value="255" />
-                  </label>
-                </div>
-              </div>
-              <div class="zoom-block field">
-                <label for="zoomInput">Zoom</label>
-                <input id="zoomInput" type="range" min="4" max="32" step="1" value="12" />
-                <span id="zoomValue">12x</span>
-              </div>
-              <label class="toggle-row compact">
-                <input id="gridToggle" type="checkbox" checked />
-                <span>Grid</span>
-              </label>
-            </div>
-
-            <div class="editor-stage">
-              <div class="checkerboard editor-surface" id="editorSurface">
-                <canvas id="editorCanvas"></canvas>
-                <canvas id="editorGridCanvas"></canvas>
-              </div>
-              <div class="editor-meta">
-                <div id="editorMeta" class="info-stack">
-                  <p class="muted">Final output lands here once the solver finishes its little pilgrimage.</p>
-                </div>
-                <div id="summaryPanel" class="summary-panel"></div>
-              </div>
-            </div>
-          </section>
-        </main>
       </div>
     </div>
 

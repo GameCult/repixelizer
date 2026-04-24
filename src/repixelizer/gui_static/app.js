@@ -21,10 +21,8 @@ const stepSlider = byId("stepSlider");
 const stepValue = byId("stepValue");
 const lossCanvas = byId("lossCanvas");
 const leftCanvas = byId("leftCanvas");
-const middleCanvas = byId("middleCanvas");
 const rightCanvas = byId("rightCanvas");
 const leftVizLabel = byId("leftVizLabel");
-const middleVizLabel = byId("middleVizLabel");
 const rightVizLabel = byId("rightVizLabel");
 const metricsPanel = byId("metricsPanel");
 const paintSwatch = byId("paintSwatch");
@@ -80,7 +78,6 @@ const state = {
     inputPreviewImage: null,
     sourceImage: null,
     preprocessedImage: null,
-    edgeMapImage: null,
     latticeImage: null,
     guidanceImage: null,
     inference: null,
@@ -98,7 +95,6 @@ const state = {
     altHeld: false,
     zoom: Number(zoomInput.value),
     showGrid: gridToggle.checked,
-    currentStage: "Idle",
 };
 let currentEventSource = null;
 let painting = false;
@@ -159,7 +155,6 @@ function resetRunArtifacts() {
     state.jobId = null;
     state.sourceImage = null;
     state.preprocessedImage = null;
-    state.edgeMapImage = null;
     state.latticeImage = null;
     state.guidanceImage = null;
     state.inference = null;
@@ -173,7 +168,6 @@ function resetRunArtifacts() {
     state.eventLog = [];
     state.editorBaseAsset = null;
     state.editorDirty = false;
-    state.currentStage = "Waiting";
 }
 function parseOptionalInteger(input) {
     if (input.value.trim() === "") {
@@ -377,37 +371,34 @@ function renderSummary() {
 async function renderViewer() {
     const frame = getSelectedFrame();
     let leftAsset = state.preprocessedImage ?? state.sourceImage;
-    let middleAsset = state.edgeMapImage;
     let rightAsset = state.finalOutputImage ?? state.cleanupImage ?? state.sourceImage;
     let leftLabel = "Source";
-    let middleLabel = "Edge Scout";
     let rightLabel = "Output";
     if (state.latticeImage) {
         leftAsset = state.latticeImage;
         leftLabel = "Lattice Prep";
     }
     if (state.guidanceImage) {
-        middleAsset = state.guidanceImage;
-        middleLabel = "Guidance";
+        leftAsset = state.guidanceImage;
+        leftLabel = "Guidance";
     }
     if (frame) {
         leftAsset = frame.samplingOverlayImage;
-        middleAsset = frame.displacementImage;
         rightAsset = frame.outputImage;
         leftLabel = "Sampling Overlay";
-        middleLabel = "Displacement";
         rightLabel = "Current Output";
     }
     else if (state.cleanupImage) {
-        middleAsset = state.heatmapImage ?? middleAsset;
-        middleLabel = "Cleanup Heatmap";
+        if (state.heatmapImage) {
+            leftAsset = state.heatmapImage;
+            leftLabel = "Cleanup Heatmap";
+        }
         rightAsset = state.cleanupImage;
         rightLabel = "Cleaned Output";
     }
     leftVizLabel.textContent = leftLabel;
-    middleVizLabel.textContent = middleLabel;
     rightVizLabel.textContent = rightLabel;
-    await Promise.all([drawAsset(leftCanvas, leftAsset), drawAsset(middleCanvas, middleAsset), drawAsset(rightCanvas, rightAsset)]);
+    await Promise.all([drawAsset(leftCanvas, leftAsset), drawAsset(rightCanvas, rightAsset)]);
     renderMetrics();
 }
 function renderSlider() {
@@ -704,38 +695,30 @@ async function handleEvent(eventName, payload) {
             break;
         case "source_loaded":
             state.sourceImage = payload.sourceImage;
-            state.currentStage = "Loaded source";
             setStatus("running", "Source loaded. Survey crew is measuring the mess.");
             addLog("Source", "Loaded the input image.");
             break;
         case "preprocess_completed":
             state.preprocessedImage = payload.sourceImage;
-            state.currentStage = "Preprocessed source";
             addLog("Preprocess", "Stripped edge-connected background noise.");
             break;
         case "inference_candidates_ready":
             state.inference = payload.inference;
-            state.currentStage = "Scoring lattice candidates";
             addLog("Inference", "Scored candidate grids and phase offsets.");
             break;
         case "phase_rerank_started":
-            state.currentStage = "Phase rerank preview";
             addLog("Rerank", `Running ${String(payload.previewSteps)} preview steps across ${String(payload.candidateCount)} low-confidence candidates.`);
             break;
         case "phase_selection_completed":
             state.inference = payload.inference;
-            state.currentStage = "Selected lattice";
             addLog("Selection", "Committed to a ruler and phase.");
             break;
         case "analysis_completed":
-            state.edgeMapImage = payload.edgeMapImage;
-            state.currentStage = "Edge scout";
             addLog("Scout", "Built the edge map that tells the solver where the floorboards creak.");
             break;
         case "phase_field_prepared":
             state.latticeImage = payload.latticeImage;
             state.guidanceImage = payload.guidanceImage;
-            state.currentStage = "Prepared phase field";
             addLog("Prep", `Locked ${String(payload.targetWidth)} x ${String(payload.targetHeight)} lattice centers.`);
             break;
         case "phase_field_initial":
@@ -753,7 +736,6 @@ async function handleEvent(eventName, payload) {
             if (state.autoFollow) {
                 state.selectedFrameIndex = Math.max(0, state.frames.findIndex((candidate) => candidate.step === frame.step));
             }
-            state.currentStage = frame.step === 0 ? "Initial placement" : `Solver step ${frame.step}/${frame.totalSteps}`;
             if (eventName === "phase_field_final") {
                 addLog("Solver", "Final nearest-source sample committed.");
             }
@@ -762,18 +744,15 @@ async function handleEvent(eventName, payload) {
         case "cleanup_completed":
             state.cleanupImage = payload.cleanedImage;
             state.heatmapImage = payload.heatmapImage;
-            state.currentStage = "Cleanup";
             addLog("Cleanup", "Ran the local cleanup sweep.");
             break;
         case "palette_completed":
             state.finalOutputImage = payload.outputImage;
-            state.currentStage = "Final output";
             addLog("Output", "Final output image is ready.");
             break;
         case "pipeline_completed":
             state.finalOutputImage = payload.outputImage;
             state.runSummary = payload.runSummary ?? null;
-            state.currentStage = "Completed";
             setStatus("completed", "Run finished. If the machine still did something stupid, fix it pixel by pixel.");
             addLog("Done", "Full pipeline completed.");
             runButton.disabled = false;
