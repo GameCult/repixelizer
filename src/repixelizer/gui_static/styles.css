@@ -198,14 +198,7 @@ p {
   gap: 10px;
 }
 
-.app-shell-header-row {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: 1fr;
-  align-items: stretch;
-}
-
-:is(.mini-card, .hero, .card, .metric-chip, .summary-card, .app-shell-header, .header-panel, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .button, .toggle-row, .status-card) {
+:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .button, .toggle-row) {
   position: relative;
   overflow: hidden;
   border: 4px solid var(--ui-panel-border);
@@ -219,7 +212,7 @@ p {
     0 8px 0 var(--ui-shadow);
 }
 
-:is(.mini-card, .hero, .card, .metric-chip, .summary-card, .app-shell-header, .header-panel, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .toggle-row, .status-card)::before,
+:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .toggle-row)::before,
 .button::before {
   content: "";
   position: absolute;
@@ -228,7 +221,7 @@ p {
   border: 1px dotted rgba(148, 109, 38, 0.22);
 }
 
-:is(.mini-card, .hero, .card, .metric-chip, .summary-card, .app-shell-header, .header-panel, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .toggle-row, .status-card)::after {
+:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .toggle-row)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -246,7 +239,6 @@ p {
 }
 
 .app-shell-header,
-.header-panel,
 .hero,
 .card {
   padding: 12px;
@@ -270,8 +262,8 @@ p {
 .brand,
 .brand-lockup,
 .copy-stack,
-.header-panel-grid,
-.header-panel-stack {
+.viewer-head-summary,
+.viewer-status-panel {
   display: grid;
   gap: 10px;
 }
@@ -337,12 +329,6 @@ p {
   max-width: 40ch;
 }
 
-.header-panel-grid {
-  grid-template-columns: 1fr;
-  align-items: stretch;
-}
-
-.mini-card,
 .candidate-card,
 .event-item,
 .metric-chip,
@@ -350,7 +336,6 @@ p {
   padding: 10px;
 }
 
-.mini-card > strong,
 .candidate-card strong,
 .event-item strong,
 .metric-chip strong,
@@ -359,23 +344,15 @@ p {
   letter-spacing: 0.06em;
 }
 
-.mini-card > *,
 .hero > *,
 .card > *,
 .metric-chip > *,
 .summary-card > *,
 .candidate-card > *,
 .event-item > *,
-.app-shell-header > *,
-.header-panel > * {
+.app-shell-header > * {
   position: relative;
   z-index: 1;
-}
-
-.status-card {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
 }
 
 .status-badge {
@@ -553,7 +530,41 @@ p {
   align-items: flex-start;
 }
 
+.viewer-head {
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.viewer-head-summary {
+  min-width: 0;
+  flex: 1 1 520px;
+}
+
+.viewer-status-panel {
+  align-content: start;
+  max-width: 48ch;
+}
+
+.viewer-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.viewer-status-label {
+  font-size: 0.54rem;
+  color: var(--ui-text-muted);
+  text-transform: uppercase;
+}
+
+.viewer-status-note {
+  font-size: 1rem;
+  line-height: 1.12;
+}
+
 .scrubber {
+  flex: 0 1 420px;
   min-width: min(420px, 100%);
   display: grid;
   gap: 6px;
@@ -753,9 +764,10 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
-@media (min-width: 941px) {
-  .app-shell-header-row {
-    grid-template-columns: minmax(340px, 1.2fr) minmax(280px, 0.95fr);
+@media (min-width: 1280px) {
+  .viewer-head-summary {
+    grid-template-columns: minmax(240px, auto) minmax(300px, 1fr);
+    align-items: start;
   }
 }
 
@@ -798,7 +810,6 @@ select:focus-visible {
   }
 
   .app-shell-header,
-  .header-panel,
   .hero,
   .card {
     padding: 8px;

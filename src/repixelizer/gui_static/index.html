@@ -8,35 +8,20 @@
   </head>
   <body>
     <div class="shell app-shell">
-      <div class="app-shell-header-row">
-        <header class="app-shell-header">
-          <div class="brand">
-            <div class="brand-lockup">
-              <div class="brand-emblem" aria-hidden="true">
-                <span class="brand-emblem-core"></span>
-              </div>
-              <div class="copy-stack brand-copy">
-                <p class="eyebrow">Live Pipeline</p>
-                <h1>Repixelizer</h1>
-                <p class="copy-tag brand-tag">Take fake pixel art, force it onto a real lattice, then inspect the crime scene frame by frame.</p>
-              </div>
+      <header class="app-shell-header">
+        <div class="brand">
+          <div class="brand-lockup">
+            <div class="brand-emblem" aria-hidden="true">
+              <span class="brand-emblem-core"></span>
+            </div>
+            <div class="copy-stack brand-copy">
+              <p class="eyebrow">Live Pipeline</p>
+              <h1>Repixelizer</h1>
+              <p class="copy-tag brand-tag">Take fake pixel art, force it onto a real lattice, then inspect the crime scene frame by frame.</p>
             </div>
           </div>
-        </header>
-
-        <aside class="header-panel">
-          <div class="header-panel-grid">
-            <div class="mini-card status-card">
-              <strong id="statusBadge" class="status-badge">Idle</strong>
-              <p id="statusText" class="status-text">Drop a fake sprite in here and let the machine explain itself for once.</p>
-            </div>
-            <div class="mini-card">
-              <strong>Instrument Panel</strong>
-              <p class="muted">Watch inference, edge scouting, field prep, solver drift, cleanup, then patch any stubborn pixels yourself.</p>
-            </div>
-          </div>
-        </aside>
-      </div>
+        </div>
+      </header>
 
       <div class="app-grid">
         <aside class="sidebar">
@@ -138,9 +123,19 @@
         <main class="workspace page-content">
           <section class="hero viewer-panel">
             <div class="card-head viewer-head">
-              <div class="copy-stack card-copy">
-                <p class="eyebrow">Algorithm View</p>
-                <h2 id="viewerTitle">Pipeline Stages</h2>
+              <div class="viewer-head-summary">
+                <div class="copy-stack card-copy">
+                  <p class="eyebrow">Algorithm View</p>
+                  <h2 id="viewerTitle">Pipeline Stages</h2>
+                </div>
+                <div class="viewer-status-panel">
+                  <div class="viewer-status-row">
+                    <strong id="statusBadge" class="status-badge">Idle</strong>
+                    <span class="viewer-status-label">Instrument Panel</span>
+                  </div>
+                  <p id="statusText" class="status-text">Drop a fake sprite in here and let the machine explain itself for once.</p>
+                  <p class="muted viewer-status-note">Watch inference, edge scouting, field prep, solver drift, cleanup, then patch any stubborn pixels yourself.</p>
+                </div>
               </div>
               <div class="scrubber">
                 <label for="stepSlider">Solver Step</label>
