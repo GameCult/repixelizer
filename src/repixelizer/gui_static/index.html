@@ -146,19 +146,16 @@
                 <canvas id="rightCanvas"></canvas>
               </figure>
             </div>
-            <div class="viewer-metrics">
-              <div class="metrics-toolbar">
-                <div class="metrics-status">
-                  <strong id="statusBadge" class="status-badge">Idle</strong>
-                  <p id="statusText" class="status-text metrics-status-text">Waiting for input.</p>
-                </div>
-                <div class="scrubber">
-                  <label for="stepSlider">Solver Step</label>
-                  <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
-                  <span id="stepValue" class="step-value">No frames yet</span>
-                </div>
+            <div id="metricsPanel" class="metrics-panel stats-grid">
+              <div class="metric-chip metric-status-block">
+                <span id="statusBadge" class="status-badge">Idle</span>
+                <p id="statusText" class="status-text metrics-status-text">Waiting for input.</p>
               </div>
-              <div id="metricsPanel" class="metrics-panel stats-grid"></div>
+              <div class="metric-chip scrubber metric-scrubber">
+                <label for="stepSlider">Solver Step</label>
+                <input id="stepSlider" type="range" min="0" max="0" step="1" value="0" disabled />
+                <span id="stepValue" class="step-value">No frames yet</span>
+              </div>
             </div>
           </section>
 

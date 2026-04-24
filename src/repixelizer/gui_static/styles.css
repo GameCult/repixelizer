@@ -262,9 +262,7 @@ p {
 .brand,
 .brand-lockup,
 .copy-stack,
-.viewer-heading,
-.viewer-metrics,
-.metrics-status {
+.viewer-heading {
   display: grid;
   gap: 10px;
 }
@@ -544,22 +542,6 @@ p {
   align-content: start;
 }
 
-.viewer-metrics {
-  gap: 12px;
-}
-
-.metrics-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-  gap: 16px 20px;
-  align-items: start;
-}
-
-.metrics-status {
-  min-width: 0;
-  align-content: start;
-}
-
 .metrics-status-text {
   max-width: 42ch;
 }
@@ -630,6 +612,17 @@ p {
 .metrics-panel {
   display: grid;
   gap: 10px;
+}
+
+.metric-status-block {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.metric-scrubber {
+  min-width: 0;
+  grid-column: 1 / -1;
 }
 
 .stats-grid {
@@ -772,19 +765,9 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
-@media (min-width: 1500px) {
-  .metrics-toolbar {
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
-  }
-}
-
 @media (max-width: 1200px) {
   .app-grid,
   .editor-stage {
-    grid-template-columns: 1fr;
-  }
-
-  .metrics-toolbar {
     grid-template-columns: 1fr;
   }
 }

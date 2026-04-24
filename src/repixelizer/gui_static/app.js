@@ -327,9 +327,11 @@ function renderInference() {
     }
 }
 function renderMetrics() {
-    metricsPanel.innerHTML = "";
+    metricsPanel.querySelectorAll("[data-dynamic='true']").forEach((node) => {
+        node.remove();
+    });
     const frame = getSelectedFrame();
-    const items = [["Stage", state.currentStage]];
+    const items = [];
     if (frame) {
         items.push(["Loss", frame.loss === null ? "n/a" : formatNumber(frame.loss, 4)]);
         for (const [key, value] of Object.entries(frame.terms)) {
@@ -347,6 +349,7 @@ function renderMetrics() {
     for (const [label, value] of items) {
         const node = document.createElement("div");
         node.className = "metric-chip";
+        node.dataset.dynamic = "true";
         node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
         metricsPanel.appendChild(node);
     }
