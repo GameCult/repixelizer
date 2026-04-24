@@ -57,12 +57,12 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 12% 12%, rgba(255, 216, 74, 0.26), transparent 30%),
-    radial-gradient(circle at 88% 18%, rgba(255, 174, 26, 0.32), transparent 28%),
-    radial-gradient(circle at 22% 72%, rgba(255, 216, 74, 0.14), transparent 24%),
-    radial-gradient(circle at 80% 78%, rgba(255, 174, 26, 0.12), transparent 22%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.045), transparent 24%);
-  opacity: 0.9;
+    radial-gradient(circle at 12% 12%, rgba(255, 216, 74, 0.13), transparent 30%),
+    radial-gradient(circle at 88% 18%, rgba(255, 174, 26, 0.16), transparent 28%),
+    radial-gradient(circle at 22% 72%, rgba(255, 216, 74, 0.07), transparent 24%),
+    radial-gradient(circle at 80% 78%, rgba(255, 174, 26, 0.06), transparent 22%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.02), transparent 24%);
+  opacity: 0.42;
   mix-blend-mode: screen;
 }
 
