@@ -543,7 +543,7 @@ p {
 }
 
 .metrics-status-text {
-  max-width: 42ch;
+  max-width: 26ch;
 }
 
 .scrubber {
@@ -618,6 +618,9 @@ p {
   display: grid;
   gap: 8px;
   align-content: start;
+  justify-self: start;
+  width: fit-content;
+  max-width: min(100%, 26ch);
 }
 
 .metric-scrubber {
