@@ -127,41 +127,6 @@ def test_pipeline_can_emit_initialized_output_without_optimizer_steps(tmp_path: 
     assert result.output_rgba.shape[1] == result.inference.target_width
 
 
-def test_fixed_tile_graph_pipeline_output_matches_refactor_baseline(tmp_path: Path) -> None:
-    source = make_emblem(24, 24)
-    fake = fake_pixelize(
-        source,
-        upscale=8,
-        phase_x=0.1,
-        phase_y=-0.05,
-        blur_radius=0.4,
-        warp_strength=0.15,
-        warp_detail=4,
-        seed=9,
-    )
-    input_path = tmp_path / "tile-baseline-input.png"
-    output_path = tmp_path / "tile-baseline-output.png"
-
-    from repixelizer.io import save_rgba
-
-    save_rgba(input_path, fake)
-    result = run_pipeline(
-        input_path,
-        output_path,
-        reconstruction_mode="tile-graph",
-        target_width=24,
-        target_height=24,
-        phase_x=0.1,
-        phase_y=-0.05,
-        enable_phase_rerank=False,
-        steps=0,
-        device="cpu",
-    )
-
-    output_hash = hashlib.sha256(np.ascontiguousarray(result.output_rgba).view(np.uint8)).hexdigest()
-    assert output_hash == "1f6d497a65953ab60a37fce98e69b101955e5f0e5a06a1e32167c6b8582a23f6"
-
-
 def test_fixed_phase_field_pipeline_output_matches_refactor_baseline(tmp_path: Path) -> None:
     source = make_emblem(24, 24)
     fake = fake_pixelize(
@@ -183,7 +148,6 @@ def test_fixed_phase_field_pipeline_output_matches_refactor_baseline(tmp_path: P
     result = run_pipeline(
         input_path,
         output_path,
-        reconstruction_mode="phase-field",
         target_width=24,
         target_height=24,
         phase_x=0.1,
@@ -354,113 +318,6 @@ def test_select_phase_candidate_can_skip_phase_rerank(monkeypatch) -> None:
     assert selected.target_height == candidate_a.target_height
 
 
-def test_select_phase_candidate_skips_phase_rerank_for_tile_graph(monkeypatch) -> None:
-    source = np.zeros((8, 8, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
-    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
-    inference = InferenceResult(
-        target_width=8,
-        target_height=8,
-        phase_x=0.0,
-        phase_y=0.0,
-        confidence=0.0,
-        top_candidates=[candidate_a, candidate_b],
-    )
-
-    def fail(*args, **kwargs):
-        raise AssertionError("tile-graph phase rerank probe should not run")
-
-    monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fail)
-    selected = _select_phase_candidate(
-        source,
-        inference,
-        analysis=object(),
-        steps=32,
-        seed=7,
-        device="cpu",
-        reconstruction_mode="tile-graph",
-    )
-    assert selected.target_width == candidate_a.target_width
-    assert selected.target_height == candidate_a.target_height
-
-
-def test_pipeline_runs_tile_graph_once_without_phase_probe_reuse(tmp_path: Path, monkeypatch) -> None:
-    source = np.zeros((6, 6, 4), dtype=np.float32)
-    source[..., 3] = 1.0
-    input_path = tmp_path / "input.png"
-    output_path = tmp_path / "output.png"
-
-    from repixelizer.io import save_rgba
-
-    save_rgba(input_path, source)
-
-    candidate_a = InferenceCandidate(target_width=3, target_height=3, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=4, target_height=4, phase_x=0.2, phase_y=-0.2, score=0.90, breakdown={})
-    inference = InferenceResult(
-        target_width=3,
-        target_height=3,
-        phase_x=0.0,
-        phase_y=0.0,
-        confidence=0.0,
-        top_candidates=[candidate_a, candidate_b],
-    )
-
-    class DummyAnalysis:
-        edge_map = np.zeros((6, 6), dtype=np.float32)
-
-    call_count = {"tile_graph": 0}
-
-    def fake_optimize_tile_graph(
-        source_rgba,
-        inference,
-        analysis,
-        steps,
-        seed,
-        device,
-        solver_params=None,
-    ):
-        del source_rgba, analysis, steps, seed, device, solver_params
-        call_count["tile_graph"] += 1
-        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
-        rgba[..., 3] = 1.0
-        rgba[..., 0] = 0.2 if inference.target_width == 3 else 0.8
-        return (
-            SolverArtifacts(
-                target_rgba=rgba,
-                uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
-                guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
-                initial_rgba=rgba.copy(),
-                loss_history=[],
-            ),
-            {"mode": "tile-graph", "tile_graph_candidate_count": 1},
-        )
-
-    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
-        del source_rgba, output_rgba, target_height, phase_x, phase_y
-        return {"score": 0.05 if target_width == 3 else 0.15}
-
-    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", lambda *args, **kwargs: inference)
-    monkeypatch.setattr("repixelizer.pipeline.analyze_tile_graph_source", lambda *args, **kwargs: DummyAnalysis())
-    monkeypatch.setattr("repixelizer.pipeline.optimize_tile_graph", fake_optimize_tile_graph)
-    monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
-    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_position_error", lambda *args, **kwargs: 0.1)
-    monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", lambda *args, **kwargs: 0.5)
-    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", lambda *args, **kwargs: 0.2)
-
-    result = run_pipeline(
-        input_path,
-        output_path,
-        reconstruction_mode="tile-graph",
-        steps=200,
-        device="cpu",
-    )
-
-    assert output_path.exists()
-    assert call_count["tile_graph"] == 1
-    assert "reused_phase_probe_reconstruction" not in result.diagnostics["reconstruction"]
-    assert result.output_rgba.shape[:2] == (3, 3)
-
-
 def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
     source = np.zeros((6, 6, 4), dtype=np.float32)
     source[..., 3] = 1.0
@@ -507,7 +364,6 @@ def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
     result = run_pipeline(
         input_path,
         output_path,
-        reconstruction_mode="phase-field",
         steps=8,
         device="cpu",
     )

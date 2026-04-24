@@ -42,11 +42,6 @@ def _parse_args() -> argparse.Namespace:
         help="Output path for the standalone sword-guard closeup strip.",
     )
     parser.add_argument(
-        "--out-engine-sheet",
-        default="docs/readme-assets/engine-comparison-sheet.png",
-        help="Output path for the pinned phase-field vs tile-graph engine comparison sheet.",
-    )
-    parser.add_argument(
         "--scratch-dir",
         default="artifacts/readme-build",
         help="Directory for intermediate low-res outputs and diagnostics.",
@@ -88,14 +83,6 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=-0.2,
         help="Pinned lattice phase Y for the engine-vs-engine badge comparison.",
-    )
-    parser.add_argument(
-        "--engine-cell-bbox",
-        nargs=4,
-        type=int,
-        default=(67, 90, 97, 122),
-        metavar=("X0", "Y0", "X1", "Y1"),
-        help="Tracked sword-tip crop bounds in output-grid cell coordinates for the pinned engine comparison.",
     )
     parser.add_argument("--steps", type=int, default=48, help="Optimizer step budget for both runs.")
     parser.add_argument("--device", default="cpu", choices=("auto", "cpu", "cuda"), help="Torch device for generation.")
@@ -284,158 +271,6 @@ def _save_summary(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def _build_engine_comparison_sheet(
-    *,
-    source_rgba: np.ndarray,
-    lanczos_rgba: np.ndarray,
-    phase_field_rgba: np.ndarray,
-    tile_graph_rgba: np.ndarray,
-    focus_source_bbox: tuple[int, int, int, int],
-    focus_cell_bbox: tuple[int, int, int, int],
-    target_width: int,
-    target_height: int,
-    phase_x: float,
-    phase_y: float,
-) -> Image.Image:
-    top_panel_width = 320
-    top_panel_height = 338
-    crop_panel_width = 240
-    crop_panel_height = 210
-    col_gap = 18
-    row_gap = 18
-    margin = 24
-    title_height = 24
-    row_title_height = 20
-
-    top_panels = [
-        _render_panel(
-            "Source",
-            rgba=source_rgba,
-            pixelated=False,
-            panel_width=top_panel_width,
-            panel_height=top_panel_height,
-            subtitle="Cleaned AI fake pixel badge",
-        ),
-        _render_panel(
-            "Lanczos",
-            rgba=lanczos_rgba,
-            pixelated=True,
-            panel_width=top_panel_width,
-            panel_height=top_panel_height,
-            subtitle=f"{target_width}x{target_height} naive baseline",
-        ),
-        _render_panel(
-            "Phase-field",
-            rgba=phase_field_rgba,
-            pixelated=True,
-            panel_width=top_panel_width,
-            panel_height=top_panel_height,
-            subtitle=f"{target_width}x{target_height} pinned lattice",
-        ),
-        _render_panel(
-            "Tile-graph",
-            rgba=tile_graph_rgba,
-            pixelated=True,
-            panel_width=top_panel_width,
-            panel_height=top_panel_height,
-            subtitle=f"{target_width}x{target_height} pinned lattice",
-        ),
-    ]
-    _draw_source_bbox(
-        top_panels[0],
-        focus_source_bbox,
-        source_width=source_rgba.shape[1],
-        source_height=source_rgba.shape[0],
-    )
-    _draw_source_bbox(
-        top_panels[1],
-        focus_cell_bbox,
-        source_width=lanczos_rgba.shape[1],
-        source_height=lanczos_rgba.shape[0],
-    )
-    _draw_source_bbox(
-        top_panels[2],
-        focus_cell_bbox,
-        source_width=phase_field_rgba.shape[1],
-        source_height=phase_field_rgba.shape[0],
-    )
-    _draw_source_bbox(
-        top_panels[3],
-        focus_cell_bbox,
-        source_width=tile_graph_rgba.shape[1],
-        source_height=tile_graph_rgba.shape[0],
-    )
-
-    crop_panels = [
-        _render_panel(
-            "Source focus",
-            rgba=_crop_rgba(source_rgba, focus_source_bbox),
-            pixelated=True,
-            panel_width=crop_panel_width,
-            panel_height=crop_panel_height,
-            subtitle="Tracked sword-tip crop",
-        ),
-        _render_panel(
-            "Lanczos focus",
-            rgba=_crop_rgba(lanczos_rgba, focus_cell_bbox),
-            pixelated=True,
-            panel_width=crop_panel_width,
-            panel_height=crop_panel_height,
-            subtitle="Naive resize",
-        ),
-        _render_panel(
-            "Phase-field focus",
-            rgba=_crop_rgba(phase_field_rgba, focus_cell_bbox),
-            pixelated=True,
-            panel_width=crop_panel_width,
-            panel_height=crop_panel_height,
-            subtitle="Default optimizer",
-        ),
-        _render_panel(
-            "Tile-graph focus",
-            rgba=_crop_rgba(tile_graph_rgba, focus_cell_bbox),
-            pixelated=True,
-            panel_width=crop_panel_width,
-            panel_height=crop_panel_height,
-            subtitle="Source-owned alternate solver",
-        ),
-    ]
-
-    width = margin * 2 + top_panel_width * 4 + col_gap * 3
-    height = (
-        margin * 2
-        + title_height
-        + row_title_height * 2
-        + top_panel_height
-        + crop_panel_height
-        + row_gap
-    )
-    canvas = Image.new("RGBA", (width, height), (11, 11, 13, 255))
-    draw = ImageDraw.Draw(canvas)
-    draw.text(
-        (margin, margin - 2),
-        f"Pinned badge lattice: {target_width}x{target_height} @ ({phase_x:.1f}, {phase_y:.1f})",
-        fill=(255, 255, 255, 255),
-    )
-    draw.text((margin, margin + title_height), "Whole image", fill=(255, 255, 255, 255))
-    top_y = margin + title_height + row_title_height
-    crop_row_y = top_y + top_panel_height + row_gap
-    draw.text((margin, crop_row_y), "Tracked sword-tip crop", fill=(255, 255, 255, 255))
-    crop_y = crop_row_y + row_title_height
-
-    x = margin
-    for panel in top_panels:
-        canvas.alpha_composite(panel.image, (x, top_y))
-        x += top_panel_width + col_gap
-
-    x = margin
-    for panel in crop_panels:
-        canvas.alpha_composite(panel.image, (x, crop_y))
-        x += crop_panel_width + col_gap
-
-    return canvas
-
-
 def main() -> None:
     args = _parse_args()
     scratch_dir = Path(args.scratch_dir)
@@ -445,10 +280,8 @@ def main() -> None:
     ai_input = Path(args.ai_input)
     out_sheet = Path(args.out_sheet)
     out_guard_crop = Path(args.out_guard_crop)
-    out_engine_sheet = Path(args.out_engine_sheet)
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
     out_guard_crop.parent.mkdir(parents=True, exist_ok=True)
-    out_engine_sheet.parent.mkdir(parents=True, exist_ok=True)
 
     vector_phase_field_result = run_pipeline(
         vector_input,
@@ -460,20 +293,6 @@ def main() -> None:
         diagnostics_dir=scratch_dir / "vector-phase-field-diag",
         steps=args.steps,
         device=args.device,
-        reconstruction_mode="phase-field",
-        enable_phase_rerank=False,
-    )
-    vector_tile_graph_result = run_pipeline(
-        vector_input,
-        scratch_dir / "badge-vector-tile-graph.png",
-        target_width=args.vector_target_size,
-        target_height=args.vector_target_size,
-        phase_x=0.0,
-        phase_y=0.0,
-        diagnostics_dir=scratch_dir / "vector-tile-graph-diag",
-        steps=args.steps,
-        device=args.device,
-        reconstruction_mode="tile-graph",
         enable_phase_rerank=False,
     )
     ai_result = run_pipeline(
@@ -493,20 +312,6 @@ def main() -> None:
         diagnostics_dir=scratch_dir / "engine-phase-field-diag",
         steps=args.steps,
         device=args.device,
-        reconstruction_mode="phase-field",
-        enable_phase_rerank=False,
-    )
-    tile_graph_engine_result = run_pipeline(
-        ai_input,
-        scratch_dir / "badge-ai-tile-graph-pinned.png",
-        target_width=args.engine_target_width,
-        target_height=args.engine_target_height,
-        phase_x=args.engine_phase_x,
-        phase_y=args.engine_phase_y,
-        diagnostics_dir=scratch_dir / "engine-tile-graph-diag",
-        steps=args.steps,
-        device=args.device,
-        reconstruction_mode="tile-graph",
         enable_phase_rerank=False,
     )
 
@@ -554,14 +359,6 @@ def main() -> None:
             panel_height=panel_height,
             subtitle=f"{args.vector_target_size}x{args.vector_target_size} pinned lattice",
         ),
-        _render_panel(
-            "Tile-graph",
-            rgba=vector_tile_graph_result.output_rgba,
-            pixelated=True,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle=f"{args.vector_target_size}x{args.vector_target_size} pinned lattice",
-        ),
     ]
     ai_panels = [
         _render_panel(
@@ -583,14 +380,6 @@ def main() -> None:
         _render_panel(
             "Phase-field",
             rgba=phase_field_engine_result.output_rgba,
-            pixelated=True,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle=f"{args.engine_target_width}x{args.engine_target_height} pinned lattice",
-        ),
-        _render_panel(
-            "Tile-graph",
-            rgba=tile_graph_engine_result.output_rgba,
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
@@ -619,11 +408,6 @@ def main() -> None:
         width=vector_source.shape[1],
         height=vector_source.shape[0],
     )
-    vector_tile_graph_preview = nearest_resize(
-        vector_tile_graph_result.output_rgba,
-        width=vector_source.shape[1],
-        height=vector_source.shape[0],
-    )
     for panel in vector_panels:
         _draw_source_bbox(
             panel,
@@ -635,7 +419,6 @@ def main() -> None:
         _crop_rgba(vector_source, vector_guard_inset_bbox),
         _crop_rgba(vector_lanczos_preview, vector_guard_inset_bbox),
         _crop_rgba(vector_phase_field_preview, vector_guard_inset_bbox),
-        _crop_rgba(vector_tile_graph_preview, vector_guard_inset_bbox),
     ]
     for panel, crop in zip(vector_panels, vector_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
@@ -661,12 +444,11 @@ def main() -> None:
         _crop_rgba(ai_source, ai_guard_inset_bbox),
         _crop_rgba(ai_lanczos, ai_guard_cell_inset_bbox),
         _crop_rgba(phase_field_engine_result.output_rgba, ai_guard_cell_inset_bbox),
-        _crop_rgba(tile_graph_engine_result.output_rgba, ai_guard_cell_inset_bbox),
     ]
     for panel, crop in zip(ai_panels, ai_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
-    width = margin * 2 + panel_width * 4 + col_gap * 3
+    width = margin * 2 + panel_width * 3 + col_gap * 2
     height = margin * 2 + row_title_height * 2 + panel_height * 2 + row_gap
     canvas = Image.new("RGBA", (width, height), (11, 11, 13, 255))
     draw = ImageDraw.Draw(canvas)
@@ -691,27 +473,6 @@ def main() -> None:
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_sheet)
 
-    engine_focus_source_bbox = _cell_bbox_to_source_bbox(
-        tuple(args.engine_cell_bbox),
-        source_width=ai_source.shape[1],
-        source_height=ai_source.shape[0],
-        target_width=args.engine_target_width,
-        target_height=args.engine_target_height,
-    )
-    engine_sheet = _build_engine_comparison_sheet(
-        source_rgba=ai_source,
-        lanczos_rgba=ai_lanczos,
-        phase_field_rgba=phase_field_engine_result.output_rgba,
-        tile_graph_rgba=tile_graph_engine_result.output_rgba,
-        focus_source_bbox=engine_focus_source_bbox,
-        focus_cell_bbox=tuple(args.engine_cell_bbox),
-        target_width=args.engine_target_width,
-        target_height=args.engine_target_height,
-        phase_x=args.engine_phase_x,
-        phase_y=args.engine_phase_y,
-    )
-    engine_sheet.save(out_engine_sheet)
-
     _save_summary(
         scratch_dir / "readme-preview-summary.json",
         {
@@ -729,18 +490,14 @@ def main() -> None:
             "engine_target_height": args.engine_target_height,
             "engine_phase_x": args.engine_phase_x,
             "engine_phase_y": args.engine_phase_y,
-            "engine_cell_bbox": list(args.engine_cell_bbox),
-            "engine_focus_source_bbox": list(engine_focus_source_bbox),
             "out_sheet": str(out_sheet),
             "out_guard_crop": str(out_guard_crop),
-            "out_engine_sheet": str(out_engine_sheet),
             "scratch_dir": str(scratch_dir),
         },
     )
 
     print(str(out_sheet))
     print(str(out_guard_crop))
-    print(str(out_engine_sheet))
 
 
 if __name__ == "__main__":

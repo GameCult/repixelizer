@@ -34,12 +34,6 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--steps", type=int, default=200, help="Number of optimizer steps")
         target.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"), help="Torch device")
         target.add_argument(
-            "--reconstruction-mode",
-            default="phase-field",
-            choices=("phase-field", "tile-graph"),
-            help="Reconstruction engine to run after lattice estimation",
-        )
-        target.add_argument(
             "--strip-background",
             action="store_true",
             help="Remove light neutral edge-connected backgrounds such as fake transparency checkerboards",
@@ -144,7 +138,6 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             steps=args.steps,
             device=args.device,
-            reconstruction_mode=args.reconstruction_mode,
             strip_background=args.strip_background,
             enable_phase_rerank=not args.skip_phase_rerank,
         )
@@ -197,7 +190,6 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         steps=args.steps,
         device=args.device,
-        reconstruction_mode=args.reconstruction_mode,
         strip_background=args.strip_background,
         enable_phase_rerank=not args.skip_phase_rerank,
     )

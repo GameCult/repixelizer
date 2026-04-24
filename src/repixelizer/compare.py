@@ -70,7 +70,6 @@ def run_compare(
     steps: int = 200,
     device: str = "auto",
     strip_background: bool = False,
-    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> dict[str, Any]:
     diagnostics_path = Path(diagnostics_dir) if diagnostics_dir else Path(output_path).with_suffix("")
@@ -90,7 +89,6 @@ def run_compare(
         steps=steps,
         device=device,
         strip_background=strip_background,
-        reconstruction_mode=reconstruction_mode,
         enable_phase_rerank=enable_phase_rerank,
     )
     source = result.source_rgba

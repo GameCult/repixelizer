@@ -28,19 +28,6 @@ class SolverHyperParams:
     phase_rerank_confidence_threshold: float = 0.12
     phase_rerank_max_size_delta_ratio: float = 0.40
     phase_rerank_margin: float = 0.004
-    tile_graph_max_candidates: int = 768
-    tile_graph_max_candidates_per_coord: int = 2
-    tile_graph_edge_candidates_per_coord: int = 6
-    tile_graph_component_color_threshold: float = 0.055
-    tile_graph_component_alpha_threshold: float = 0.12
-    tile_graph_source_region_min_area_ratio: float = 0.06
-    tile_graph_source_region_window_coverage: float = 0.12
-    tile_graph_area_weight: float = 0.03
-    tile_graph_alpha_weight: float = 0.25
-    tile_graph_coverage_weight: float = 0.05
-    tile_graph_edge_peak_weight: float = 0.10
-    tile_graph_adjacency_weight: float = 0.45
-    tile_graph_iterations: int = 10
 
     def to_dict(self) -> dict[str, float | int]:
         return asdict(self)

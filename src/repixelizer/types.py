@@ -33,14 +33,6 @@ class PhaseFieldSourceAnalysis:
 
 
 @dataclass(slots=True)
-class TileGraphSourceAnalysis:
-    edge_map: np.ndarray
-
-
-SourceAnalysis = PhaseFieldSourceAnalysis | TileGraphSourceAnalysis
-
-
-@dataclass(slots=True)
 class SourceLatticeReference:
     mean_rgba: np.ndarray
     sharp_rgba: np.ndarray
@@ -86,7 +78,7 @@ class RunResult:
     source_rgba: np.ndarray
     output_rgba: np.ndarray
     inference: InferenceResult
-    analysis: PhaseFieldSourceAnalysis | TileGraphSourceAnalysis
+    analysis: PhaseFieldSourceAnalysis
     solver: SolverArtifacts
     cleanup: CleanupArtifacts
     palette_result: PaletteResult | None

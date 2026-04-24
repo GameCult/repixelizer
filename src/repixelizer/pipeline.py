@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from .analysis import analyze_phase_field_source, analyze_tile_graph_source
+from .analysis import analyze_phase_field_source
 from .diagnostics import (
     summarize_run,
     write_alpha_preview,
@@ -29,8 +29,7 @@ from .params import SolverHyperParams
 from .phase_field import optimize_phase_field
 from .palette import load_palette, quantize_rgba, save_palette_report
 from .preprocess import strip_edge_background
-from .tile_graph import optimize_tile_graph
-from .types import InferenceResult, PhaseFieldSourceAnalysis, RunResult, TileGraphSourceAnalysis
+from .types import InferenceResult, PhaseFieldSourceAnalysis, RunResult
 
 
 def run_pipeline(
@@ -50,7 +49,6 @@ def run_pipeline(
     device: str = "auto",
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
-    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> RunResult:
     started = time.perf_counter()
@@ -84,7 +82,6 @@ def run_pipeline(
         source,
         seed=seed,
         device=device,
-        reconstruction_mode=reconstruction_mode,
     )
     inference = _select_phase_candidate(
         source,
@@ -94,7 +91,6 @@ def run_pipeline(
         seed=seed,
         device=device,
         solver_params=solver_params,
-        reconstruction_mode=reconstruction_mode,
         enable_phase_rerank=enable_phase_rerank,
     )
     solver, reconstruction_diagnostics = _run_reconstruction(
@@ -105,7 +101,6 @@ def run_pipeline(
         seed=seed,
         device=device,
         solver_params=solver_params,
-        reconstruction_mode=reconstruction_mode,
     )
     cleanup = cleanup_pixels(solver.target_rgba, source_guidance=solver.guidance_strength)
     palette = load_palette(palette_path) if palette_path else None
@@ -172,7 +167,6 @@ def run_pipeline(
             "steps": steps,
             "device": device,
             "strip_background": strip_background,
-            "reconstruction_mode": reconstruction_mode,
             "enable_phase_rerank": enable_phase_rerank,
             "inference_mode": inference_mode,
             "solver_params": solver_params.to_dict(),
@@ -190,10 +184,7 @@ def _prepare_analysis(
     *,
     seed: int,
     device: str,
-    reconstruction_mode: str,
-) -> PhaseFieldSourceAnalysis | TileGraphSourceAnalysis:
-    if reconstruction_mode == "tile-graph":
-        return analyze_tile_graph_source(source, device=device)
+) -> PhaseFieldSourceAnalysis:
     return analyze_phase_field_source(source, seed=seed, device=device)
 
 
@@ -206,7 +197,6 @@ def _select_phase_candidate(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> InferenceResult:
     return _select_phase_candidate_with_reconstruction(
@@ -217,7 +207,6 @@ def _select_phase_candidate(
         seed=seed,
         device=device,
         solver_params=solver_params,
-        reconstruction_mode=reconstruction_mode,
         enable_phase_rerank=enable_phase_rerank,
     )
 
@@ -231,13 +220,10 @@ def _select_phase_candidate_with_reconstruction(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    reconstruction_mode: str = "phase-field",
     enable_phase_rerank: bool = True,
 ) -> InferenceResult:
     solver_params = solver_params or SolverHyperParams()
     if not enable_phase_rerank:
-        return inference
-    if reconstruction_mode != "phase-field":
         return inference
     if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
         return inference
@@ -262,7 +248,6 @@ def _select_phase_candidate_with_reconstruction(
             seed=seed,
             device=device,
             solver_params=solver_params,
-            reconstruction_mode=reconstruction_mode,
         )
         support = source_lattice_consistency_breakdown(
             source,
@@ -433,34 +418,21 @@ def _run_reconstruction(
     seed: int,
     device: str,
     solver_params: SolverHyperParams,
-    reconstruction_mode: str,
 ):
-    if reconstruction_mode == "tile-graph":
-        return optimize_tile_graph(
-            source,
-            inference=inference,
-            analysis=analysis,
-            steps=steps,
-            seed=seed,
-            device=device,
-            solver_params=solver_params,
-        )
-    if reconstruction_mode == "phase-field":
-        solver = optimize_phase_field(
-            source,
-            inference=inference,
-            analysis=analysis,
-            steps=steps,
-            seed=seed,
-            device=device,
-            solver_params=solver_params,
-        )
-        phase_field_metrics = getattr(solver, "stage_diagnostics", {}).get("phase_field", {})
-        return solver, {
-            "mode": "phase-field",
-            **{
-                f"phase_field_{key}": value
-                for key, value in phase_field_metrics.items()
-            },
-        }
-    raise ValueError(f"Unknown reconstruction mode: {reconstruction_mode}")
+    solver = optimize_phase_field(
+        source,
+        inference=inference,
+        analysis=analysis,
+        steps=steps,
+        seed=seed,
+        device=device,
+        solver_params=solver_params,
+    )
+    phase_field_metrics = getattr(solver, "stage_diagnostics", {}).get("phase_field", {})
+    return solver, {
+        "mode": "phase-field",
+        **{
+            f"phase_field_{key}": value
+            for key, value in phase_field_metrics.items()
+        },
+    }

@@ -2,22 +2,18 @@
 
 ## Current machine
 
-Repixelizer now has two real reconstruction engines:
+Repixelizer now has one live reconstruction engine:
 
 - `phase-field`: the default optimizer in `src/repixelizer/phase_field.py`
-- `tile-graph`: the source-owned alternate solver in `src/repixelizer/tile_graph.py`
-
-The old tray-based optimizer is gone. Good riddance.
 
 The live pipeline is:
 
-`source image -> lattice inference -> edge analysis -> phase-field or tile-graph reconstruction -> cleanup -> optional palette fit -> diagnostics`
+`source image -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`
 
 ## What is working
 
 - lattice size and phase inference are still shared and still CUDA-capable
 - `phase-field` is now the main optimizer path and produces the best-looking badge result in the repo so far
-- `tile-graph` still provides a useful alternate path when literal source ownership matters more than smooth field behavior
 - compare mode, benchmark mode, diagnostics writing, and tuning all still work after the optimizer cutover
 - the repo now reports both:
   - `source_fidelity`: agreement with the inferred lattice portrait
@@ -48,27 +44,13 @@ What we know:
 - the tracked blemish is now narrow and specific: the sword-tip stroke widens too much in one local region
 - the tracked focus fixture is `tests/fixtures/real/ai-badge-tip-focus.json`
 
-### Tile-graph
-
-Useful artifacts:
-
-- full emblem win: `artifacts/full-emblem-tile-graph-atomic-v3-cuda/`
-- pinned badge speed/quality checkpoint: `artifacts/tile-graph-reducebykey-v1-badge-126/`
-
-What we know:
-
-- source ownership is real now
-- large-fixture cold-build cost is still the main pain
-- the dominant remaining speed problem is connected-component labeling / region extraction, not the parity solver loop
-
 ## Maps
 
-The repo now keeps the living maps only:
+The repo now keeps the living map:
 
 - `docs/lean-optimizer-algorithm-map.md`
-- `docs/tile-graph-algorithm-map.md`
 
-If a future pass cannot be explained cleanly against one of those maps, it should not land.
+If a future pass cannot be explained cleanly against that map, it should not land.
 
 ## Current priorities
 
@@ -103,18 +85,6 @@ Rules:
 - do not reintroduce portrait layers, candidate trays, or solver-stage religions
 - if a new term lands, it must belong cleanly in the one-field objective
 - if a result looks better and the metrics disagree, fix the metrics rather than worshipping them
-
-### 3. Make tile-graph less slow
-
-Goal:
-
-- reduce cold-build latency on badge-scale inputs without reintroducing fake ownership or averaged patch lies
-
-Most likely targets:
-
-- connected-component labeling
-- source-region extraction
-- cache reuse across repeated fixed-lattice runs
 
 ## Guardrails
 

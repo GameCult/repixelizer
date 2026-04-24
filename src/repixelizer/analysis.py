@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from .metrics import luminance
-from .types import PhaseFieldSourceAnalysis, TileGraphSourceAnalysis
+from .types import PhaseFieldSourceAnalysis
 
 
 def _require_torch():
@@ -73,23 +73,4 @@ def analyze_phase_field_source(
     edge_map = _compute_edge_map(rgba)
     return PhaseFieldSourceAnalysis(
         edge_map=edge_map,
-    )
-
-
-def analyze_tile_graph_source(
-    rgba: np.ndarray,
-    *,
-    device: str | None = None,
-) -> TileGraphSourceAnalysis:
-    if device is not None:
-        torch = _require_torch()
-        resolved_device = _resolve_device(torch, device)
-        rgba_t = torch.from_numpy(rgba).to(device=resolved_device, dtype=torch.float32)
-        edge_map_t = _compute_edge_map_torch(torch, rgba_t)
-        return TileGraphSourceAnalysis(
-            edge_map=edge_map_t.detach().cpu().numpy().astype(np.float32),
-        )
-
-    return TileGraphSourceAnalysis(
-        edge_map=_compute_edge_map(rgba),
     )

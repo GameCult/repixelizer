@@ -10,11 +10,11 @@ Instead of pretending this is a resize problem, Repixelizer treats it as lattice
 
 Repixelizer was built to rescue fake pixel art, but it can also be used to generate pixel art directly from non-pixel source art when the shapes are clean and the local structure is doing something useful.
 
-Rows show the source art, a plain Lanczos downscale, the default `phase-field` solver, and the `tile-graph` alternate solver. The bottom row also carries the tracked sword-tip closeup, because that tiny patch is one of the more honest tests of whether the machine is preserving structure instead of just faking confidence.
+Rows show the source art, a plain Lanczos downscale, and the live `phase-field` solver. The bottom row also carries the tracked sword-tip closeup, because that tiny patch is one of the more honest tests of whether the machine is preserving structure instead of just faking confidence.
 
 ![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
-That is the pitch in one image: two different machines, same mess, same ruler, nowhere to hide.
+That is the pitch in one image: same mess, same ruler, one machine forced to prove it actually understands the grid.
 
 ## Current Status
 
@@ -24,7 +24,6 @@ What exists now:
 
 - lattice inference with CUDA support
 - a lean displacement-field optimizer in `src/repixelizer/phase_field.py`
-- a source-owned alternate solver in `src/repixelizer/tile_graph.py`
 - automatic diagnostics, comparisons, and benchmark runs
 - a tuning harness for offline parameter sweeps
 - metrics that finally care about visible structure instead of only pleasing the lattice accountant
@@ -36,16 +35,14 @@ What changed recently:
 - `source_structure` is reported alongside `source_fidelity`, because the old metric was happily calling better-looking images worse
 - the tracked sword-tip blemish on the AI badge has its own focused fixture in `tests/fixtures/real/ai-badge-tip-focus.json`
 
-Current read on the engines:
+Current read on the engine:
 
 - `phase-field` is the release path. It currently produces the best-looking badge result in the repo, especially on internal linework, even though it still widens the tracked sword-tip stroke a bit too much.
-- `tile-graph` is still valuable as the alternate machine. It keeps hard source ownership and often preserves cell identity in a different, sometimes more stubborn way, but it is slower and more temperamental on badge-scale inputs.
 
 Current weak spots:
 
 - `phase-field` still needs better along-stroke versus across-stroke behavior near tapered contours
-- tile-graph cold-build time is still dominated by connected-component labeling / region extraction on large fixtures
-- lattice selection is still low-confidence on some ugly generated inputs, so pinned-size iteration remains an important workflow for both engines
+- lattice selection is still low-confidence on some ugly generated inputs, so pinned-size iteration remains an important workflow
 
 ## Quickstart
 
@@ -59,10 +56,7 @@ Run the optimizer:
 ```powershell
 repixelize input.png --out output.png
 repixelize input.png --out output.png --diagnostics-dir diagnostics --device auto
-repixelize input.png --out output.png --reconstruction-mode phase-field --diagnostics-dir diagnostics --device auto
-repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cpu
-repixelize input.png --out output.png --reconstruction-mode tile-graph --diagnostics-dir diagnostics --device cuda
-repixelize input.png --out output.png --reconstruction-mode tile-graph --target-width 126 --target-height 126 --phase-x 0.0 --phase-y -0.2 --device cuda
+repixelize input.png --out output.png --target-width 126 --target-height 126 --phase-x 0.0 --phase-y -0.2 --device cuda
 ```
 
 Run the optimizer plus baselines:
@@ -122,7 +116,6 @@ That keeps benchmark assets, attribution exports, and tuning runs from polluting
 - `tests`: focused regression tests
 - `docs/spec.md`: product and technical spec
 - `docs/implementation-plan.md`: working roadmap
-- `docs/tile-graph-algorithm-map.md`: detailed tile-graph dataflow and failure-point map
 - `docs/lean-optimizer-algorithm-map.md`: map of the live displacement-field optimizer
 - `examples/corpus/README.md`: local corpus layout and attribution workflow
 
@@ -130,7 +123,6 @@ Core modules:
 
 - `inference.py`: target size and phase inference
 - `phase_field.py`: default displacement-field optimizer
-- `tile_graph.py`: source-owned alternate reconstruction path
 - `metrics.py`: fidelity, adjacency, and motif metrics
 - `benchmark.py`: corpus benchmark runner
 - `tuning.py`: black-box hyperparameter search harness
