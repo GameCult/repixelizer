@@ -612,13 +612,13 @@ p {
 .metrics-panel {
   display: grid;
   gap: 10px;
-  align-items: start;
 }
 
 .metric-status-block {
   display: grid;
   gap: 8px;
   align-content: start;
+  align-self: stretch;
   justify-self: start;
   width: fit-content;
   max-width: min(100%, 26ch);
