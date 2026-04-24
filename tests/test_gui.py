@@ -32,16 +32,15 @@ def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
         observer=observer,
     )
 
-    assert events[:4] == [
-        "source_loaded",
-        "inference_candidates_ready",
-        "analysis_completed",
-        "phase_selection_completed",
-    ]
+    assert events[0] == "source_loaded"
+    assert events.count("stage_started") == 6
+    assert events.index("inference_candidates_ready") < events.index("analysis_completed")
+    assert events.index("analysis_completed") < events.index("phase_selection_completed")
+    assert events.index("phase_selection_completed") < events.index("phase_field_prepared")
     assert "phase_field_prepared" in events
     assert "phase_field_initial" in events
     assert events.count("phase_field_step") == 2
-    assert events[-3:] == ["cleanup_completed", "palette_completed", "pipeline_completed"]
+    assert events[-4:] == ["cleanup_completed", "stage_started", "palette_completed", "pipeline_completed"]
 
 
 def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch) -> None:

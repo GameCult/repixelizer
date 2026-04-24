@@ -208,6 +208,12 @@ class GuiJob:
                 "candidateCount": int(payload["candidate_count"]),
                 "confidence": float(payload["confidence"]),
             }
+        if event == "stage_started":
+            return {
+                "stage": str(payload["stage"]),
+                "label": str(payload["label"]),
+                "detail": str(payload["detail"]),
+            }
         if event == "analysis_completed":
             edge_map = payload["edge_map"]
             return {

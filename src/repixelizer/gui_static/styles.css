@@ -262,7 +262,8 @@ p {
 .brand,
 .brand-lockup,
 .copy-stack,
-.viewer-heading {
+.viewer-heading,
+.header-instructions {
   display: grid;
   gap: 10px;
 }
@@ -326,6 +327,31 @@ p {
 .brand-tag {
   font-size: 1.12rem;
   max-width: 40ch;
+}
+
+.app-shell-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.header-instructions {
+  align-content: start;
+  padding: 12px 14px;
+  border: 3px solid rgba(8, 36, 62, 0.88);
+  background:
+    radial-gradient(circle at top left, rgba(255, 216, 74, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(18, 58, 94, 0.95), rgba(9, 33, 62, 0.92));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 216, 74, 0.22),
+    0 0 14px rgba(255, 216, 74, 0.08);
+}
+
+.instruction-line {
+  font-size: 1.04rem;
+  line-height: 1.18;
+  color: var(--ui-text);
 }
 
 .candidate-card,
@@ -573,7 +599,19 @@ p {
 }
 
 .metrics-status-text {
-  max-width: 26ch;
+  max-width: 32ch;
+}
+
+.status-heading {
+  display: grid;
+  gap: 8px;
+}
+
+.status-stage {
+  margin: 0;
+  font-size: 1.22rem;
+  line-height: 1.1;
+  color: var(--ui-text-bright);
 }
 
 .scrubber {
@@ -651,8 +689,8 @@ p {
   align-self: stretch;
   justify-self: start;
   padding: 14px 16px;
-  width: fit-content;
-  max-width: min(100%, 26ch);
+  width: 100%;
+  max-width: min(100%, 34ch);
 }
 
 .metric-scrubber {
@@ -661,7 +699,85 @@ p {
 }
 
 .stats-grid {
-  grid-template-columns: fit-content(26ch) minmax(0, 1fr);
+  grid-template-columns: fit-content(34ch) minmax(0, 1fr);
+}
+
+.status-activity {
+  position: relative;
+  height: 10px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 216, 74, 0.18);
+  background:
+    linear-gradient(180deg, rgba(7, 20, 36, 0.85), rgba(8, 28, 48, 0.92));
+}
+
+.status-activity-bar {
+  display: block;
+  width: 36%;
+  height: 100%;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 216, 74, 0.92), rgba(143, 226, 200, 0.9), transparent);
+  transform: translateX(-120%);
+  animation: status-sweep 1.35s linear infinite;
+  animation-play-state: paused;
+}
+
+#statusPanel[data-job-state="queued"] .status-activity-bar,
+#statusPanel[data-job-state="running"] .status-activity-bar,
+#statusPanel[data-job-state="waiting"] .status-activity-bar {
+  animation-play-state: running;
+}
+
+#statusPanel[data-job-state="failed"] .status-activity-bar {
+  animation-play-state: paused;
+  transform: translateX(0);
+  width: 100%;
+  background: linear-gradient(90deg, rgba(210, 78, 62, 0.75), rgba(255, 137, 95, 0.88));
+}
+
+#statusPanel[data-job-state="completed"] .status-activity-bar {
+  animation-play-state: paused;
+  transform: translateX(0);
+  width: 100%;
+  background: linear-gradient(90deg, rgba(143, 226, 200, 0.82), rgba(255, 216, 74, 0.72));
+}
+
+.status-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.status-metric {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 2px solid rgba(8, 36, 62, 0.88);
+  background: linear-gradient(180deg, rgba(10, 35, 58, 0.96), rgba(7, 23, 42, 0.94));
+}
+
+.status-metric strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.58rem;
+  color: var(--ui-accent);
+  text-transform: uppercase;
+}
+
+.status-metric span {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.12;
+  color: var(--ui-text);
+}
+
+@keyframes status-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+
+  to {
+    transform: translateX(320%);
+  }
 }
 
 .candidate-card,
@@ -808,6 +924,7 @@ select:focus-visible {
 }
 
 @media (max-width: 940px) {
+  .app-shell-header,
   .viewer-grid,
   .controls-grid {
     grid-template-columns: 1fr;

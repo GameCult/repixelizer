@@ -23,6 +23,12 @@
                 </div>
               </div>
             </div>
+            <div class="header-instructions">
+              <p class="eyebrow">How To Use It</p>
+              <p class="instruction-line">1. Drop an input on the right or choose a file.</p>
+              <p class="instruction-line">2. Leave size and phase blank to let the machine search, or pin them if you already know the lattice.</p>
+              <p class="instruction-line">3. Run it, watch the status panel for the active stage, then patch the output by hand if the machine gets cute.</p>
+            </div>
           </header>
 
           <section class="hero viewer-panel">
@@ -32,9 +38,16 @@
               </div>
             </div>
             <div id="metricsPanel" class="metrics-panel stats-grid">
-              <div class="metric-chip metric-status-block">
-                <span id="statusBadge" class="status-badge">Idle</span>
-                <p id="statusText" class="status-text metrics-status-text">Waiting for input.</p>
+              <div id="statusPanel" class="metric-chip metric-status-block" data-job-state="idle">
+                <div class="status-heading">
+                  <span id="statusBadge" class="status-badge">Idle</span>
+                  <p id="statusStage" class="status-stage">Waiting for input</p>
+                </div>
+                <p id="statusText" class="status-text metrics-status-text">Choose a file, then run the machine.</p>
+                <div class="status-activity" aria-hidden="true">
+                  <span class="status-activity-bar"></span>
+                </div>
+                <div id="statusMetrics" class="status-metrics"></div>
               </div>
               <div class="metric-chip scrubber metric-scrubber">
                 <label for="stepSlider">Solver Step</label>

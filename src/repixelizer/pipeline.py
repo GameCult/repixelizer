@@ -99,6 +99,13 @@ def run_pipeline_rgba(
     solver_params = solver_params or SolverHyperParams()
     emit_observer(observer, "source_loaded", source_rgba=source.copy())
     if strip_background:
+        emit_observer(
+            observer,
+            "stage_started",
+            stage="preprocess",
+            label="Background cleanup",
+            detail="Stripping edge-connected neutral junk before lattice search.",
+        )
         source = strip_edge_background(source)
         emit_observer(observer, "preprocess_completed", source_rgba=source.copy(), operation="strip_background")
     fixed_dims = _resolve_requested_target_dims(
@@ -111,9 +118,23 @@ def run_pipeline_rgba(
         phase_y=phase_y,
     )
     if fixed_dims is None:
+        emit_observer(
+            observer,
+            "stage_started",
+            stage="inference",
+            label="Lattice search",
+            detail="Searching for the output size and phase that best fit the input.",
+        )
         inference = infer_lattice(source, target_size=target_size, device=device)
         inference_mode = "searched"
     else:
+        emit_observer(
+            observer,
+            "stage_started",
+            stage="inference",
+            label="Pinned lattice",
+            detail="Locking in the requested size and phase instead of searching.",
+        )
         inference = infer_fixed_lattice(
             source,
             target_width=fixed_dims[0],
@@ -124,12 +145,26 @@ def run_pipeline_rgba(
         )
         inference_mode = "fixed"
     emit_observer(observer, "inference_candidates_ready", inference=inference, inference_mode=inference_mode)
+    emit_observer(
+        observer,
+        "stage_started",
+        stage="analysis",
+        label="Input analysis",
+        detail="Mapping sharp cells, edges, and guidance before the solver starts.",
+    )
     analysis = _prepare_analysis(
         source,
         seed=seed,
         device=device,
     )
     emit_observer(observer, "analysis_completed", edge_map=analysis.edge_map.copy())
+    emit_observer(
+        observer,
+        "stage_started",
+        stage="selection",
+        label="Phase selection",
+        detail="Choosing the lattice candidate that deserves the full solve.",
+    )
     inference = _select_phase_candidate(
         source,
         inference,
@@ -142,6 +177,17 @@ def run_pipeline_rgba(
         observer=observer,
     )
     emit_observer(observer, "phase_selection_completed", inference=inference, inference_mode=inference_mode)
+    emit_observer(
+        observer,
+        "stage_started",
+        stage="solver",
+        label="Phase-field solve",
+        detail=(
+            "Running the solver over the pinned lattice."
+            if steps > 0
+            else "Skipping solver drift and keeping the initial placement."
+        ),
+    )
     solver, reconstruction_diagnostics = _run_reconstruction(
         source,
         inference=inference,
@@ -152,6 +198,13 @@ def run_pipeline_rgba(
         solver_params=solver_params,
         observer=observer,
     )
+    emit_observer(
+        observer,
+        "stage_started",
+        stage="cleanup",
+        label="Cleanup",
+        detail="Sweeping isolated noise and stubborn single-pixel junk.",
+    )
     cleanup = cleanup_pixels(solver.target_rgba, source_guidance=solver.guidance_strength)
     emit_observer(
         observer,
@@ -160,6 +213,13 @@ def run_pipeline_rgba(
         isolated_heatmap=cleanup.isolated_heatmap.copy(),
     )
     palette = load_palette(palette_path) if palette_path else None
+    emit_observer(
+        observer,
+        "stage_started",
+        stage="output",
+        label="Final output",
+        detail="Writing the finished output and packaging the summary.",
+    )
     palette_result = quantize_rgba(cleanup.cleaned_rgba, mode=palette_mode, palette=palette)
     output_rgba = palette_result.rgba if palette_result else cleanup.cleaned_rgba
     if output_path is not None:

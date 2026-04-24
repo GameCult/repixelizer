@@ -41,10 +41,25 @@ type LogItem = {
   detail: string;
 };
 
+type PhaseRerankInfo = {
+  previewSteps: number;
+  candidateCount: number;
+  confidence: number;
+};
+
+type PhaseFieldPrepInfo = {
+  targetWidth: number;
+  targetHeight: number;
+  cellX: number;
+  cellY: number;
+};
+
 type AppState = {
   file: File | null;
   jobId: string | null;
   status: string;
+  stageKey: string;
+  stageLabel: string;
   statusText: string;
   inputPreviewImage: ImageAsset | null;
   sourceImage: ImageAsset | null;
@@ -52,6 +67,9 @@ type AppState = {
   latticeImage: ImageAsset | null;
   guidanceImage: ImageAsset | null;
   inference: InferencePayload | null;
+  inferenceMode: string | null;
+  phaseRerank: PhaseRerankInfo | null;
+  phaseFieldPrep: PhaseFieldPrepInfo | null;
   frames: FramePayload[];
   cleanupImage: ImageAsset | null;
   heatmapImage: ImageAsset | null;
@@ -87,8 +105,11 @@ const dropzoneLabel = byId<HTMLSpanElement>("dropzoneLabel");
 const inputPreviewCanvas = byId<HTMLCanvasElement>("inputPreviewCanvas");
 const pickFileButton = byId<HTMLButtonElement>("pickFileButton");
 const runButton = byId<HTMLButtonElement>("runButton");
+const statusPanel = byId<HTMLDivElement>("statusPanel");
 const statusBadge = byId<HTMLSpanElement>("statusBadge");
+const statusStage = byId<HTMLParagraphElement>("statusStage");
 const statusText = byId<HTMLParagraphElement>("statusText");
+const statusMetrics = byId<HTMLDivElement>("statusMetrics");
 const inferenceSummary = byId<HTMLDivElement>("inferenceSummary");
 const candidateList = byId<HTMLDivElement>("candidateList");
 const eventLog = byId<HTMLDivElement>("eventLog");
@@ -99,7 +120,6 @@ const leftCanvas = byId<HTMLCanvasElement>("leftCanvas");
 const rightCanvas = byId<HTMLCanvasElement>("rightCanvas");
 const leftVizLabel = byId<HTMLDivElement>("leftVizLabel");
 const rightVizLabel = byId<HTMLDivElement>("rightVizLabel");
-const metricsPanel = byId<HTMLDivElement>("metricsPanel");
 const paintSwatch = byId<HTMLDivElement>("paintSwatch");
 const zoomInput = byId<HTMLInputElement>("zoomInput");
 const zoomValue = byId<HTMLSpanElement>("zoomValue");
@@ -134,6 +154,7 @@ const imageCache = new Map<string, Promise<HTMLImageElement>>();
 const eventTypes = [
   "job_state",
   "job_failed",
+  "stage_started",
   "source_loaded",
   "preprocess_completed",
   "inference_candidates_ready",
@@ -153,13 +174,18 @@ const state: AppState = {
   file: null,
   jobId: null,
   status: "idle",
-  statusText: "Waiting for input.",
+  stageKey: "idle",
+  stageLabel: "Waiting for input",
+  statusText: "Choose a file, then run the machine.",
   inputPreviewImage: null,
   sourceImage: null,
   preprocessedImage: null,
   latticeImage: null,
   guidanceImage: null,
   inference: null,
+  inferenceMode: null,
+  phaseRerank: null,
+  phaseFieldPrep: null,
   frames: [],
   cleanupImage: null,
   heatmapImage: null,
@@ -232,10 +258,21 @@ function renderEventLog(): void {
   }
 }
 
-function setStatus(status: string, detail: string): void {
+function formatStatusBadge(status: string): string {
+  return status.replaceAll("_", " ").toUpperCase();
+}
+
+function setJobState(status: string): void {
   state.status = status;
+  statusBadge.textContent = formatStatusBadge(status);
+  statusPanel.dataset.jobState = status;
+}
+
+function setStage(stageKey: string, label: string, detail: string): void {
+  state.stageKey = stageKey;
+  state.stageLabel = label;
   state.statusText = detail;
-  statusBadge.textContent = status;
+  statusStage.textContent = label;
   statusText.textContent = detail;
 }
 
@@ -246,6 +283,9 @@ function resetRunArtifacts(): void {
   state.latticeImage = null;
   state.guidanceImage = null;
   state.inference = null;
+  state.inferenceMode = null;
+  state.phaseRerank = null;
+  state.phaseFieldPrep = null;
   state.frames = [];
   state.cleanupImage = null;
   state.heatmapImage = null;
@@ -419,31 +459,40 @@ function renderInference(): void {
   }
 }
 
-function renderMetrics(): void {
-  metricsPanel.querySelectorAll<HTMLElement>("[data-dynamic='true']").forEach((node) => {
-    node.remove();
-  });
-  const frame = getSelectedFrame();
+function renderStatusMetrics(): void {
+  statusMetrics.innerHTML = "";
   const items: Array<[string, string]> = [];
-  if (frame) {
-    items.push(["Loss", frame.loss === null ? "n/a" : formatNumber(frame.loss, 4)]);
-    for (const [key, value] of Object.entries(frame.terms)) {
-      items.push([key.replaceAll("_", " "), formatNumber(value, 4)]);
+  const frame = getSelectedFrame();
+  if (state.stageKey === "inference" || state.stageKey === "analysis" || state.stageKey === "selection") {
+    if (state.inference) {
+      items.push(["Mode", state.inferenceMode === "fixed" ? "pinned" : state.inferenceMode ?? "search"]);
+      items.push(["Grid", `${state.inference.target_width} x ${state.inference.target_height}`]);
+      items.push(["Phase", `${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}`]);
+      items.push(["Confidence", formatNumber(state.inference.confidence, 3)]);
     }
-  } else if (state.runSummary) {
-    items.push(["Structure score", formatNumber(readNestedNumber(state.runSummary, ["source_structure", "score"]))]);
-    items.push([
-      "Final fidelity",
-      formatNumber(readNestedNumber(state.runSummary, ["source_fidelity", "final_output", "score"])),
-    ]);
-    items.push(["Input color ratio", formatNumber(readNestedNumber(state.runSummary, ["output_colors_from_source_ratio"]))]);
+  } else if (state.stageKey === "rerank") {
+    if (state.phaseRerank) {
+      items.push(["Preview steps", String(state.phaseRerank.previewSteps)]);
+      items.push(["Candidates", String(state.phaseRerank.candidateCount)]);
+      items.push(["Confidence", formatNumber(state.phaseRerank.confidence, 3)]);
+    }
+  } else if (state.stageKey === "solver") {
+    if (state.phaseFieldPrep) {
+      items.push(["Grid", `${state.phaseFieldPrep.targetWidth} x ${state.phaseFieldPrep.targetHeight}`]);
+      items.push(["Cell pitch", `${formatNumber(state.phaseFieldPrep.cellX, 1)} x ${formatNumber(state.phaseFieldPrep.cellY, 1)} px`]);
+    }
+    if (frame) {
+      items.push(["Loss", frame.loss === null ? "n/a" : formatNumber(frame.loss, 4)]);
+      for (const [key, value] of Object.entries(frame.terms).slice(0, 4)) {
+        items.push([key.replaceAll("_", " "), formatNumber(value, 4)]);
+      }
+    }
   }
   for (const [label, value] of items) {
     const node = document.createElement("div");
-    node.className = "metric-chip";
-    node.dataset.dynamic = "true";
+    node.className = "status-metric";
     node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
-    metricsPanel.appendChild(node);
+    statusMetrics.appendChild(node);
   }
 }
 
@@ -500,7 +549,6 @@ async function renderViewer(): Promise<void> {
   leftVizLabel.textContent = leftLabel;
   rightVizLabel.textContent = rightLabel;
   await Promise.all([drawAsset(leftCanvas, leftAsset), drawAsset(rightCanvas, rightAsset)]);
-  renderMetrics();
 }
 
 function renderSlider(): void {
@@ -522,6 +570,40 @@ function renderSlider(): void {
   stepValue.textContent = `Frame ${frame.step} / ${frame.totalSteps}${state.autoFollow ? " • following live" : ""}`;
 }
 
+function drawWrappedCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  options: { x: number; y: number; maxWidth: number; lineHeight: number },
+): void {
+  const { x, y, maxWidth, lineHeight } = options;
+  const words = text.split(/\s+/);
+  let line = "";
+  let cursorY = y;
+  for (const word of words) {
+    const nextLine = line ? `${line} ${word}` : word;
+    if (line && context.measureText(nextLine).width > maxWidth) {
+      context.fillText(line, x, cursorY);
+      line = word;
+      cursorY += lineHeight;
+      continue;
+    }
+    line = nextLine;
+  }
+  if (line) {
+    context.fillText(line, x, cursorY);
+  }
+}
+
+function renderLossPlaceholder(context: CanvasRenderingContext2D, width: number, heading: string, detail: string): void {
+  context.textBaseline = "top";
+  context.fillStyle = "rgba(255, 216, 74, 0.9)";
+  context.font = "12px 'Press Start 2P', monospace";
+  context.fillText(heading.toUpperCase(), 18, 14);
+  context.fillStyle = "rgba(255,255,255,0.42)";
+  context.font = "18px 'VT323', monospace";
+  drawWrappedCanvasText(context, detail, { x: 18, y: 38, maxWidth: width - 36, lineHeight: 20 });
+}
+
 function renderLossChart(): void {
   const context = lossCanvas.getContext("2d");
   if (!context) {
@@ -541,14 +623,15 @@ function renderLossChart(): void {
     context.lineTo(width, y);
     context.stroke();
   }
+  if (state.stageKey !== "solver") {
+    renderLossPlaceholder(context, width, state.stageLabel, state.statusText);
+    return;
+  }
   const losses = state.frames
     .filter((frame) => typeof frame.loss === "number")
     .map((frame) => frame.loss as number);
   if (losses.length === 0) {
-    context.fillStyle = "rgba(255,255,255,0.28)";
-    context.font = "14px sans-serif";
-    context.textBaseline = "top";
-    context.fillText("Loss curve wakes up once the solver starts moving.", 18, 16);
+    renderLossPlaceholder(context, width, "Phase-field solve", "Loss samples land here once the solver starts moving.");
     return;
   }
   const minLoss = Math.min(...losses);
@@ -798,6 +881,7 @@ function buildFormData(): FormData {
 async function renderEverything(): Promise<void> {
   renderInference();
   renderSlider();
+  renderStatusMetrics();
   renderLossChart();
   renderSummary();
   await renderViewer();
@@ -806,17 +890,25 @@ async function renderEverything(): Promise<void> {
 async function handleEvent(eventName: string, payload: JsonRecord): Promise<void> {
   switch (eventName) {
     case "job_state":
-      setStatus(String(payload.status ?? "working"), payload.status === "completed" ? "Run complete." : "Running.");
+      setJobState(String(payload.status ?? "working"));
       break;
     case "job_failed":
-      setStatus("failed", String(payload.message ?? "The GUI run fell over."));
+      setJobState("failed");
+      setStage("failed", "Run failed", String(payload.message ?? "The GUI run fell over."));
       addLog("Failure", String(payload.message ?? "The run failed."));
       runButton.disabled = false;
       currentEventSource?.close();
       break;
+    case "stage_started":
+      setJobState("running");
+      setStage(
+        String(payload.stage ?? "running"),
+        String(payload.label ?? "Working"),
+        String(payload.detail ?? "The pipeline is chewing on the input."),
+      );
+      break;
     case "source_loaded":
       state.sourceImage = payload.sourceImage as ImageAsset;
-      setStatus("running", "Input loaded. Survey crew is measuring the mess.");
       addLog("Input", "Loaded the input image.");
       break;
     case "preprocess_completed":
@@ -825,9 +917,20 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       break;
     case "inference_candidates_ready":
       state.inference = payload.inference as InferencePayload;
+      state.inferenceMode = typeof payload.inferenceMode === "string" ? payload.inferenceMode : state.inferenceMode;
       addLog("Inference", "Scored candidate grids and phase offsets.");
       break;
     case "phase_rerank_started":
+      state.phaseRerank = {
+        previewSteps: Number(payload.previewSteps ?? 0),
+        candidateCount: Number(payload.candidateCount ?? 0),
+        confidence: Number(payload.confidence ?? 0),
+      };
+      setStage(
+        "rerank",
+        "Phase rerank",
+        `Previewing ${state.phaseRerank.candidateCount} low-confidence candidates over ${state.phaseRerank.previewSteps} short solver steps.`,
+      );
       addLog(
         "Rerank",
         `Running ${String(payload.previewSteps)} preview steps across ${String(payload.candidateCount)} low-confidence candidates.`,
@@ -835,6 +938,7 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       break;
     case "phase_selection_completed":
       state.inference = payload.inference as InferencePayload;
+      state.inferenceMode = typeof payload.inferenceMode === "string" ? payload.inferenceMode : state.inferenceMode;
       addLog("Selection", "Committed to a ruler and phase.");
       break;
     case "analysis_completed":
@@ -843,6 +947,17 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
     case "phase_field_prepared":
       state.latticeImage = payload.latticeImage as ImageAsset;
       state.guidanceImage = payload.guidanceImage as ImageAsset;
+      state.phaseFieldPrep = {
+        targetWidth: Number(payload.targetWidth ?? 0),
+        targetHeight: Number(payload.targetHeight ?? 0),
+        cellX: Number(payload.cellX ?? 0),
+        cellY: Number(payload.cellY ?? 0),
+      };
+      setStage(
+        "solver",
+        "Phase-field solve",
+        `Pinned ${state.phaseFieldPrep.targetWidth} x ${state.phaseFieldPrep.targetHeight} lattice. Solver is walking the field now.`,
+      );
       addLog("Prep", `Locked ${String(payload.targetWidth)} x ${String(payload.targetHeight)} lattice centers.`);
       break;
     case "phase_field_initial":
@@ -856,27 +971,37 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
         state.frames.push(frame);
         state.frames.sort((a, b) => a.step - b.step);
       }
-        if (state.autoFollow) {
-          state.selectedFrameIndex = Math.max(0, state.frames.findIndex((candidate) => candidate.step === frame.step));
-        }
-        if (eventName === "phase_field_final") {
-          addLog("Solver", "Final nearest-input sample committed.");
-        }
-        break;
+      if (state.autoFollow) {
+        state.selectedFrameIndex = Math.max(0, state.frames.findIndex((candidate) => candidate.step === frame.step));
       }
+      setStage(
+        "solver",
+        "Phase-field solve",
+        frame.totalSteps <= 0
+          ? "Initial placement committed. No iterative solver steps were requested."
+          : `Solver step ${frame.step} / ${frame.totalSteps}. Loss and drift terms stay live in this panel while it walks.`,
+      );
+      if (eventName === "phase_field_final") {
+        addLog("Solver", "Final nearest-input sample committed.");
+      }
+      break;
+    }
     case "cleanup_completed":
       state.cleanupImage = payload.cleanedImage as ImageAsset;
       state.heatmapImage = payload.heatmapImage as ImageAsset;
+      setStage("cleanup", "Cleanup", "Sweeping isolated artifacts and smoothing the last stubborn junk.");
       addLog("Cleanup", "Ran the local cleanup sweep.");
       break;
     case "palette_completed":
       state.finalOutputImage = payload.outputImage as ImageAsset;
+      setStage("output", "Final output", "Writing the finished output and parking it in the editor.");
       addLog("Output", "Final output image is ready.");
       break;
     case "pipeline_completed":
       state.finalOutputImage = payload.outputImage as ImageAsset;
       state.runSummary = (payload.runSummary as JsonRecord | null) ?? null;
-      setStatus("completed", "Run finished. If the machine still did something stupid, fix it pixel by pixel.");
+      setJobState("completed");
+      setStage("completed", "Run complete", "The output is ready. If the machine still did something stupid, fix it pixel by pixel.");
       addLog("Done", "Full pipeline completed.");
       runButton.disabled = false;
       currentEventSource?.close();
@@ -901,20 +1026,23 @@ function connectEventStream(jobId: string): void {
   }
   stream.onerror = () => {
     if (state.status === "running") {
-      setStatus("waiting", "Event stream hiccup. If it stays this way, rerun it.");
+      setJobState("waiting");
+      setStage(state.stageKey, state.stageLabel, "Event stream hiccup. If it stays this way, rerun it.");
     }
   };
 }
 
 async function startRun(): Promise<void> {
   if (!state.file) {
-    setStatus("idle", "Pick a file first. The machine is not clairvoyant.");
+    setJobState("idle");
+    setStage("idle", "Waiting for input", "Pick a file first. The machine is not clairvoyant.");
     return;
   }
   resetRunArtifacts();
   renderEventLog();
   runButton.disabled = true;
-  setStatus("queued", "Queued the run. Small miracle pending.");
+  setJobState("queued");
+  setStage("queued", "Queued", "Starting the pipeline. This should wake up almost immediately.");
   addLog("Queued", `Starting ${state.file.name}.`);
   await renderEverything();
   try {
@@ -930,7 +1058,8 @@ async function startRun(): Promise<void> {
     connectEventStream(payload.jobId);
   } catch (error) {
     runButton.disabled = false;
-    setStatus("failed", error instanceof Error ? error.message : "Failed to start GUI job.");
+    setJobState("failed");
+    setStage("failed", "Run failed", error instanceof Error ? error.message : "Failed to start GUI job.");
     addLog("Failure", error instanceof Error ? error.message : "Failed to start GUI job.");
   }
 }
@@ -938,7 +1067,8 @@ async function startRun(): Promise<void> {
 async function acceptFile(file: File): Promise<void> {
   state.file = file;
   dropzoneLabel.textContent = file.name;
-  setStatus("idle", `${file.name} is loaded. Hit run when you want the machine to start sweating.`);
+  setJobState("idle");
+  setStage("ready", "Ready to run", `${file.name} is loaded. Hit run when you want the machine to start sweating.`);
   try {
     const previewImage = await fileToImageAsset(file);
     if (state.file !== file) {
@@ -950,7 +1080,8 @@ async function acceptFile(file: File): Promise<void> {
       return;
     }
     state.inputPreviewImage = null;
-    setStatus("failed", error instanceof Error ? error.message : "Failed to load image preview.");
+    setJobState("failed");
+    setStage("failed", "Preview failed", error instanceof Error ? error.message : "Failed to load image preview.");
   }
   await renderInputPreview();
 }
