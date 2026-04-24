@@ -65,6 +65,18 @@ Run the optimizer plus baselines:
 repixelize compare input.png --out output.png --diagnostics-dir diagnostics
 ```
 
+Run the GUI from the repo checkout:
+
+```powershell
+.\scripts\run_gui.ps1
+```
+
+If you want to bypass the PowerShell wrapper and call Python directly:
+
+```powershell
+.\.venv\Scripts\python scripts\run_gui.py
+```
+
 ## Corpus And Benchmarks
 
 Prepare a local Creative Commons corpus:

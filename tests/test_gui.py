@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 from repixelizer.pipeline import run_pipeline_rgba
 from repixelizer.synthetic import fake_pixelize, make_emblem
 
@@ -35,3 +38,26 @@ def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
     assert "phase_field_initial" in events
     assert events.count("phase_field_step") == 2
     assert events[-3:] == ["cleanup_completed", "palette_completed", "pipeline_completed"]
+
+
+def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "run_gui.py"
+    spec = importlib.util.spec_from_file_location("repixelizer_run_gui_script", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    called = {}
+
+    def fake_gui_main(*, host: str, port: int, reload: bool) -> int:
+        called["host"] = host
+        called["port"] = port
+        called["reload"] = reload
+        return 0
+
+    monkeypatch.setattr("repixelizer.gui.main", fake_gui_main)
+    exit_code = module.main(["--host", "127.0.0.1", "--port", "8123", "--reload"])
+    assert exit_code == 0
+    assert called == {"host": "127.0.0.1", "port": 8123, "reload": True}
