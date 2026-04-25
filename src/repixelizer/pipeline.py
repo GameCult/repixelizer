@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from .observe import PipelineObserver, emit_observer
+from .observe import PipelineObserver, check_observer_cancelled, emit_observer
 from .analysis import analyze_phase_field_source
 from .diagnostics import (
     summarize_run,
@@ -97,8 +97,10 @@ def run_pipeline_rgba(
 ) -> RunResult:
     started = time.perf_counter()
     solver_params = solver_params or SolverHyperParams()
+    check_observer_cancelled(observer)
     emit_observer(observer, "source_loaded", source_rgba=source.copy())
     if strip_background:
+        check_observer_cancelled(observer)
         emit_observer(
             observer,
             "stage_started",
@@ -108,6 +110,7 @@ def run_pipeline_rgba(
         )
         source = strip_edge_background(source)
         emit_observer(observer, "preprocess_completed", source_rgba=source.copy(), operation="strip_background")
+    check_observer_cancelled(observer)
     fixed_dims = _resolve_requested_target_dims(
         source_width=source.shape[1],
         source_height=source.shape[0],
@@ -118,6 +121,7 @@ def run_pipeline_rgba(
         phase_y=phase_y,
     )
     if fixed_dims is None:
+        check_observer_cancelled(observer)
         emit_observer(
             observer,
             "stage_started",
@@ -128,6 +132,7 @@ def run_pipeline_rgba(
         inference = infer_lattice(source, target_size=target_size, device=device, observer=observer)
         inference_mode = "searched"
     else:
+        check_observer_cancelled(observer)
         emit_observer(
             observer,
             "stage_started",
@@ -145,6 +150,7 @@ def run_pipeline_rgba(
         )
         inference_mode = "fixed"
     emit_observer(observer, "inference_candidates_ready", inference=inference, inference_mode=inference_mode)
+    check_observer_cancelled(observer)
     emit_observer(
         observer,
         "stage_started",
@@ -158,6 +164,7 @@ def run_pipeline_rgba(
         device=device,
     )
     emit_observer(observer, "analysis_completed", edge_map=analysis.edge_map.copy())
+    check_observer_cancelled(observer)
     emit_observer(
         observer,
         "stage_started",
@@ -177,6 +184,7 @@ def run_pipeline_rgba(
         observer=observer,
     )
     emit_observer(observer, "phase_selection_completed", inference=inference, inference_mode=inference_mode)
+    check_observer_cancelled(observer)
     emit_observer(
         observer,
         "stage_started",
@@ -198,6 +206,7 @@ def run_pipeline_rgba(
         solver_params=solver_params,
         observer=observer,
     )
+    check_observer_cancelled(observer)
     emit_observer(
         observer,
         "stage_started",
@@ -213,6 +222,7 @@ def run_pipeline_rgba(
         isolated_heatmap=cleanup.isolated_heatmap.copy(),
     )
     palette = load_palette(palette_path) if palette_path else None
+    check_observer_cancelled(observer)
     emit_observer(
         observer,
         "stage_started",
@@ -376,6 +386,7 @@ def _select_phase_candidate_with_reconstruction(
     total_candidates = min(8, len(inference.top_candidates))
     candidate_records: list[dict[str, float | InferenceResult]] = []
     for candidate_index, candidate in enumerate(inference.top_candidates[:total_candidates], start=1):
+        check_observer_cancelled(observer)
         candidate_inference = InferenceResult(
             target_width=candidate.target_width,
             target_height=candidate.target_height,
@@ -429,6 +440,7 @@ def _select_phase_candidate_with_reconstruction(
             solver_params=solver_params,
             observer=rerank_observer if observer is not None else None,
         )
+        check_observer_cancelled(observer)
         emit_observer(
             observer,
             "phase_rerank_candidate_completed",

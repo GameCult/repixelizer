@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import numpy as np
+import pytest
+
 from repixelizer.inference import (
     SpacingEstimate,
     _axis_prior_from_estimates,
@@ -11,6 +14,7 @@ from repixelizer.inference import (
     infer_fixed_lattice,
     infer_lattice,
 )
+from repixelizer.observe import PipelineCancelled
 from repixelizer.types import InferenceCandidate
 from repixelizer.synthetic import fake_pixelize, make_emblem
 
@@ -186,3 +190,53 @@ def test_infer_fixed_lattice_searches_phase_within_pinned_size() -> None:
     assert len(result.top_candidates) > 1
     assert all(candidate.target_width == 16 for candidate in result.top_candidates)
     assert all(candidate.target_height == 16 for candidate in result.top_candidates)
+
+
+def test_infer_lattice_honors_cooperative_cancellation(monkeypatch) -> None:
+    import repixelizer.inference as inference_module
+
+    class _FakeCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class _FakeTorch:
+        cuda = _FakeCuda()
+
+    class CancelObserver:
+        def __call__(self, event: str, payload: dict[str, object]) -> None:
+            del event, payload
+
+        def check_cancelled(self) -> bool:
+            return True
+
+    monkeypatch.setattr(inference_module, "_require_torch", lambda: (_FakeTorch(), object()))
+    monkeypatch.setattr(
+        inference_module,
+        "_estimate_lattice_spacing_details",
+        lambda rgba: (inference_module.SpacingEstimate(None, 0.0, None, 0.0, (), ()),) * 2,
+    )
+    monkeypatch.setattr(inference_module, "_hint_target_sizes_from_spacing", lambda width, height, spacing_x, spacing_y: [])
+    monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba, **kwargs: (4.0, 4.0, 0.5))
+    monkeypatch.setattr(
+        inference_module,
+        "_resolve_candidate_dims_from_spacing",
+        lambda *args, **kwargs: [(10, 8), (12, 10)],
+    )
+    monkeypatch.setattr(
+        inference_module,
+        "_score_phase_group",
+        lambda *args, **kwargs: [
+            inference_module.InferenceCandidate(
+                target_width=10,
+                target_height=8,
+                phase_x=0.0,
+                phase_y=0.0,
+                score=0.5,
+                breakdown={},
+            )
+        ],
+    )
+
+    with pytest.raises(PipelineCancelled):
+        inference_module.infer_lattice(np.zeros((16, 16, 4), dtype=np.float32), observer=CancelObserver())

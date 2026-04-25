@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import io
 import asyncio
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +13,7 @@ from starlette.datastructures import UploadFile
 
 import repixelizer.inference as inference_module
 import repixelizer.pipeline as pipeline_module
+from repixelizer.observe import PipelineCancelled
 from repixelizer.pipeline import run_pipeline_rgba
 from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.params import SolverHyperParams
@@ -49,6 +52,26 @@ async def _get_response(app, path: str) -> tuple[int, dict[str, str], bytes]:
         for key, value in start.get("headers", [])
     }
     return status, headers, body
+
+
+def _png_bytes(*, width: int = 4, height: int = 4) -> bytes:
+    image = Image.new("RGBA", (width, height), (12, 34, 56, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _route_endpoint(app, path: str, method: str):
+    for route in app.routes:
+        if getattr(route, "path", None) == path and method.upper() in getattr(route, "methods", set()):
+            return route.endpoint
+    raise AssertionError(f"Missing route {method} {path}")
+
+
+def _response_json(response) -> dict[str, object]:
+    import json
+
+    return json.loads(response.body.decode("utf-8"))
 
 
 def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
@@ -402,3 +425,262 @@ def test_phase_rerank_emits_candidate_progress_events(monkeypatch) -> None:
     first_step_payload = next(payload for event, payload in events if event == "phase_rerank_candidate_step")
     assert first_step_payload["candidate_index"] == 1
     assert first_step_payload["total_steps"] == 2
+
+
+def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    app = create_app()
+    payload = _response_json(_route_endpoint(app, "/api/config", "GET")())
+
+    assert payload["hostedDemo"] is True
+    assert payload["limits"]["maxOutputDimension"] == 256
+    assert payload["limits"]["defaultSteps"] == 32
+    assert payload["ui"]["showDeviceControl"] is False
+    assert payload["ui"]["showStripBackgroundControl"] is False
+
+
+def test_gui_queue_rejects_eleventh_waiting_job(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    release = threading.Event()
+
+    def fake_run_pipeline_rgba(*args, **kwargs):
+        observer = kwargs.get("observer")
+        if observer is not None:
+            observer("stage_started", {"stage": "solver", "label": "Solver", "detail": "Working."})
+        release.wait(timeout=2.0)
+        if observer is not None and observer.__self__.check_cancelled():  # type: ignore[attr-defined]
+            raise PipelineCancelled(observer.__self__.cancellation_message)  # type: ignore[attr-defined]
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_QUEUE_CAPACITY", "10")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setattr("repixelizer.gui.run_pipeline_rgba", fake_run_pipeline_rgba)
+
+    upload = _png_bytes()
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    accepted = []
+    for _ in range(11):
+        accepted.append(
+            asyncio.run(
+                create_job(
+                    image=UploadFile(filename="tiny.png", file=io.BytesIO(upload)),
+                    target_size=None,
+                    target_width=None,
+                    target_height=None,
+                    phase_x=None,
+                    phase_y=None,
+                    steps=None,
+                    seed=7,
+                    device="auto",
+                    strip_background=False,
+                    skip_phase_rerank=False,
+                )
+            )
+        )
+    rejected = None
+    try:
+        asyncio.run(
+            create_job(
+                image=UploadFile(filename="tiny.png", file=io.BytesIO(upload)),
+                target_size=None,
+                target_width=None,
+                target_height=None,
+                phase_x=None,
+                phase_y=None,
+                steps=None,
+                seed=7,
+                device="auto",
+                strip_background=False,
+                skip_phase_rerank=False,
+            )
+        )
+    except Exception as exc:
+        rejected = exc
+    release.set()
+
+    assert all(response.status_code == 200 for response in accepted)
+    assert rejected is not None
+    assert "Queue is full" in getattr(rejected, "detail", str(rejected))
+
+
+def test_gui_canceling_queued_job_cleans_spool_file(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    release = threading.Event()
+
+    def fake_run_pipeline_rgba(*args, **kwargs):
+        release.wait(timeout=2.0)
+
+    spool_dir = tmp_path / "spool"
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(spool_dir))
+    monkeypatch.setattr("repixelizer.gui.run_pipeline_rgba", fake_run_pipeline_rgba)
+
+    upload = _png_bytes()
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    cancel_job = _route_endpoint(app, "/api/jobs/{job_id}", "DELETE")
+    queue_endpoint = _route_endpoint(app, "/api/queue", "GET")
+    first = asyncio.run(
+        create_job(
+            image=UploadFile(filename="first.png", file=io.BytesIO(upload)),
+            target_size=None,
+            target_width=None,
+            target_height=None,
+            phase_x=None,
+            phase_y=None,
+            steps=None,
+            seed=7,
+            device="auto",
+            strip_background=False,
+            skip_phase_rerank=False,
+        )
+    )
+    second = asyncio.run(
+        create_job(
+            image=UploadFile(filename="second.png", file=io.BytesIO(upload)),
+            target_size=None,
+            target_width=None,
+            target_height=None,
+            phase_x=None,
+            phase_y=None,
+            steps=None,
+            seed=7,
+            device="auto",
+            strip_background=False,
+            skip_phase_rerank=False,
+        )
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    queued_job_id = _response_json(second)["jobId"]
+    before_cancel = sorted(spool_dir.iterdir())
+    canceled = cancel_job(queued_job_id)
+    queue_summary = _response_json(queue_endpoint())
+    after_cancel = sorted(spool_dir.iterdir())
+    release.set()
+
+    assert len(before_cancel) == 2
+    assert canceled.status_code == 200
+    assert _response_json(canceled)["status"] == "canceled"
+    assert queue_summary["waitingCount"] == 0
+    assert len(after_cancel) == 1
+
+
+def test_gui_running_job_is_canceled_after_stale_heartbeat(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    def fake_run_pipeline_rgba(*args, **kwargs):
+        observer = kwargs.get("observer")
+        assert observer is not None
+        observer("stage_started", {"stage": "solver", "label": "Solver", "detail": "Working."})
+        for _ in range(80):
+            owner = observer.__self__  # type: ignore[attr-defined]
+            if owner.check_cancelled():
+                raise PipelineCancelled(owner.cancellation_message)
+            time.sleep(0.05)
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_HEARTBEAT_INTERVAL_SECONDS", "1")
+    monkeypatch.setenv("REPIXELIZER_STALE_AFTER_SECONDS", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setattr("repixelizer.gui.run_pipeline_rgba", fake_run_pipeline_rgba)
+
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    get_job = _route_endpoint(app, "/api/jobs/{job_id}", "GET")
+    created = asyncio.run(
+        create_job(
+            image=UploadFile(filename="tiny.png", file=io.BytesIO(_png_bytes())),
+            target_size=None,
+            target_width=None,
+            target_height=None,
+            phase_x=None,
+            phase_y=None,
+            steps=None,
+            seed=7,
+            device="auto",
+            strip_background=False,
+            skip_phase_rerank=False,
+        )
+    )
+    assert created.status_code == 200
+    job_id = _response_json(created)["jobId"]
+    deadline = time.time() + 4.0
+    latest = None
+    while time.time() < deadline:
+        latest = get_job(job_id)
+        if _response_json(latest)["status"] == "canceled":
+            break
+        time.sleep(0.1)
+
+    assert latest is not None
+    assert latest.status_code == 200
+    assert _response_json(latest)["status"] == "canceled"
+
+
+def test_gui_rejects_oversized_upload_and_output(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    monkeypatch.setenv("REPIXELIZER_MAX_UPLOAD_BYTES", "20")
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    too_large_upload = None
+    try:
+        too_large_upload = asyncio.run(
+            create_job(
+                image=UploadFile(filename="tiny.png", file=io.BytesIO(_png_bytes())),
+                target_size=None,
+                target_width=None,
+                target_height=None,
+                phase_x=None,
+                phase_y=None,
+                steps=None,
+                seed=7,
+                device="auto",
+                strip_background=False,
+                skip_phase_rerank=False,
+            )
+        )
+    except Exception as exc:
+        too_large_upload = exc
+
+    monkeypatch.setenv("REPIXELIZER_MAX_UPLOAD_BYTES", "1048576")
+    monkeypatch.setenv("REPIXELIZER_MAX_OUTPUT_DIMENSION", "8")
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    explicit_big_output = None
+    try:
+        explicit_big_output = asyncio.run(
+            create_job(
+                image=UploadFile(filename="tiny.png", file=io.BytesIO(_png_bytes(width=4, height=4))),
+                target_size=None,
+                target_width=16,
+                target_height=None,
+                phase_x=None,
+                phase_y=None,
+                steps=None,
+                seed=7,
+                device="auto",
+                strip_background=False,
+                skip_phase_rerank=False,
+            )
+        )
+    except Exception as exc:
+        explicit_big_output = exc
+
+    assert too_large_upload is not None
+    assert "too large" in getattr(too_large_upload, "detail", str(too_large_upload)).lower()
+    assert explicit_big_output is not None
+    assert "exceeds the maximum hosted output dimension" in getattr(
+        explicit_big_output, "detail", str(explicit_big_output)
+    )

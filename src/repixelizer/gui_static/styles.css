@@ -644,6 +644,12 @@ select.field-control optgroup {
   color: var(--ui-text-muted);
 }
 
+.queue-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 .viz-card {
   margin: 0;
   padding: 10px;

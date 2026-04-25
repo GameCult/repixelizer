@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .io import premultiply
-from .observe import PipelineObserver, emit_observer
+from .observe import PipelineObserver, check_observer_cancelled, emit_observer, observer_attribute
 from .types import InferenceResult, PhaseFieldSourceAnalysis, SolverArtifacts
 from .params import SolverHyperParams
 
@@ -392,17 +392,7 @@ def _materialize_loss_history(torch, values: list[object]) -> list[float]:
 
 
 def _observer_option(observer: PipelineObserver | None, name: str, default: object) -> object:
-    if observer is None:
-        return default
-    direct = getattr(observer, name, None)
-    if direct is not None:
-        return direct
-    owner = getattr(observer, "__self__", None)
-    if owner is not None:
-        owner_value = getattr(owner, name, None)
-        if owner_value is not None:
-            return owner_value
-    return default
+    return observer_attribute(observer, name, default)
 
 
 def _observer_preview_stride(observer: PipelineObserver | None) -> int:
@@ -488,6 +478,7 @@ def optimize_phase_field(
     max_dy = solver_params.phase_field_max_displacement_ratio * prep.cell_y
 
     for step_index in range(max(0, steps)):
+        check_observer_cancelled(observer)
         optimizer.zero_grad(set_to_none=True)
         loss, _sampled_rgba, terms = _phase_field_loss(torch, F, prep, disp_t, solver_params)
         loss.backward()
@@ -521,6 +512,7 @@ def optimize_phase_field(
             emit_observer(observer, "phase_field_step", **payload)
 
     with torch.no_grad():
+        check_observer_cancelled(observer)
         if steps <= 0:
             loss, _sampled_rgba, final_terms_raw = _phase_field_loss(torch, F, prep, disp_t, solver_params)
             loss_history_raw.append(loss.detach())

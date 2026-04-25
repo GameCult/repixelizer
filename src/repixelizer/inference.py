@@ -6,7 +6,7 @@ import numpy as np
 
 from .io import premultiply
 from .metrics import source_lattice_evidence_breakdown
-from .observe import PipelineObserver, emit_observer
+from .observe import PipelineObserver, check_observer_cancelled, emit_observer
 from .types import InferenceCandidate, InferenceResult
 
 
@@ -755,6 +755,7 @@ def infer_lattice(
 
     candidates: list[InferenceCandidate] = []
     for candidate_index, (target_width, target_height) in enumerate(candidate_dims, start=1):
+        check_observer_cancelled(observer)
         scored_group = _score_phase_group(
             rgba,
             target_width=target_width,

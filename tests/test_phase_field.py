@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from repixelizer.analysis import analyze_phase_field_source
+from repixelizer.observe import PipelineCancelled
 from repixelizer.phase_field import optimize_phase_field
 from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.types import InferenceResult
@@ -72,3 +74,37 @@ def test_optimize_phase_field_moves_off_zero_when_phase_is_wrong() -> None:
     )
 
     assert artifacts.stage_diagnostics["phase_field"]["mean_displacement_px"] > 0.01
+
+
+def test_optimize_phase_field_honors_cooperative_cancellation() -> None:
+    source = make_emblem(12, 12)
+    inference = InferenceResult(
+        target_width=12,
+        target_height=12,
+        phase_x=0.0,
+        phase_y=0.0,
+        confidence=1.0,
+        top_candidates=[],
+    )
+
+    class CancelObserver:
+        def __call__(self, event: str, payload: dict[str, object]) -> None:
+            del event, payload
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def check_cancelled(self) -> bool:
+            self.calls += 1
+            return self.calls > 1
+
+    with pytest.raises(PipelineCancelled):
+        optimize_phase_field(
+            source,
+            inference=inference,
+            analysis=analyze_phase_field_source(source, seed=7),
+            steps=4,
+            seed=7,
+            device="cpu",
+            observer=CancelObserver(),
+        )

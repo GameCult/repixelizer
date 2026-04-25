@@ -141,7 +141,7 @@
             <div class="card-head">
               <div class="copy-stack">
                 <h2>Input</h2>
-                <p class="copy-tag">Start with the ugly input.</p>
+                <p id="inputCopy" class="copy-tag">Start with the ugly input.</p>
               </div>
               <button id="pickFileButton" class="button button-small button-secondary" type="button">Choose File</button>
             </div>
@@ -156,11 +156,11 @@
             <div class="card-head">
               <div class="copy-stack">
                 <h2>Run Controls</h2>
-                <p class="copy-tag">Pin what you know. Search what you do not.</p>
+                <p id="runControlsCopy" class="copy-tag">Pin what you know. Search what you do not.</p>
               </div>
             </div>
             <form id="controlsForm" class="controls-grid">
-              <label class="field">
+              <label id="deviceField" class="field">
                 <span class="field-heading">
                   <span class="field-label">Device</span>
                   <span
@@ -276,7 +276,7 @@
                 </span>
                 <input id="seedInput" class="field-control" name="seed" type="number" min="0" value="7" />
               </label>
-              <label class="toggle-row ui-surface ui-frame">
+              <label id="stripBackgroundField" class="toggle-row ui-surface ui-frame">
                 <input id="stripBackgroundInput" name="stripBackground" type="checkbox" />
                 <span class="toggle-copy">
                   <span>Strip checkerboard-ish junk</span>
@@ -306,6 +306,21 @@
               </label>
             </form>
             <button id="runButton" class="button" type="button">Run The Machine</button>
+          </section>
+
+          <section class="card sidebar-section ui-surface ui-frame">
+            <div class="card-head">
+              <div class="copy-stack">
+                <h2>Queue</h2>
+                <p class="copy-tag">One worker. The rest wait politely instead of setting the server on fire.</p>
+              </div>
+            </div>
+            <div id="queueSummary" class="info-stack">
+              <p class="muted">Checking queue status.</p>
+            </div>
+            <div class="queue-actions">
+              <button id="cancelJobButton" class="button button-small button-secondary" type="button" hidden>Cancel Job</button>
+            </div>
           </section>
 
           <section class="card sidebar-section ui-surface ui-frame">

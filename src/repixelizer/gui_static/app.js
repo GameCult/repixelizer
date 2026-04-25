@@ -9,6 +9,7 @@ function byId(id) {
 const fileInput = byId("fileInput");
 const dropzone = byId("dropzone");
 const dropzoneLabel = byId("dropzoneLabel");
+const inputCopy = byId("inputCopy");
 const pickFileButton = byId("pickFileButton");
 const runButton = byId("runButton");
 const statusPanel = byId("statusPanel");
@@ -43,7 +44,12 @@ const phaseXInput = byId("phaseXInput");
 const phaseYInput = byId("phaseYInput");
 const stepsInput = byId("stepsInput");
 const seedInput = byId("seedInput");
+const runControlsCopy = byId("runControlsCopy");
+const queueSummaryPanel = byId("queueSummary");
+const cancelJobButton = byId("cancelJobButton");
+const deviceField = byId("deviceField");
 const deviceInput = byId("deviceInput");
+const stripBackgroundField = byId("stripBackgroundField");
 const stripBackgroundInput = byId("stripBackgroundInput");
 const skipRerankInput = byId("skipRerankInput");
 const paintInputs = {
@@ -55,6 +61,8 @@ const paintInputs = {
 const imageCache = new Map();
 const eventTypes = [
     "job_state",
+    "job_canceled",
+    "queue_state",
     "job_failed",
     "stage_started",
     "source_loaded",
@@ -97,6 +105,14 @@ const state = {
     heatmapImage: null,
     finalOutputImage: null,
     runSummary: null,
+    runtimeConfig: null,
+    queueSummary: null,
+    queuePosition: null,
+    queueDepth: 0,
+    waitingCount: 0,
+    queueCapacity: 0,
+    heartbeatIntervalSeconds: 10,
+    staleAfterSeconds: 30,
     solverStepBudget: 0,
     lossAxisMax: null,
     eventLog: [],
@@ -109,6 +125,8 @@ const state = {
     showGrid: gridToggle.checked,
 };
 let currentEventSource = null;
+let currentHeartbeatTimer = null;
+let currentQueuePollTimer = null;
 let painting = false;
 let panning = false;
 let activePanPointerId = null;
@@ -163,6 +181,58 @@ function renderEventLog() {
         eventLog.appendChild(node);
     }
 }
+function renderQueueSummary() {
+    queueSummaryPanel.innerHTML = "";
+    if (hasActiveJob()) {
+        const cards = [
+            ["Status", formatStatusBadge(state.status)],
+            [
+                "Line",
+                state.queuePosition === null || state.queueDepth <= 0
+                    ? "active now"
+                    : `${state.queuePosition} / ${Math.max(state.queueDepth, state.queuePosition)}`,
+            ],
+            ["Waiting", `${state.waitingCount} / ${state.queueCapacity || (state.runtimeConfig?.limits.queueCapacity ?? 0)}`],
+        ];
+        for (const [label, value] of cards) {
+            const node = document.createElement("div");
+            node.className = "info-card summary-card";
+            node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
+            queueSummaryPanel.appendChild(node);
+        }
+        const note = document.createElement("p");
+        note.className = "muted";
+        note.textContent =
+            state.status === "queued"
+                ? "Heartbeats keep this slot alive while you wait."
+                : "This run owns the worker. Leave the page and the queue slot gets reclaimed.";
+        queueSummaryPanel.appendChild(note);
+        cancelJobButton.hidden = false;
+        return;
+    }
+    cancelJobButton.hidden = true;
+    if (!state.queueSummary) {
+        queueSummaryPanel.innerHTML = `<p class="muted">Checking queue status.</p>`;
+        return;
+    }
+    const idleCards = [
+        ["Worker", state.queueSummary.hasActiveJob ? "busy" : "idle"],
+        ["Queue", String(state.queueSummary.queueDepth)],
+        ["Waiting", `${state.queueSummary.waitingCount} / ${state.queueSummary.queueCapacity}`],
+    ];
+    for (const [label, value] of idleCards) {
+        const node = document.createElement("div");
+        node.className = "info-card summary-card";
+        node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
+        queueSummaryPanel.appendChild(node);
+    }
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = state.queueSummary.hasActiveJob
+        ? "One run is chewing right now. New jobs line up behind it."
+        : "Nobody is using the machine. A small miracle.";
+    queueSummaryPanel.appendChild(note);
+}
 function formatStatusBadge(status) {
     return status.replaceAll("_", " ").toUpperCase();
 }
@@ -177,6 +247,60 @@ function setStage(stageKey, label, detail) {
     state.statusText = detail;
     statusStage.textContent = label;
     statusText.textContent = detail;
+}
+function hasActiveJob() {
+    return state.jobId !== null && ["queued", "running", "waiting"].includes(state.status);
+}
+function formatByteLimit(bytes) {
+    if (bytes >= 1024 * 1024) {
+        return `${formatNumber(bytes / (1024 * 1024), 1)} MiB`;
+    }
+    if (bytes >= 1024) {
+        return `${Math.round(bytes / 1024)} KiB`;
+    }
+    return `${bytes} B`;
+}
+function applyQueueState(payload) {
+    if (typeof payload.queuePosition === "number") {
+        state.queuePosition = payload.queuePosition;
+    }
+    else if (payload.queuePosition === null) {
+        state.queuePosition = null;
+    }
+    if (typeof payload.queueDepth === "number") {
+        state.queueDepth = payload.queueDepth;
+    }
+    if (typeof payload.waitingCount === "number") {
+        state.waitingCount = payload.waitingCount;
+    }
+    if (typeof payload.queueCapacity === "number") {
+        state.queueCapacity = payload.queueCapacity;
+    }
+    if (typeof payload.heartbeatIntervalSeconds === "number") {
+        state.heartbeatIntervalSeconds = payload.heartbeatIntervalSeconds;
+    }
+    if (typeof payload.staleAfterSeconds === "number") {
+        state.staleAfterSeconds = payload.staleAfterSeconds;
+    }
+}
+function applyRuntimeConfig(config) {
+    state.runtimeConfig = config;
+    deviceField.hidden = !config.ui.showDeviceControl;
+    stripBackgroundField.hidden = !config.ui.showStripBackgroundControl;
+    stepsInput.max = String(config.limits.maxSteps);
+    if (stepsInput.value.trim() === "" || Number(stepsInput.value) > config.limits.maxSteps || Number(stepsInput.value) === 48) {
+        stepsInput.value = String(config.limits.defaultSteps);
+    }
+    if (config.hostedDemo) {
+        deviceInput.value = "cpu";
+        stripBackgroundInput.checked = false;
+        inputCopy.textContent = `PNG up to ${formatByteLimit(config.limits.maxUploadBytes)}, max ${config.limits.maxInputDimension}x${config.limits.maxInputDimension}.`;
+        runControlsCopy.textContent = `Hosted demo mode. CPU only, output max ${config.limits.maxOutputDimension}px, steps clamp at ${config.limits.maxSteps}.`;
+    }
+    else {
+        inputCopy.textContent = "Start with the ugly input.";
+        runControlsCopy.textContent = "Pin what you know. Search what you do not.";
+    }
 }
 function resetRunArtifacts(options = {}) {
     const preserveSourceImage = options.preserveSourceImage ?? false;
@@ -197,6 +321,9 @@ function resetRunArtifacts(options = {}) {
     state.heatmapImage = null;
     state.finalOutputImage = null;
     state.runSummary = null;
+    state.queuePosition = null;
+    state.queueDepth = 0;
+    state.waitingCount = 0;
     state.solverStepBudget = 0;
     state.lossAxisMax = null;
     state.eventLog = [];
@@ -398,7 +525,17 @@ function renderInference() {
 function renderStatusMetrics() {
     const items = [];
     const frame = getSelectedFrame();
-    if (state.stageKey === "inference") {
+    if (state.stageKey === "queued" || state.status === "queued" || state.status === "waiting") {
+        items.push({
+            label: "Line",
+            value: state.queuePosition === null || state.queueDepth <= 0
+                ? "pending"
+                : `${state.queuePosition} / ${Math.max(state.queueDepth, state.queuePosition)}`,
+        });
+        items.push({ label: "Waiting", value: `${state.waitingCount} / ${state.queueCapacity || (state.runtimeConfig?.limits.queueCapacity ?? 0)}` });
+        items.push({ label: "Heartbeat", value: `${state.heartbeatIntervalSeconds}s` });
+    }
+    else if (state.stageKey === "inference") {
         if (state.latticeSearch) {
             items.push({ label: "Sizes", value: `${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}` });
             items.push({ label: "Phases", value: String(state.latticeSearch.phaseSampleCount) });
@@ -975,22 +1112,145 @@ function endPan(pointerId = null) {
     activePanPointerId = null;
     syncEditorCursorState();
 }
+async function loadRuntimeConfig() {
+    const response = await fetch("/api/config");
+    if (!response.ok) {
+        throw new Error(await response.text());
+    }
+    applyRuntimeConfig((await response.json()));
+}
+async function refreshQueueSummary() {
+    if (hasActiveJob()) {
+        return;
+    }
+    const response = await fetch("/api/queue");
+    if (!response.ok) {
+        throw new Error(await response.text());
+    }
+    state.queueSummary = (await response.json());
+    renderQueueSummary();
+}
+function stopQueuePolling() {
+    if (currentQueuePollTimer !== null) {
+        window.clearInterval(currentQueuePollTimer);
+        currentQueuePollTimer = null;
+    }
+}
+function syncQueuePolling() {
+    if (hasActiveJob()) {
+        stopQueuePolling();
+        return;
+    }
+    if (currentQueuePollTimer !== null) {
+        return;
+    }
+    currentQueuePollTimer = window.setInterval(() => {
+        void refreshQueueSummary().catch(() => undefined);
+    }, 10000);
+}
+function stopHeartbeat() {
+    if (currentHeartbeatTimer !== null) {
+        window.clearInterval(currentHeartbeatTimer);
+        currentHeartbeatTimer = null;
+    }
+}
+function applyJobSnapshot(snapshot) {
+    applyQueueState(snapshot);
+    if (typeof snapshot.status === "string") {
+        setJobState(snapshot.status);
+    }
+    if (snapshot.runSummary && typeof snapshot.runSummary === "object") {
+        state.runSummary = snapshot.runSummary;
+    }
+}
+async function sendHeartbeat() {
+    if (!state.jobId || !hasActiveJob()) {
+        stopHeartbeat();
+        return;
+    }
+    const response = await fetch(`/api/jobs/${state.jobId}/heartbeat`, { method: "POST" });
+    if (response.status === 404) {
+        stopHeartbeat();
+        return;
+    }
+    if (!response.ok) {
+        return;
+    }
+    applyJobSnapshot((await response.json()));
+    renderQueueSummary();
+}
+function syncHeartbeat() {
+    if (!hasActiveJob()) {
+        stopHeartbeat();
+        return;
+    }
+    const intervalMs = Math.max(1000, state.heartbeatIntervalSeconds * 1000);
+    if (currentHeartbeatTimer !== null) {
+        window.clearInterval(currentHeartbeatTimer);
+    }
+    currentHeartbeatTimer = window.setInterval(() => {
+        void sendHeartbeat().catch(() => undefined);
+    }, intervalMs);
+}
+function extractErrorDetail(payload, fallback) {
+    if (payload && typeof payload === "object") {
+        const detail = payload.detail;
+        if (typeof detail === "string" && detail.trim()) {
+            return detail;
+        }
+    }
+    return fallback;
+}
+async function cancelCurrentJob(options = {}) {
+    if (!state.jobId || !hasActiveJob()) {
+        return;
+    }
+    const request = fetch(`/api/jobs/${state.jobId}`, {
+        method: "DELETE",
+        keepalive: options.keepalive ?? false,
+    });
+    if (options.keepalive) {
+        return;
+    }
+    try {
+        const response = await request;
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const payload = (await response.json());
+        applyJobSnapshot(payload);
+        if (!options.silent) {
+            setStage("queued", "Cancel requested", "Asked the worker to drop this job and free the queue slot.");
+        }
+        renderQueueSummary();
+    }
+    catch (error) {
+        if (!options.silent) {
+            addLog("Cancel", error instanceof Error ? error.message : "Failed to cancel the current job.");
+        }
+    }
+}
 function buildFormData() {
     if (!state.file) {
         throw new Error("No file selected");
     }
     const data = new FormData();
     data.set("image", state.file);
+    const runtimeConfig = state.runtimeConfig;
+    const maxSteps = runtimeConfig?.limits.maxSteps ?? 48;
+    const defaultSteps = runtimeConfig?.limits.defaultSteps ?? 48;
+    const requestedSteps = parseOptionalInteger(stepsInput);
+    const normalizedSteps = Math.max(0, Math.min(maxSteps, requestedSteps ?? defaultSteps));
     const values = [
         ["target_size", parseOptionalInteger(targetSizeInput)?.toString() ?? null],
         ["target_width", parseOptionalInteger(targetWidthInput)?.toString() ?? null],
         ["target_height", parseOptionalInteger(targetHeightInput)?.toString() ?? null],
         ["phase_x", parseOptionalFloat(phaseXInput)?.toString() ?? null],
         ["phase_y", parseOptionalFloat(phaseYInput)?.toString() ?? null],
-        ["steps", String(parseOptionalInteger(stepsInput) ?? 48)],
+        ["steps", String(normalizedSteps)],
         ["seed", String(parseOptionalInteger(seedInput) ?? 7)],
-        ["device", deviceInput.value],
-        ["strip_background", stripBackgroundInput.checked ? "true" : "false"],
+        ["device", runtimeConfig?.hostedDemo ? "cpu" : deviceInput.value],
+        ["strip_background", runtimeConfig?.hostedDemo ? "false" : stripBackgroundInput.checked ? "true" : "false"],
         ["skip_phase_rerank", skipRerankInput.checked ? "true" : "false"],
     ];
     for (const [key, value] of values) {
@@ -1001,6 +1261,7 @@ function buildFormData() {
     return data;
 }
 async function renderEverything() {
+    renderQueueSummary();
     renderInference();
     renderStatusMetrics();
     renderLossChart();
@@ -1010,14 +1271,42 @@ async function renderEverything() {
 async function handleEvent(eventName, payload) {
     switch (eventName) {
         case "job_state":
-            setJobState(String(payload.status ?? "working"));
+            applyJobSnapshot(payload);
+            if (payload.cancelRequested === true && state.status === "running") {
+                setStage(state.stageKey, state.stageLabel, String(payload.message ?? "Cancel requested. Waiting for the worker to drop the job."));
+            }
+            syncHeartbeat();
+            syncQueuePolling();
+            break;
+        case "queue_state":
+            applyQueueState(payload);
+            state.queueSummary = {
+                queueDepth: state.queueDepth,
+                waitingCount: state.waitingCount,
+                queueCapacity: state.queueCapacity,
+                hasActiveJob: state.queueDepth > 0,
+                activeStatus: state.status,
+            };
+            break;
+        case "job_canceled":
+            stopHeartbeat();
+            setJobState("canceled");
+            setStage("canceled", "Job canceled", String(payload.message ?? "The queued or running job was canceled."));
+            addLog("Canceled", String(payload.message ?? "Canceled the job."));
+            runButton.disabled = false;
+            currentEventSource?.close();
+            syncQueuePolling();
+            void refreshQueueSummary().catch(() => undefined);
             break;
         case "job_failed":
+            stopHeartbeat();
             setJobState("failed");
             setStage("failed", "Run failed", String(payload.message ?? "The GUI run fell over."));
             addLog("Failure", String(payload.message ?? "The run failed."));
             runButton.disabled = false;
             currentEventSource?.close();
+            syncQueuePolling();
+            void refreshQueueSummary().catch(() => undefined);
             break;
         case "stage_started":
             setJobState("running");
@@ -1186,12 +1475,15 @@ async function handleEvent(eventName, payload) {
         case "pipeline_completed":
             state.finalOutputImage = payload.outputImage;
             state.runSummary = payload.runSummary ?? null;
+            stopHeartbeat();
             setJobState("completed");
             setStage("completed", "Run complete", "The output is ready. If the machine still did something stupid, fix it pixel by pixel.");
             addLog("Done", "Full pipeline completed.");
             runButton.disabled = false;
             currentEventSource?.close();
             await loadEditorAsset(state.finalOutputImage);
+            syncQueuePolling();
+            void refreshQueueSummary().catch(() => undefined);
             break;
         default:
             break;
@@ -1210,9 +1502,9 @@ function connectEventStream(jobId) {
         });
     }
     stream.onerror = () => {
-        if (state.status === "running") {
+        if (hasActiveJob()) {
             setJobState("waiting");
-            setStage(state.stageKey, state.stageLabel, "Event stream hiccup. If it stays this way, rerun it.");
+            setStage(state.stageKey, state.stageLabel, "Event stream hiccup. Heartbeats are still trying to keep the queue slot alive.");
         }
     };
 }
@@ -1225,9 +1517,12 @@ async function startRun() {
     resetRunArtifacts({ preserveSourceImage: true });
     renderEventLog();
     runButton.disabled = true;
-    state.solverStepBudget = parseOptionalInteger(stepsInput) ?? 48;
+    const runtimeConfig = state.runtimeConfig;
+    const maxSteps = runtimeConfig?.limits.maxSteps ?? 48;
+    const defaultSteps = runtimeConfig?.limits.defaultSteps ?? 48;
+    state.solverStepBudget = Math.max(0, Math.min(maxSteps, parseOptionalInteger(stepsInput) ?? defaultSteps));
     setJobState("queued");
-    setStage("queued", "Queued", "Starting the pipeline. This should wake up almost immediately.");
+    setStage("queued", "Queued", "Submitting the job and trying not to trip over our own shoelaces.");
     addLog("Queued", `Starting ${state.file.name}.`);
     await renderEverything();
     try {
@@ -1236,17 +1531,29 @@ async function startRun() {
             body: buildFormData(),
         });
         if (!response.ok) {
-            throw new Error(await response.text());
+            const errorPayload = await response.json().catch(async () => ({ detail: await response.text() }));
+            throw new Error(extractErrorDetail(errorPayload, "Failed to start GUI job."));
         }
         const payload = (await response.json());
         state.jobId = payload.jobId;
+        applyJobSnapshot(payload);
+        state.queueSummary = {
+            queueDepth: payload.queueDepth,
+            waitingCount: payload.waitingCount,
+            queueCapacity: payload.queueCapacity,
+            hasActiveJob: payload.queueDepth > 0,
+            activeStatus: payload.status,
+        };
         connectEventStream(payload.jobId);
+        syncHeartbeat();
+        syncQueuePolling();
     }
     catch (error) {
         runButton.disabled = false;
         setJobState("failed");
         setStage("failed", "Run failed", error instanceof Error ? error.message : "Failed to start GUI job.");
         addLog("Failure", error instanceof Error ? error.message : "Failed to start GUI job.");
+        syncQueuePolling();
     }
 }
 async function acceptFile(file) {
@@ -1297,6 +1604,15 @@ dropzone.addEventListener("drop", (event) => {
 runButton.addEventListener("click", () => {
     void startRun();
 });
+cancelJobButton.addEventListener("click", () => {
+    void cancelCurrentJob();
+});
+stepsInput.addEventListener("change", () => {
+    const maxSteps = state.runtimeConfig?.limits.maxSteps;
+    if (typeof maxSteps === "number" && Number(stepsInput.value) > maxSteps) {
+        stepsInput.value = String(maxSteps);
+    }
+});
 inspectZoomInput.addEventListener("change", () => {
     const value = Number(inspectZoomInput.value);
     state.viewerInspectZoom = Number.isFinite(value) && value > 0 ? value : 1;
@@ -1339,6 +1655,9 @@ window.addEventListener("blur", () => {
     endViewerInspect();
     endPan();
     syncEditorCursorState();
+});
+window.addEventListener("pagehide", () => {
+    void cancelCurrentJob({ keepalive: true, silent: true });
 });
 for (const [panel, canvas] of [
     ["left", leftCanvas],
@@ -1458,4 +1777,20 @@ syncEditorCursorState();
 syncViewerInspectCursor();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
-void renderEverything();
+async function initializeApp() {
+    try {
+        await loadRuntimeConfig();
+    }
+    catch (error) {
+        addLog("Config", error instanceof Error ? error.message : "Failed to load runtime config.");
+    }
+    try {
+        await refreshQueueSummary();
+    }
+    catch (error) {
+        addLog("Queue", error instanceof Error ? error.message : "Failed to load queue summary.");
+    }
+    syncQueuePolling();
+    await renderEverything();
+}
+void initializeApp();

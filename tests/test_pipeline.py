@@ -4,12 +4,14 @@ import hashlib
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from repixelizer.analysis import analyze_phase_field_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error, source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
 from repixelizer.pipeline import _run_reconstruction, _select_phase_candidate, run_pipeline
+from repixelizer.observe import PipelineCancelled
 from repixelizer.phase_field import optimize_phase_field
 from repixelizer.io import nearest_resize
 from repixelizer.synthetic import fake_pixelize, make_emblem, make_sprite
@@ -218,6 +220,38 @@ def test_phase_rerank_preview_respects_requested_zero_steps(monkeypatch) -> None
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
 
     _select_phase_candidate(source, inference, analysis=object(), steps=0, seed=7, device="cpu")
+
+
+def test_phase_rerank_honors_cooperative_cancellation(monkeypatch) -> None:
+    source = np.zeros((2, 2, 4), dtype=np.float32)
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.4, phase_y=0.2, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.4, phase_y=0.2, score=0.909, breakdown={})
+    inference = InferenceResult(
+        target_width=2,
+        target_height=2,
+        phase_x=candidate_a.phase_x,
+        phase_y=candidate_a.phase_y,
+        confidence=0.1,
+        top_candidates=[candidate_a, candidate_b],
+    )
+
+    class CancelObserver:
+        def __call__(self, event: str, payload: dict[str, object]) -> None:
+            del event, payload
+
+        def check_cancelled(self) -> bool:
+            return True
+
+    with pytest.raises(PipelineCancelled):
+        _select_phase_candidate(
+            source,
+            inference,
+            analysis=object(),
+            steps=8,
+            seed=7,
+            device="cpu",
+            observer=CancelObserver(),
+        )
 
 
 def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None:
