@@ -312,45 +312,17 @@ p {
   width: 132px;
   height: 132px;
   flex: 0 0 auto;
-  position: relative;
-  display: grid;
-  place-items: center;
-  background:
-    linear-gradient(0deg, rgba(0, 0, 0, 0.25) 0 6px, transparent 6px 100%),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.22) 0 6px, transparent 6px 100%),
-    linear-gradient(180deg, #f9df6b, #ffae1a 58%, #d37d12);
-  border: 4px solid rgba(8, 36, 62, 0.9);
-  box-shadow:
-    inset 0 0 0 4px rgba(255, 243, 181, 0.45),
-    0 0 18px rgba(255, 216, 74, 0.28);
+  display: block;
+  filter:
+    drop-shadow(0 0 18px rgba(255, 216, 74, 0.22))
+    drop-shadow(0 0 8px rgba(8, 36, 62, 0.35));
 }
 
-.brand-emblem::before,
-.brand-emblem::after {
-  content: "";
-  position: absolute;
-  background: rgba(8, 36, 62, 0.92);
-}
-
-.brand-emblem::before {
-  inset: 20px 48px;
-  clip-path: polygon(50% 0%, 100% 26%, 100% 74%, 50% 100%, 0% 74%, 0% 26%);
-}
-
-.brand-emblem::after {
-  inset: 48px 20px;
-  clip-path: polygon(0% 50%, 26% 0%, 74% 0%, 100% 50%, 74% 100%, 26% 100%);
-}
-
-.brand-emblem-core {
-  width: 28px;
-  height: 28px;
-  position: relative;
-  z-index: 1;
-  background: #fff1b6;
-  box-shadow:
-    0 0 0 6px rgba(8, 36, 62, 0.94),
-    0 0 18px rgba(255, 216, 74, 0.38);
+.brand-emblem-art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
 }
 
 .brand-tag {
