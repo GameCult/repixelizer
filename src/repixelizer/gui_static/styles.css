@@ -549,14 +549,19 @@ select.field-control optgroup {
   padding: 10px 14px;
   font-size: 0.64rem;
   line-height: 1.15;
-  border: 4px solid var(--ui-panel-border);
+  border: 4px solid rgba(255, 216, 74, 0.34);
   border-bottom-width: 5px;
   color: var(--ui-text-bright);
   text-transform: uppercase;
-  background: linear-gradient(180deg, #15466c, #0a233d);
+  text-shadow: 0 0 10px rgba(255, 248, 210, 0.12);
+  background:
+    radial-gradient(circle at top center, rgba(255, 243, 181, 0.16), transparent 52%),
+    linear-gradient(180deg, #225d88, #14395d 62%, #0b2643);
   box-shadow:
-    inset 0 0 12px rgba(255, 216, 74, 0.08),
-    0 0 0 1px rgba(255, 216, 74, 0.1),
+    inset 0 0 0 1px rgba(255, 243, 181, 0.16),
+    inset 0 0 14px rgba(255, 216, 74, 0.14),
+    0 0 0 1px rgba(255, 216, 74, 0.18),
+    0 0 16px rgba(255, 216, 74, 0.12),
     0 4px 0 rgba(0, 0, 0, 0.28);
 }
 
@@ -568,7 +573,9 @@ select.field-control optgroup {
 }
 
 .button-secondary {
-  background: linear-gradient(180deg, #143b5d, #091f36);
+  background:
+    radial-gradient(circle at top center, rgba(255, 243, 181, 0.11), transparent 52%),
+    linear-gradient(180deg, #1d5278, #113250 62%, #091f36);
 }
 
 .button-small {
