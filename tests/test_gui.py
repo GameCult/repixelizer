@@ -106,6 +106,59 @@ def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch) -> None:
     assert called == {"host": "127.0.0.1", "port": 8123, "reload": True}
 
 
+def test_repo_gui_runner_reclaims_stale_gui_port_before_launch(monkeypatch, capsys) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "run_gui.py"
+    spec = importlib.util.spec_from_file_location("repixelizer_run_gui_script", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    called = {}
+
+    def fake_reclaim(host: str, port: int, repo_root: Path) -> str | None:
+        called["reclaim"] = (host, port, repo_root)
+        return "Reclaimed stale Repixelizer GUI process 4242 on port 8000."
+
+    def fake_gui_main(*, host: str, port: int, reload: bool) -> int:
+        called["gui"] = {"host": host, "port": port, "reload": reload}
+        return 0
+
+    monkeypatch.setattr(module, "_reclaim_stale_gui_port", fake_reclaim)
+    monkeypatch.setattr("repixelizer.gui.main", fake_gui_main)
+
+    exit_code = module.main(["--host", "127.0.0.1", "--port", "8000"])
+
+    assert exit_code == 0
+    assert called["gui"] == {"host": "127.0.0.1", "port": 8000, "reload": False}
+    assert called["reclaim"] == ("127.0.0.1", 8000, repo_root)
+    assert "Reclaimed stale Repixelizer GUI process 4242 on port 8000." in capsys.readouterr().out
+
+
+def test_repo_gui_runner_refuses_unrelated_port_owner(monkeypatch, capsys) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "run_gui.py"
+    spec = importlib.util.spec_from_file_location("repixelizer_run_gui_script", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(
+        module,
+        "_reclaim_stale_gui_port",
+        lambda host, port, repo_root: (_ for _ in ()).throw(
+            RuntimeError("Port 8000 is already in use by PID 9999. Refusing to kill an unrelated process.")
+        ),
+    )
+
+    exit_code = module.main(["--port", "8000"])
+
+    assert exit_code == 1
+    assert "Refusing to kill an unrelated process" in capsys.readouterr().err
+
+
 def test_create_job_upload_field_validates_without_forward_ref_errors() -> None:
     from repixelizer.gui import create_app
 
