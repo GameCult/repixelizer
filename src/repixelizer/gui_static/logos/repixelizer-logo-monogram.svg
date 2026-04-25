@@ -5,19 +5,37 @@
     <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
       <path d="M 12 0 L 0 0 0 12" fill="none" stroke="#ffd84a" stroke-opacity="0.08" stroke-width="1" />
     </pattern>
-    <symbol id="tile-ghost" overflow="visible"><rect class="ghost" x="0" y="0" width="9" height="9" rx="2.5" ry="2.5" /></symbol>
-    <symbol id="tile-main" overflow="visible"><rect class="tile-main" x="0" y="0" width="9" height="9" rx="2.5" ry="2.5" /></symbol>
-    <symbol id="tile-bright" overflow="visible"><rect class="tile-bright" x="0" y="0" width="9" height="9" rx="2.5" ry="2.5" /></symbol>
-    <symbol id="tile-dark" overflow="visible"><rect class="tile-dark" x="0" y="0" width="9" height="9" rx="2.5" ry="2.5" /></symbol>
+    <symbol id="tile-ghost" overflow="visible">
+      <rect class="tile-fill ghost-fill" x="0" y="0" width="9" height="9" rx="3.2" ry="3.2" />
+      <rect class="tile-stroke ghost-stroke" x="1.25" y="1.25" width="6.5" height="6.5" rx="2.2" ry="2.2" />
+    </symbol>
+    <symbol id="tile-main" overflow="visible">
+      <rect class="tile-fill tile-main-fill" x="0" y="0" width="9" height="9" rx="3.2" ry="3.2" />
+      <rect class="tile-stroke tile-main-stroke" x="1.25" y="1.25" width="6.5" height="6.5" rx="2.2" ry="2.2" />
+    </symbol>
+    <symbol id="tile-bright" overflow="visible">
+      <rect class="tile-fill tile-bright-fill" x="0" y="0" width="9" height="9" rx="3.2" ry="3.2" />
+      <rect class="tile-stroke tile-bright-stroke" x="1.25" y="1.25" width="6.5" height="6.5" rx="2.2" ry="2.2" />
+    </symbol>
+    <symbol id="tile-dark" overflow="visible">
+      <rect class="tile-fill tile-dark-fill" x="0" y="0" width="9" height="9" rx="3.2" ry="3.2" />
+      <rect class="tile-stroke tile-dark-stroke" x="1.25" y="1.25" width="6.5" height="6.5" rx="2.2" ry="2.2" />
+    </symbol>
     <style>
       svg { shape-rendering: crispEdges; }
       .badge { fill: #0a1b2f; stroke: #ffd84a; stroke-width: 6; }
       .rim { fill: none; stroke: #1d4d75; stroke-width: 6; }
       .grid { fill: url(#grid); opacity: 0.32; }
-      .ghost { fill: #8fe2c8; fill-opacity: 0.18; stroke: #eafff7; stroke-opacity: 0.18; stroke-width: 1.25; }
-      .tile-main { fill: #ffe48a; stroke: #fff4cf; stroke-opacity: 0.46; stroke-width: 1.25; }
-      .tile-bright { fill: #fff7cf; stroke: #fffef6; stroke-opacity: 0.58; stroke-width: 1.25; }
-      .tile-dark { fill: #d79a31; stroke: #f4c875; stroke-opacity: 0.44; stroke-width: 1.25; }
+      .tile-fill { stroke: none; }
+      .tile-stroke { fill: none; stroke-width: 2.5; }
+      .ghost-fill { fill: #8fe2c8; fill-opacity: 0.18; }
+      .ghost-stroke { stroke: #eafff7; stroke-opacity: 0.18; }
+      .tile-main-fill { fill: #ffe48a; }
+      .tile-main-stroke { stroke: #fff4cf; stroke-opacity: 0.46; }
+      .tile-bright-fill { fill: #fff7cf; }
+      .tile-bright-stroke { stroke: #fffef6; stroke-opacity: 0.58; }
+      .tile-dark-fill { fill: #d79a31; }
+      .tile-dark-stroke { stroke: #f4c875; stroke-opacity: 0.44; }
     </style>
   </defs>
 
