@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Repixelizer Logo Concepts</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .logo-preview-shell {
+        width: min(1440px, calc(100vw - 24px));
+        margin: 12px auto;
+        padding: 16px;
+      }
+
+      .logo-preview-stack,
+      .logo-grid,
+      .logo-card,
+      .logo-meta {
+        display: grid;
+        gap: 12px;
+      }
+
+      .logo-grid {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+
+      .logo-card {
+        padding: 14px;
+      }
+
+      .logo-card img {
+        width: min(100%, 280px);
+        height: auto;
+        display: block;
+        margin: 0 auto;
+      }
+
+      .logo-row {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .logo-chip {
+        width: 48px;
+        height: 48px;
+        padding: 6px;
+      }
+
+      .logo-chip img {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      .logo-notes {
+        font-size: 1rem;
+        line-height: 1.18;
+        color: var(--ui-text-muted);
+      }
+
+      @media (max-width: 700px) {
+        .logo-preview-shell {
+          width: min(100vw - 8px, 100%);
+          margin: 4px auto;
+          padding: 8px;
+        }
+
+        .logo-card img {
+          width: min(100%, 220px);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell logo-preview-shell logo-preview-stack">
+      <header class="card ui-surface ui-frame logo-preview-stack">
+        <p class="eyebrow">Logo Study</p>
+        <h1>Repixelizer Marks</h1>
+        <p class="copy-tag">Three directions. One of them probably gets to live. Open the files directly if you want to stare at pixels like a civilized lunatic.</p>
+      </header>
+
+      <section class="logo-grid">
+        <article class="card ui-surface ui-frame logo-card">
+          <div class="logo-meta">
+            <p class="eyebrow">Option 1</p>
+            <h2>Snapping R</h2>
+            <p class="logo-notes">Chunky monogram built from lattice cells, with a faint ghost trail on the left so it looks like the machine hauled it into alignment.</p>
+          </div>
+          <img src="./logos/repixelizer-logo-monogram.svg" alt="Snapping R monogram logo concept" />
+          <div class="logo-row">
+            <span class="viz-label">Small Read</span>
+            <div class="viz-card ui-surface ui-frame logo-chip">
+              <img src="./logos/repixelizer-logo-monogram.svg" alt="" />
+            </div>
+          </div>
+        </article>
+
+        <article class="card ui-surface ui-frame logo-card">
+          <div class="logo-meta">
+            <p class="eyebrow">Option 2</p>
+            <h2>Split Tile</h2>
+            <p class="logo-notes">Left side is fake-pixel mush, right side is a clean snapped grid. Very literal, very readable, not especially subtle.</p>
+          </div>
+          <img src="./logos/repixelizer-logo-split-tile.svg" alt="Split before and after tile logo concept" />
+          <div class="logo-row">
+            <span class="viz-label">Small Read</span>
+            <div class="viz-card ui-surface ui-frame logo-chip">
+              <img src="./logos/repixelizer-logo-split-tile.svg" alt="" />
+            </div>
+          </div>
+        </article>
+
+        <article class="card ui-surface ui-frame logo-card">
+          <div class="logo-meta">
+            <p class="eyebrow">Option 3</p>
+            <h2>Phase Crosshair</h2>
+            <p class="logo-notes">More machine-brain, less mascot. Feels like targeting, phase lock, and solver intent rather than "brand mark" first.</p>
+          </div>
+          <img src="./logos/repixelizer-logo-phase-crosshair.svg" alt="Phase crosshair logo concept" />
+          <div class="logo-row">
+            <span class="viz-label">Small Read</span>
+            <div class="viz-card ui-surface ui-frame logo-chip">
+              <img src="./logos/repixelizer-logo-phase-crosshair.svg" alt="" />
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

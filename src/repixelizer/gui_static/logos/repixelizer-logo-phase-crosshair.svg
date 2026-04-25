@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Repixelizer phase crosshair logo concept</title>
+  <desc id="desc">A chunky pixel in a phase-lock reticle with ghost positions hinting at the search.</desc>
+  <defs>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <style>
+      .badge { fill: #0a1b2f; stroke: #ffd84a; stroke-width: 6; }
+      .rim { fill: none; stroke: #1d4d75; stroke-width: 6; }
+      .ghost { fill: #8fe2c8; opacity: 0.32; }
+      .reticle { fill: none; stroke: #ffe48a; stroke-width: 10; stroke-linecap: square; }
+      .guide { fill: none; stroke: #ffb72a; stroke-width: 6; stroke-linecap: square; opacity: 0.92; }
+      .pixel { fill: #fff7cf; }
+      .pixel-accent { fill: #ffd84a; }
+    </style>
+  </defs>
+
+  <rect class="badge" x="20" y="20" width="216" height="216" rx="26" />
+  <rect class="rim" x="34" y="34" width="188" height="188" rx="18" />
+
+  <g filter="url(#glow)">
+    <rect class="ghost" x="96" y="78" width="24" height="24" />
+    <rect class="ghost" x="140" y="92" width="24" height="24" />
+    <rect class="ghost" x="84" y="132" width="24" height="24" />
+    <rect class="ghost" x="152" y="144" width="24" height="24" />
+
+    <path class="reticle" d="M128 56v28 M128 172v28 M56 128h28 M172 128h28" />
+    <path class="guide" d="M84 84h20 M84 84v20 M172 84h-20 M172 84v20 M84 172h20 M84 172v-20 M172 172h-20 M172 172v-20" />
+    <circle class="guide" cx="128" cy="128" r="38" />
+
+    <rect class="pixel-accent" x="106" y="106" width="16" height="16" />
+    <rect class="pixel" x="122" y="106" width="16" height="16" />
+    <rect class="pixel" x="106" y="122" width="16" height="16" />
+    <rect class="pixel-accent" x="122" y="122" width="16" height="16" />
+  </g>
+</svg>
