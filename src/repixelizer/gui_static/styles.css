@@ -519,6 +519,17 @@ p {
   background: linear-gradient(180deg, #0d2944, #07182b);
 }
 
+.field select {
+  color: var(--ui-text-bright);
+  color-scheme: dark;
+}
+
+.field select option,
+.field select optgroup {
+  color: var(--ui-text-bright);
+  background: #07182b;
+}
+
 .field input::placeholder {
   color: rgba(211, 187, 127, 0.76);
 }
@@ -695,6 +706,8 @@ p {
   display: block;
   cursor: zoom-in;
   touch-action: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
   background:
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 4px),
     linear-gradient(180deg, rgba(5, 11, 13, 0.8), rgba(6, 14, 16, 0.92));
