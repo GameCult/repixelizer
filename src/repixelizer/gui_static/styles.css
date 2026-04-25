@@ -460,7 +460,6 @@ p {
 }
 
 .field > span,
-.scrubber label,
 .zoom-block label {
   font-size: 0.84rem;
   line-height: 1;
@@ -619,18 +618,6 @@ p {
   color: var(--ui-text-bright);
 }
 
-.scrubber {
-  min-width: 0;
-  display: grid;
-  gap: 10px;
-  align-content: start;
-}
-
-.step-value {
-  color: var(--ui-text-muted);
-  font-size: 1rem;
-}
-
 .loss-canvas {
   width: 100%;
   height: 120px;
@@ -693,15 +680,6 @@ p {
   padding: 16px 18px;
   width: 100%;
   max-width: none;
-}
-
-.metric-scrubber {
-  min-width: 0;
-  width: 100%;
-}
-
-.metric-scrubber[hidden] {
-  display: none;
 }
 
 .status-activity {

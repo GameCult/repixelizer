@@ -19,9 +19,6 @@ const statusMetrics = byId("statusMetrics");
 const inferenceSummary = byId("inferenceSummary");
 const candidateList = byId("candidateList");
 const eventLog = byId("eventLog");
-const scrubberPanel = byId("scrubberPanel");
-const stepSlider = byId("stepSlider");
-const stepValue = byId("stepValue");
 const lossCanvas = byId("lossCanvas");
 const leftCanvas = byId("leftCanvas");
 const rightCanvas = byId("rightCanvas");
@@ -99,8 +96,7 @@ const state = {
     heatmapImage: null,
     finalOutputImage: null,
     runSummary: null,
-    selectedFrameIndex: 0,
-    autoFollow: true,
+    solverStepBudget: 0,
     eventLog: [],
     paintColor: [255, 255, 255, 255],
     editorBaseAsset: null,
@@ -192,8 +188,7 @@ function resetRunArtifacts(options = {}) {
     state.heatmapImage = null;
     state.finalOutputImage = null;
     state.runSummary = null;
-    state.selectedFrameIndex = 0;
-    state.autoFollow = true;
+    state.solverStepBudget = 0;
     state.eventLog = [];
     state.editorBaseAsset = null;
     state.editorDirty = false;
@@ -289,7 +284,7 @@ function getSelectedFrame() {
     if (state.frames.length === 0) {
         return null;
     }
-    return state.frames[Math.max(0, Math.min(state.selectedFrameIndex, state.frames.length - 1))];
+    return state.frames[state.frames.length - 1];
 }
 function renderInference() {
     if (!state.inference) {
@@ -447,25 +442,6 @@ async function renderViewer() {
     rightVizLabel.textContent = rightLabel;
     await Promise.all([drawAsset(leftCanvas, leftAsset), drawAsset(rightCanvas, rightAsset)]);
 }
-function renderSlider() {
-    scrubberPanel.hidden = state.frames.length === 0;
-    if (state.frames.length === 0) {
-        stepSlider.disabled = true;
-        stepSlider.max = "0";
-        stepSlider.value = "0";
-        stepValue.textContent = "No frames yet";
-        return;
-    }
-    stepSlider.disabled = false;
-    stepSlider.max = String(state.frames.length - 1);
-    stepSlider.value = String(state.selectedFrameIndex);
-    const frame = getSelectedFrame();
-    if (!frame) {
-        stepValue.textContent = "No frames yet";
-        return;
-    }
-    stepValue.textContent = `Frame ${frame.step} / ${frame.totalSteps}${state.autoFollow ? " • following live" : ""}`;
-}
 function drawWrappedCanvasText(context, text, options) {
     const { x, y, maxWidth, lineHeight } = options;
     const words = text.split(/\s+/);
@@ -494,6 +470,28 @@ function renderLossPlaceholder(context, width, heading, detail) {
     context.font = "18px 'VT323', monospace";
     drawWrappedCanvasText(context, detail, { x: 18, y: 38, maxWidth: width - 36, lineHeight: 20 });
 }
+function getLossDomainMax() {
+    const frameDomain = state.frames.reduce((best, frame) => Math.max(best, frame.totalSteps), 0);
+    return Math.max(frameDomain, state.solverStepBudget);
+}
+function buildLossSamples() {
+    return state.frames
+        .filter((frame) => typeof frame.loss === "number" && Number.isFinite(frame.loss))
+        .map((frame) => ({ step: frame.step, loss: frame.loss }))
+        .sort((left, right) => left.step - right.step);
+}
+function formatTickLabel(value) {
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+function buildStepTicks(domainMax) {
+    if (domainMax <= 1) {
+        return [0, domainMax];
+    }
+    const quarter = domainMax / 4;
+    const ticks = [0, quarter, quarter * 2, quarter * 3, domainMax];
+    const rounded = ticks.map((tick, index) => (index === 0 || index === ticks.length - 1 ? tick : Math.round(tick)));
+    return rounded.filter((tick, index) => rounded.findIndex((candidate) => Math.abs(candidate - tick) < 1e-6) === index);
+}
 function renderLossChart() {
     lossCanvas.hidden = state.stageKey !== "solver";
     if (lossCanvas.hidden) {
@@ -508,31 +506,66 @@ function renderLossChart() {
     context.clearRect(0, 0, width, height);
     context.fillStyle = "rgba(7, 15, 17, 0.96)";
     context.fillRect(0, 0, width, height);
+    const domainMax = getLossDomainMax();
+    const samples = buildLossSamples();
+    const chartLeft = 56;
+    const chartRight = width - 18;
+    const chartTop = 16;
+    const chartBottom = height - 28;
+    const chartWidth = chartRight - chartLeft;
+    const chartHeight = chartBottom - chartTop;
+    const rawMinLoss = samples.length === 0 ? 0 : Math.min(...samples.map((sample) => sample.loss));
+    const rawMaxLoss = samples.length === 0 ? 1 : Math.max(...samples.map((sample) => sample.loss));
+    const domainPadding = rawMaxLoss - rawMinLoss < 1e-6 ? Math.max(0.0025, Math.abs(rawMaxLoss) * 0.05) : 0;
+    const minLoss = rawMinLoss - domainPadding;
+    const maxLoss = rawMaxLoss + domainPadding;
+    const span = Math.max(1e-6, maxLoss - minLoss);
+    const yTicks = 4;
     context.strokeStyle = "rgba(255,255,255,0.08)";
     context.lineWidth = 1;
-    for (let index = 1; index <= 4; index += 1) {
-        const y = (height / 5) * index;
+    context.font = "12px 'VT323', monospace";
+    context.fillStyle = "rgba(255,255,255,0.58)";
+    context.textAlign = "right";
+    context.textBaseline = "middle";
+    for (let index = 0; index <= yTicks; index += 1) {
+        const ratio = index / yTicks;
+        const y = chartTop + ratio * chartHeight;
         context.beginPath();
-        context.moveTo(0, y);
-        context.lineTo(width, y);
+        context.moveTo(chartLeft, y);
+        context.lineTo(chartRight, y);
         context.stroke();
+        const tickValue = maxLoss - ratio * span;
+        context.fillText(formatNumber(tickValue, 4), chartLeft - 8, y);
     }
-    const losses = state.frames
-        .filter((frame) => typeof frame.loss === "number")
-        .map((frame) => frame.loss);
-    if (losses.length === 0) {
-        renderLossPlaceholder(context, width, "Phase-field solve", "Loss samples land here once the solver starts moving.");
+    const stepTicks = buildStepTicks(Math.max(1, domainMax));
+    context.textAlign = "center";
+    context.textBaseline = "top";
+    for (const tick of stepTicks) {
+        const x = chartLeft + (tick / Math.max(1, domainMax)) * chartWidth;
+        context.beginPath();
+        context.moveTo(x, chartTop);
+        context.lineTo(x, chartBottom);
+        context.stroke();
+        context.fillText(formatTickLabel(tick), x, chartBottom + 6);
+    }
+    context.fillStyle = "rgba(255, 216, 74, 0.9)";
+    context.font = "10px 'Press Start 2P', monospace";
+    context.fillText("SOLVER STEP", chartLeft + chartWidth * 0.5, height - 14);
+    context.strokeStyle = "rgba(255, 216, 74, 0.18)";
+    context.lineWidth = 1.5;
+    context.strokeRect(chartLeft, chartTop, chartWidth, chartHeight);
+    if (samples.length === 0) {
+        renderLossPlaceholder(context, width, "Phase-field solve", state.solverStepBudget <= 0
+            ? "Solver steps were pinned to zero, so there is no loss walk to chart."
+            : "Loss samples land here once the solver starts moving.");
         return;
     }
-    const minLoss = Math.min(...losses);
-    const maxLoss = Math.max(...losses);
-    const span = Math.max(1e-6, maxLoss - minLoss);
     context.strokeStyle = "#8fe2c8";
     context.lineWidth = 3;
     context.beginPath();
-    losses.forEach((loss, index) => {
-        const x = losses.length === 1 ? width / 2 : (index / (losses.length - 1)) * (width - 24) + 12;
-        const y = height - 18 - ((loss - minLoss) / span) * (height - 36);
+    samples.forEach((sample, index) => {
+        const x = chartLeft + (sample.step / Math.max(1, domainMax)) * chartWidth;
+        const y = chartBottom - ((sample.loss - minLoss) / span) * chartHeight;
         if (index === 0) {
             context.moveTo(x, y);
         }
@@ -543,10 +576,11 @@ function renderLossChart() {
     context.stroke();
     const selected = getSelectedFrame();
     if (selected && selected.loss !== null) {
-        const matchingIndex = losses.findIndex((value) => Math.abs(value - selected.loss) < 1e-6);
+        const matchingIndex = samples.findIndex((sample) => sample.step === selected.step);
         if (matchingIndex >= 0) {
-            const x = losses.length === 1 ? width / 2 : (matchingIndex / (losses.length - 1)) * (width - 24) + 12;
-            const y = height - 18 - ((selected.loss - minLoss) / span) * (height - 36);
+            const sample = samples[matchingIndex];
+            const x = chartLeft + (sample.step / Math.max(1, domainMax)) * chartWidth;
+            const y = chartBottom - ((selected.loss - minLoss) / span) * chartHeight;
             context.fillStyle = "#f5b76b";
             context.beginPath();
             context.arc(x, y, 5, 0, Math.PI * 2);
@@ -754,7 +788,6 @@ function buildFormData() {
 }
 async function renderEverything() {
     renderInference();
-    renderSlider();
     renderStatusMetrics();
     renderLossChart();
     renderSummary();
@@ -917,9 +950,6 @@ async function handleEvent(eventName, payload) {
                 state.frames.push(frame);
                 state.frames.sort((a, b) => a.step - b.step);
             }
-            if (state.autoFollow) {
-                state.selectedFrameIndex = Math.max(0, state.frames.findIndex((candidate) => candidate.step === frame.step));
-            }
             setStage("solver", "Phase-field solve", frame.totalSteps <= 0
                 ? "Initial placement committed. No iterative solver steps were requested."
                 : `Solver step ${frame.step} / ${frame.totalSteps}. Loss and drift terms stay live in this panel while it walks.`);
@@ -981,6 +1011,7 @@ async function startRun() {
     resetRunArtifacts({ preserveSourceImage: true });
     renderEventLog();
     runButton.disabled = true;
+    state.solverStepBudget = parseOptionalInteger(stepsInput) ?? 48;
     setJobState("queued");
     setStage("queued", "Queued", "Starting the pipeline. This should wake up almost immediately.");
     addLog("Queued", `Starting ${state.file.name}.`);
@@ -1051,11 +1082,6 @@ dropzone.addEventListener("drop", (event) => {
 });
 runButton.addEventListener("click", () => {
     void startRun();
-});
-stepSlider.addEventListener("input", () => {
-    state.selectedFrameIndex = Number(stepSlider.value);
-    state.autoFollow = state.selectedFrameIndex >= state.frames.length - 1;
-    void renderEverything();
 });
 zoomInput.addEventListener("input", () => {
     setZoom(Number(zoomInput.value));
