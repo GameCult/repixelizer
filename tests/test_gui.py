@@ -83,7 +83,7 @@ def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
     assert events[-4:] == ["cleanup_completed", "stage_started", "palette_completed", "pipeline_completed"]
 
 
-def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch) -> None:
+def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch, capsys) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "scripts" / "run_gui.py"
     spec = importlib.util.spec_from_file_location("repixelizer_run_gui_script", script_path)
@@ -100,10 +100,20 @@ def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch) -> None:
         called["reload"] = reload
         return 0
 
+    monkeypatch.setattr(module.os, "getpid", lambda: 4242)
+    monkeypatch.setattr(module.sys, "executable", r"E:\Projects\repixelizer\.venv\Scripts\python.exe")
     monkeypatch.setattr("repixelizer.gui.main", fake_gui_main)
     exit_code = module.main(["--host", "127.0.0.1", "--port", "8123", "--reload"])
     assert exit_code == 0
     assert called == {"host": "127.0.0.1", "port": 8123, "reload": True}
+    output = capsys.readouterr().out
+    assert "Repixelizer GUI" in output
+    assert "PID: 4242" in output
+    assert r"Python: E:\Projects\repixelizer\.venv\Scripts\python.exe" in output
+    assert "Bind: http://127.0.0.1:8123" in output
+    assert "Open: http://127.0.0.1:8123/app/" in output
+    assert "Health: http://127.0.0.1:8123/api/health" in output
+    assert "Reload: on" in output
 
 
 def test_repo_gui_runner_reclaims_stale_gui_port_before_launch(monkeypatch, capsys) -> None:
@@ -125,6 +135,7 @@ def test_repo_gui_runner_reclaims_stale_gui_port_before_launch(monkeypatch, caps
         called["gui"] = {"host": host, "port": port, "reload": reload}
         return 0
 
+    monkeypatch.setattr(module.os, "getpid", lambda: 9001)
     monkeypatch.setattr(module, "_reclaim_stale_gui_port", fake_reclaim)
     monkeypatch.setattr("repixelizer.gui.main", fake_gui_main)
 
@@ -133,7 +144,32 @@ def test_repo_gui_runner_reclaims_stale_gui_port_before_launch(monkeypatch, caps
     assert exit_code == 0
     assert called["gui"] == {"host": "127.0.0.1", "port": 8000, "reload": False}
     assert called["reclaim"] == ("127.0.0.1", 8000, repo_root)
-    assert "Reclaimed stale Repixelizer GUI process 4242 on port 8000." in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Reclaimed stale Repixelizer GUI process 4242 on port 8000." in output
+    assert "PID: 9001" in output
+    assert "Open: http://127.0.0.1:8000/app/" in output
+
+
+def test_repo_gui_runner_formats_browser_url_for_wildcard_host(monkeypatch, capsys) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "run_gui.py"
+    spec = importlib.util.spec_from_file_location("repixelizer_run_gui_script", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.setattr(module.os, "getpid", lambda: 77)
+    monkeypatch.setattr(module, "_reclaim_stale_gui_port", lambda host, port, repo_root: None)
+    monkeypatch.setattr("repixelizer.gui.main", lambda **_: 0)
+
+    exit_code = module.main(["--host", "0.0.0.0", "--port", "8765"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "Bind: http://0.0.0.0:8765" in output
+    assert "Open: http://127.0.0.1:8765/app/" in output
+    assert "Health: http://127.0.0.1:8765/api/health" in output
 
 
 def test_repo_gui_runner_refuses_unrelated_port_owner(monkeypatch, capsys) -> None:

@@ -128,6 +128,37 @@ def _reclaim_stale_gui_port(host: str, port: int, repo_root: Path) -> str | None
     return f"Reclaimed stale Repixelizer GUI process {pid} on port {port}."
 
 
+def _browser_host(host: str) -> str:
+    if host == "0.0.0.0":
+        return "127.0.0.1"
+    if host == "::":
+        return "::1"
+    return host
+
+
+def _host_for_url(host: str) -> str:
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
+
+def _startup_banner(host: str, port: int, reload: bool) -> str:
+    bind_url = f"http://{_host_for_url(host)}:{port}"
+    open_url = f"http://{_host_for_url(_browser_host(host))}:{port}/app/"
+    health_url = f"http://{_host_for_url(_browser_host(host))}:{port}/api/health"
+    lines = [
+        "Repixelizer GUI",
+        f"  PID: {os.getpid()}",
+        f"  Python: {sys.executable}",
+        f"  Bind: {bind_url}",
+        f"  Open: {open_url}",
+        f"  Health: {health_url}",
+        f"  Reload: {'on' if reload else 'off'}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Launch the Repixelizer GUI from the repo checkout.")
     parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
@@ -149,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if message:
         print(message)
+    print(_startup_banner(args.host, args.port, args.reload), flush=True)
     return gui_main(host=args.host, port=args.port, reload=args.reload)
 
 
