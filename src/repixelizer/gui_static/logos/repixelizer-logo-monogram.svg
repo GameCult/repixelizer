@@ -27,7 +27,7 @@
       .rim { fill: none; stroke: #1d4d75; stroke-width: 6; }
       .grid { fill: url(#grid); opacity: 0.32; }
       .tile-fill { stroke: none; }
-      .tile-stroke { fill: none; stroke-width: 2.5; }
+      .tile-stroke { fill: none; stroke-width: 2; }
       .ghost-fill { fill: #8fe2c8; fill-opacity: 0.18; }
       .ghost-stroke { stroke: #eafff7; stroke-opacity: 0.18; }
       .tile-main-fill { fill: #ffe48a; }
