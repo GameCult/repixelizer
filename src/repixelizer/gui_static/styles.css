@@ -210,7 +210,7 @@ p {
   min-width: 0;
 }
 
-:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .button, .toggle-row) {
+:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .viewer-inspect-row, .field input, .field select, .button, .toggle-row) {
   position: relative;
   overflow: hidden;
   border: 4px solid var(--ui-panel-border);
@@ -224,7 +224,7 @@ p {
     0 8px 0 var(--ui-shadow);
 }
 
-:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .toggle-row)::before,
+:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .viewer-inspect-row, .field input, .field select, .toggle-row)::before,
 .button::before {
   content: "";
   position: absolute;
@@ -233,7 +233,7 @@ p {
   border: 1px dotted rgba(148, 109, 38, 0.22);
 }
 
-:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .toggle-row)::after {
+:is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .viewer-inspect-row, .field input, .field select, .toggle-row)::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -669,22 +669,13 @@ p {
   gap: 14px;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border: 3px solid rgba(8, 36, 62, 0.88);
-  background:
-    radial-gradient(circle at top left, rgba(255, 216, 74, 0.08), transparent 32%),
-    linear-gradient(180deg, rgba(11, 32, 52, 0.96), rgba(6, 19, 35, 0.94));
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 216, 74, 0.18),
-    0 0 14px rgba(255, 216, 74, 0.06);
 }
 
 .viewer-inspect-field {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: auto;
-  min-width: 0;
-  flex: 0 1 auto;
+  width: min(100%, 208px);
+  min-width: 168px;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .viewer-inspect-label {
@@ -693,8 +684,7 @@ p {
 }
 
 .viewer-inspect-field select {
-  width: min(100%, 208px);
-  min-width: 168px;
+  width: 100%;
 }
 
 .viewer-inspect-copy {
