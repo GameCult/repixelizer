@@ -624,12 +624,13 @@ function drawWrappedCanvasText(
 
 function renderLossPlaceholder(context: CanvasRenderingContext2D, width: number, heading: string, detail: string): void {
   context.textBaseline = "top";
+  context.fontKerning = "none";
   context.fillStyle = "rgba(255, 216, 74, 0.9)";
   context.font = "12px 'Press Start 2P', monospace";
-  context.fillText(heading.toUpperCase(), 18, 14);
+  context.fillText(heading.toUpperCase(), 20, 14);
   context.fillStyle = "rgba(255,255,255,0.42)";
-  context.font = "18px 'VT323', monospace";
-  drawWrappedCanvasText(context, detail, { x: 18, y: 38, maxWidth: width - 36, lineHeight: 20 });
+  context.font = "20px 'VT323', monospace";
+  drawWrappedCanvasText(context, detail, { x: 20, y: 38, maxWidth: width - 40, lineHeight: 21 });
 }
 
 function getLossDomainMax(): number {
@@ -661,18 +662,53 @@ function buildStepTicks(domainMax: number): number[] {
   return rounded.filter((tick, index) => rounded.findIndex((candidate) => Math.abs(candidate - tick) < 1e-6) === index);
 }
 
+function lossCanvasScale(): number {
+  return Math.max(1, Math.ceil(window.devicePixelRatio || 1));
+}
+
+function configureLossCanvas(): { context: CanvasRenderingContext2D; width: number; height: number } | null {
+  const context = lossCanvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+  const rect = lossCanvas.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  const scale = lossCanvasScale();
+  const pixelWidth = width * scale;
+  const pixelHeight = height * scale;
+  if (lossCanvas.width !== pixelWidth || lossCanvas.height !== pixelHeight) {
+    lossCanvas.width = pixelWidth;
+    lossCanvas.height = pixelHeight;
+  }
+  context.setTransform(scale, 0, 0, scale, 0, 0);
+  context.imageSmoothingEnabled = false;
+  context.clearRect(0, 0, width, height);
+  return { context, width, height };
+}
+
+function snapStroke(value: number): number {
+  return Math.round(value) + 0.5;
+}
+
+function snapText(value: number): number {
+  return Math.round(value);
+}
+
 function renderLossChart(): void {
   lossCanvas.hidden = state.stageKey !== "solver";
   if (lossCanvas.hidden) {
     return;
   }
-  const context = lossCanvas.getContext("2d");
-  if (!context) {
+  const configuredCanvas = configureLossCanvas();
+  if (!configuredCanvas) {
     return;
   }
-  const width = lossCanvas.width;
-  const height = lossCanvas.height;
-  context.clearRect(0, 0, width, height);
+  const { context, width, height } = configuredCanvas;
+  context.fontKerning = "none";
   context.fillStyle = "rgba(7, 15, 17, 0.96)";
   context.fillRect(0, 0, width, height);
   const domainMax = getLossDomainMax();
@@ -684,58 +720,58 @@ function renderLossChart(): void {
   const axisMaxLoss = Math.max(0.001, state.lossAxisMax ?? observedMaxLoss ?? 1);
   const maxLoss = axisMaxLoss * 1.05;
   const minLoss = 0;
-  const chartLeft = 74;
+  const chartLeft = 88;
   const chartRight = width - 18;
   const chartTop = 16;
-  const chartBottom = height - 36;
+  const chartBottom = height - 42;
   const chartWidth = chartRight - chartLeft;
   const chartHeight = chartBottom - chartTop;
   const span = Math.max(1e-6, maxLoss - minLoss);
   const yTicks = 4;
   context.strokeStyle = "rgba(255,255,255,0.08)";
   context.lineWidth = 1;
-  context.font = "12px 'VT323', monospace";
+  context.font = "16px 'VT323', monospace";
   context.fillStyle = "rgba(255,255,255,0.58)";
   context.textAlign = "right";
   context.textBaseline = "middle";
   for (let index = 0; index <= yTicks; index += 1) {
     const ratio = index / yTicks;
-    const y = chartTop + ratio * chartHeight;
+    const y = snapStroke(chartTop + ratio * chartHeight);
     context.beginPath();
     context.moveTo(chartLeft, y);
     context.lineTo(chartRight, y);
     context.stroke();
     const tickValue = maxLoss - ratio * span;
-    context.fillText(formatNumber(tickValue, 4), chartLeft - 8, y);
+    context.fillText(formatNumber(tickValue, 4), chartLeft - 10, snapText(y));
   }
   const stepTicks = buildStepTicks(Math.max(1, domainMax));
   context.textAlign = "center";
   context.textBaseline = "top";
   for (const tick of stepTicks) {
-    const x = chartLeft + (tick / Math.max(1, domainMax)) * chartWidth;
+    const x = snapStroke(chartLeft + (tick / Math.max(1, domainMax)) * chartWidth);
     context.beginPath();
     context.moveTo(x, chartTop);
     context.lineTo(x, chartBottom);
     context.stroke();
-    context.fillText(formatTickLabel(tick), x, chartBottom + 6);
+    context.fillText(formatTickLabel(tick), snapText(x), chartBottom + 8);
   }
   context.fillStyle = "rgba(255, 216, 74, 0.9)";
-  context.font = "10px 'Press Start 2P', monospace";
-  context.fillText(`SOLVER STEP (0-${domainMax})`, chartLeft + chartWidth * 0.5, height - 18);
+  context.font = "12px 'Press Start 2P', monospace";
+  context.fillText(`SOLVER STEP (0-${domainMax})`, snapText(chartLeft + chartWidth * 0.5), height - 20);
   context.save();
-  context.translate(20, chartTop + chartHeight * 0.5);
+  context.translate(26, snapText(chartTop + chartHeight * 0.5));
   context.rotate(-Math.PI / 2);
   context.fillText("LOSS", 0, 0);
   context.restore();
   context.strokeStyle = "rgba(255, 216, 74, 0.18)";
   context.lineWidth = 1.5;
-  context.strokeRect(chartLeft, chartTop, chartWidth, chartHeight);
+  context.strokeRect(snapStroke(chartLeft), snapStroke(chartTop), Math.round(chartWidth), Math.round(chartHeight));
   context.strokeStyle = "rgba(255, 216, 74, 0.42)";
   context.lineWidth = 2;
   context.beginPath();
-  context.moveTo(chartLeft, chartTop);
-  context.lineTo(chartLeft, chartBottom);
-  context.lineTo(chartRight, chartBottom);
+  context.moveTo(snapStroke(chartLeft), snapStroke(chartTop));
+  context.lineTo(snapStroke(chartLeft), snapStroke(chartBottom));
+  context.lineTo(snapStroke(chartRight), snapStroke(chartBottom));
   context.stroke();
   if (samples.length === 0) {
     renderLossPlaceholder(
@@ -1473,6 +1509,19 @@ resetEditorButton.addEventListener("click", () => {
 
 downloadButton.addEventListener("click", () => {
   exportEditorPng();
+});
+
+const lossCanvasResizeObserver = new ResizeObserver(() => {
+  renderLossChart();
+});
+lossCanvasResizeObserver.observe(lossCanvas);
+
+void document.fonts.ready.then(() => {
+  renderLossChart();
+});
+
+window.addEventListener("resize", () => {
+  renderLossChart();
 });
 
 setPaintColor(state.paintColor);
