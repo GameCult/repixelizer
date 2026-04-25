@@ -73,6 +73,13 @@ type PhaseFieldPrepInfo = {
   cellY: number;
 };
 
+type ViewerPanelKey = "left" | "right";
+
+type ViewerPanelState = {
+  asset: ImageAsset | null;
+  label: string;
+};
+
 type AppState = {
   file: File | null;
   jobId: string | null;
@@ -234,6 +241,12 @@ let panStartScrollTop = 0;
 let offscreenCanvas: HTMLCanvasElement | null = null;
 let offscreenContext: CanvasRenderingContext2D | null = null;
 let singlePixel = new ImageData(1, 1);
+let viewerInspect: { panel: ViewerPanelKey; pointerId: number; clientX: number; clientY: number } | null = null;
+let viewerRenderQueued = false;
+let currentViewerPanels: Record<ViewerPanelKey, ViewerPanelState> = {
+  left: { asset: null, label: "Input" },
+  right: { asset: null, label: "Output" },
+};
 
 function clampByte(value: number): number {
   return Math.max(0, Math.min(255, Math.round(value)));
@@ -376,6 +389,62 @@ async function drawAsset(canvas: HTMLCanvasElement, asset: ImageAsset | null): P
   context.imageSmoothingEnabled = false;
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.drawImage(image, 0, 0, canvas.width, canvas.height);
+}
+
+async function drawAssetInspection(
+  canvas: HTMLCanvasElement,
+  asset: ImageAsset | null,
+  pointer: { clientX: number; clientY: number },
+): Promise<void> {
+  if (!asset) {
+    await drawAsset(canvas, asset);
+    return;
+  }
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+  const image = await loadImage(asset);
+  const rect = canvas.getBoundingClientRect();
+  const displayWidth = Math.max(1, Math.round(rect.width));
+  const displayHeight = Math.max(1, Math.round(rect.height));
+  if (displayWidth <= 0 || displayHeight <= 0) {
+    await drawAsset(canvas, asset);
+    return;
+  }
+  const scale = Math.max(1, Math.ceil(window.devicePixelRatio || 1));
+  canvas.width = displayWidth * scale;
+  canvas.height = displayHeight * scale;
+  context.setTransform(scale, 0, 0, scale, 0, 0);
+  context.imageSmoothingEnabled = false;
+  context.clearRect(0, 0, displayWidth, displayHeight);
+  context.fillStyle = "#081012";
+  context.fillRect(0, 0, displayWidth, displayHeight);
+
+  const imageWidth = image.naturalWidth || asset.width;
+  const imageHeight = image.naturalHeight || asset.height;
+  const viewportWidth = Math.min(displayWidth, imageWidth);
+  const viewportHeight = Math.min(displayHeight, imageHeight);
+  const pointerX = Math.max(0, Math.min(displayWidth, pointer.clientX - rect.left));
+  const pointerY = Math.max(0, Math.min(displayHeight, pointer.clientY - rect.top));
+  const centerX = imageWidth <= displayWidth ? imageWidth * 0.5 : (pointerX / displayWidth) * imageWidth;
+  const centerY = imageHeight <= displayHeight ? imageHeight * 0.5 : (pointerY / displayHeight) * imageHeight;
+  const sourceX = Math.max(0, Math.min(imageWidth - viewportWidth, Math.round(centerX - viewportWidth * 0.5)));
+  const sourceY = Math.max(0, Math.min(imageHeight - viewportHeight, Math.round(centerY - viewportHeight * 0.5)));
+  const destX = Math.floor((displayWidth - viewportWidth) * 0.5);
+  const destY = Math.floor((displayHeight - viewportHeight) * 0.5);
+
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    viewportWidth,
+    viewportHeight,
+    destX,
+    destY,
+    viewportWidth,
+    viewportHeight,
+  );
 }
 
 async function fileToImageAsset(file: File): Promise<ImageAsset> {
@@ -593,7 +662,7 @@ function renderSummary(): void {
   }
 }
 
-async function renderViewer(): Promise<void> {
+function resolveViewerPanels(): Record<ViewerPanelKey, ViewerPanelState> {
   const frame = getSelectedFrame();
   const debugViewerStage = new Set(["inference", "analysis", "selection", "rerank", "solver", "cleanup"]);
   const showDebugViewer = debugViewerStage.has(state.stageKey);
@@ -627,9 +696,40 @@ async function renderViewer(): Promise<void> {
     }
   }
 
-  leftVizLabel.textContent = leftLabel;
-  rightVizLabel.textContent = rightLabel;
-  await Promise.all([drawAsset(leftCanvas, leftAsset), drawAsset(rightCanvas, rightAsset)]);
+  return {
+    left: { asset: leftAsset, label: leftLabel },
+    right: { asset: rightAsset, label: rightLabel },
+  };
+}
+
+function syncViewerInspectCursor(): void {
+  leftCanvas.classList.toggle("is-inspecting", viewerInspect?.panel === "left");
+  rightCanvas.classList.toggle("is-inspecting", viewerInspect?.panel === "right");
+}
+
+function scheduleViewerRender(): void {
+  if (viewerRenderQueued) {
+    return;
+  }
+  viewerRenderQueued = true;
+  requestAnimationFrame(() => {
+    viewerRenderQueued = false;
+    void renderViewer();
+  });
+}
+
+async function renderViewer(): Promise<void> {
+  currentViewerPanels = resolveViewerPanels();
+  leftVizLabel.textContent = currentViewerPanels.left.label;
+  rightVizLabel.textContent = currentViewerPanels.right.label;
+  await Promise.all([
+    viewerInspect?.panel === "left"
+      ? drawAssetInspection(leftCanvas, currentViewerPanels.left.asset, viewerInspect)
+      : drawAsset(leftCanvas, currentViewerPanels.left.asset),
+    viewerInspect?.panel === "right"
+      ? drawAssetInspection(rightCanvas, currentViewerPanels.right.asset, viewerInspect)
+      : drawAsset(rightCanvas, currentViewerPanels.right.asset),
+  ]);
 }
 
 function drawWrappedCanvasText(
@@ -1009,6 +1109,48 @@ function exportEditorPng(): void {
   link.href = offscreenCanvas.toDataURL("image/png");
   link.download = (state.file?.name?.replace(/\.[^.]+$/, "") || "repixelized") + "-edited.png";
   link.click();
+}
+
+function beginViewerInspect(panel: ViewerPanelKey, event: PointerEvent): void {
+  if (event.button !== 0 || !currentViewerPanels[panel].asset) {
+    return;
+  }
+  event.preventDefault();
+  viewerInspect = {
+    panel,
+    pointerId: event.pointerId,
+    clientX: event.clientX,
+    clientY: event.clientY,
+  };
+  const canvas = panel === "left" ? leftCanvas : rightCanvas;
+  canvas.setPointerCapture(event.pointerId);
+  syncViewerInspectCursor();
+  scheduleViewerRender();
+}
+
+function updateViewerInspect(panel: ViewerPanelKey, event: PointerEvent): void {
+  if (!viewerInspect || viewerInspect.panel !== panel || viewerInspect.pointerId !== event.pointerId) {
+    return;
+  }
+  viewerInspect.clientX = event.clientX;
+  viewerInspect.clientY = event.clientY;
+  scheduleViewerRender();
+}
+
+function endViewerInspect(pointerId: number | null = null): void {
+  if (!viewerInspect) {
+    return;
+  }
+  if (pointerId !== null && viewerInspect.pointerId !== pointerId) {
+    return;
+  }
+  const canvas = viewerInspect.panel === "left" ? leftCanvas : rightCanvas;
+  if (canvas.hasPointerCapture(viewerInspect.pointerId)) {
+    canvas.releasePointerCapture(viewerInspect.pointerId);
+  }
+  viewerInspect = null;
+  syncViewerInspectCursor();
+  scheduleViewerRender();
 }
 
 function beginPan(event: PointerEvent): void {
@@ -1438,9 +1580,28 @@ window.addEventListener("keyup", (event) => {
 window.addEventListener("blur", () => {
   state.altHeld = false;
   painting = false;
+  endViewerInspect();
   endPan();
   syncEditorCursorState();
 });
+
+for (const [panel, canvas] of [
+  ["left", leftCanvas],
+  ["right", rightCanvas],
+] as const) {
+  canvas.addEventListener("pointerdown", (event) => {
+    beginViewerInspect(panel, event);
+  });
+  canvas.addEventListener("pointermove", (event) => {
+    updateViewerInspect(panel, event);
+  });
+  canvas.addEventListener("pointerup", (event) => {
+    endViewerInspect(event.pointerId);
+  });
+  canvas.addEventListener("pointercancel", (event) => {
+    endViewerInspect(event.pointerId);
+  });
+}
 
 editorSurface.addEventListener("mousedown", (event) => {
   if (event.button === 1) {
@@ -1560,6 +1721,7 @@ window.addEventListener("resize", () => {
 
 setPaintColor(state.paintColor);
 syncEditorCursorState();
+syncViewerInspectCursor();
 zoomValue.textContent = `${state.zoom}x`;
 renderEventLog();
 void renderEverything();
