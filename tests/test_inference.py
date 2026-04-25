@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from repixelizer.inference import (
+    SpacingEstimate,
     _axis_prior_from_estimates,
     _candidate_dims,
     _combine_axis_priors,
@@ -12,6 +13,35 @@ from repixelizer.inference import (
 )
 from repixelizer.types import InferenceCandidate
 from repixelizer.synthetic import fake_pixelize, make_emblem
+
+
+def _make_spacing_estimate(
+    *,
+    best_cell: int,
+    confidence: float,
+    peaks: dict[int, float],
+    start: int = 2,
+    stop: int = 24,
+) -> SpacingEstimate:
+    candidate_cells = tuple(float(cell) for cell in range(start, stop + 1))
+    candidate_scores: list[float] = []
+    for cell in range(start, stop + 1):
+        score = 0.16
+        for peak_cell, peak_score in peaks.items():
+            distance = abs(cell - peak_cell)
+            if distance == 0:
+                score = max(score, peak_score)
+            elif distance == 1:
+                score = max(score, peak_score - 0.14)
+        candidate_scores.append(float(score))
+    return SpacingEstimate(
+        spacing=float(best_cell),
+        confidence=confidence,
+        best_cell=float(best_cell),
+        best_score=float(peaks[best_cell]),
+        candidate_cells=candidate_cells,
+        candidate_scores=tuple(candidate_scores),
+    )
 
 
 def test_axis_prior_stays_close_to_spacing_when_autocorr_hits_large_multiple() -> None:
@@ -52,7 +82,7 @@ def test_strong_spacing_signal_can_collapse_candidate_search_to_single_size() ->
     assert sizes == {128}
 
 
-def test_weak_spacing_signal_keeps_broad_candidate_search() -> None:
+def test_weak_spacing_signal_without_spectrum_keeps_broad_candidate_search() -> None:
     dims = _resolve_candidate_dims_from_spacing(
         1024,
         1024,
@@ -65,6 +95,30 @@ def test_weak_spacing_signal_keeps_broad_candidate_search() -> None:
     sizes = {width for width, _ in dims}
     assert 128 in sizes
     assert len(sizes) > 10
+
+
+def test_weak_spacing_signal_uses_spectrum_modes_to_keep_candidate_search_compact() -> None:
+    spectrum = _make_spacing_estimate(
+        best_cell=8,
+        confidence=0.18,
+        peaks={4: 0.78, 8: 0.74, 16: 0.71},
+    )
+    dims = _resolve_candidate_dims_from_spacing(
+        1024,
+        1024,
+        None,
+        hinted_sizes=[128],
+        spacing_x=(8.0, 0.18),
+        spacing_y=(8.1, 0.12),
+        prior_reliability=0.24,
+        spacing_x_estimate=spectrum,
+        spacing_y_estimate=spectrum,
+    )
+    sizes = {width for width, _ in dims}
+    assert sizes
+    assert len(sizes) <= 12
+    assert any(abs(size - 128) <= 1 for size in sizes)
+    assert all(any(abs(size - target) <= 2 for target in (64, 128, 256)) for size in sizes)
 
 
 def test_top_candidates_are_diversified_by_size() -> None:

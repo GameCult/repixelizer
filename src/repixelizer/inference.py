@@ -1,11 +1,31 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from .io import premultiply
 from .metrics import source_lattice_evidence_breakdown
 from .observe import PipelineObserver, emit_observer
 from .types import InferenceCandidate, InferenceResult
+
+
+@dataclass(frozen=True)
+class SpacingEstimate:
+    spacing: float | None
+    confidence: float
+    best_cell: float | None
+    best_score: float
+    candidate_cells: tuple[float, ...]
+    candidate_scores: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class SpacingMode:
+    cell_size: float
+    score: float
+    relative_score: float
+    family_score: float
 
 
 def _require_torch():
@@ -61,6 +81,10 @@ def _candidate_dims(
     return dims
 
 
+def _major_axis_index(width: int, height: int) -> int:
+    return 0 if width >= height else 1
+
+
 def _strong_spacing_size_window(
     hinted_sizes: list[int],
     *,
@@ -92,8 +116,17 @@ def _resolve_candidate_dims_from_spacing(
     spacing_x: tuple[float | None, float],
     spacing_y: tuple[float | None, float],
     prior_reliability: float,
+    spacing_x_estimate: SpacingEstimate | None = None,
+    spacing_y_estimate: SpacingEstimate | None = None,
 ) -> list[tuple[int, int]]:
-    dims = _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes)
+    guided_sizes = _guided_target_sizes_from_spacing_spectra(
+        width,
+        height,
+        spacing_x_estimate=spacing_x_estimate,
+        spacing_y_estimate=spacing_y_estimate,
+    )
+    dense_hints = sorted({int(size) for size in hinted_sizes} | {size for size, _radius in guided_sizes})
+    dims = _candidate_dims(width, height, target_size, hinted_sizes=dense_hints)
     size_window = _strong_spacing_size_window(
         hinted_sizes,
         spacing_x=spacing_x,
@@ -101,9 +134,18 @@ def _resolve_candidate_dims_from_spacing(
         prior_reliability=prior_reliability,
     )
     if size_window is None:
-        return dims
+        if not guided_sizes:
+            return dims
+        size_index = _major_axis_index(width, height)
+        narrowed = [
+            dim
+            for dim in dims
+            if any(abs(dim[size_index] - size) <= radius for size, radius in guided_sizes)
+        ]
+        return narrowed or dims
     center, radius = size_window
-    narrowed = [dim for dim in dims if abs(max(dim) - center) <= radius]
+    size_index = _major_axis_index(width, height)
+    narrowed = [dim for dim in dims if abs(dim[size_index] - center) <= radius]
     return narrowed or dims
 
 
@@ -123,10 +165,21 @@ def _estimate_cell_size(profile: np.ndarray) -> float:
     return float(best_lag)
 
 
-def _estimate_spacing_cell_size(deltas: np.ndarray, axis_length: int) -> tuple[float | None, float]:
+def _empty_spacing_estimate() -> SpacingEstimate:
+    return SpacingEstimate(
+        spacing=None,
+        confidence=0.0,
+        best_cell=None,
+        best_score=0.0,
+        candidate_cells=(),
+        candidate_scores=(),
+    )
+
+
+def _estimate_spacing_cell_size_details(deltas: np.ndarray, axis_length: int) -> SpacingEstimate:
     intervals, weights = _collect_change_intervals(deltas)
     if intervals.size < 6:
-        return None, 0.0
+        return _empty_spacing_estimate()
     max_candidate = min(64, max(4, axis_length // 2))
     candidates = np.arange(2, max_candidate + 1, dtype=np.float32)
     scores = np.asarray([_spacing_score(intervals, weights, cell) for cell in candidates], dtype=np.float32)
@@ -143,7 +196,19 @@ def _estimate_spacing_cell_size(deltas: np.ndarray, axis_length: int) -> tuple[f
         refined = best_cell
     coverage = min(1.0, intervals.size / 24.0)
     confidence = np.clip((best_score - 0.35) / 0.45, 0.0, 1.0) * coverage
-    return refined, float(confidence)
+    return SpacingEstimate(
+        spacing=refined,
+        confidence=float(confidence),
+        best_cell=best_cell,
+        best_score=best_score,
+        candidate_cells=tuple(float(cell) for cell in candidates.tolist()),
+        candidate_scores=tuple(float(score) for score in scores.tolist()),
+    )
+
+
+def _estimate_spacing_cell_size(deltas: np.ndarray, axis_length: int) -> tuple[float | None, float]:
+    estimate = _estimate_spacing_cell_size_details(deltas, axis_length)
+    return estimate.spacing, estimate.confidence
 
 
 def _collect_change_intervals(deltas: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -191,11 +256,133 @@ def _spacing_score(intervals: np.ndarray, weights: np.ndarray, cell_size: float)
     return float(np.sum(interval_weights * closeness) / (np.sum(interval_weights) + 1e-6))
 
 
-def _estimate_lattice_spacing(rgba: np.ndarray) -> tuple[tuple[float | None, float], tuple[float | None, float]]:
+def _estimate_lattice_spacing_details(rgba: np.ndarray) -> tuple[SpacingEstimate, SpacingEstimate]:
     premult_rgba = premultiply(rgba)
     delta_x = np.linalg.norm(premult_rgba[:, 1:] - premult_rgba[:, :-1], axis=-1)
     delta_y = np.linalg.norm(premult_rgba[1:, :] - premult_rgba[:-1, :], axis=-1)
-    return _estimate_spacing_cell_size(delta_x, premult_rgba.shape[1]), _estimate_spacing_cell_size(delta_y, premult_rgba.shape[0])
+    return (
+        _estimate_spacing_cell_size_details(delta_x, premult_rgba.shape[1]),
+        _estimate_spacing_cell_size_details(delta_y, premult_rgba.shape[0]),
+    )
+
+
+def _estimate_lattice_spacing(rgba: np.ndarray) -> tuple[tuple[float | None, float], tuple[float | None, float]]:
+    spacing_x, spacing_y = _estimate_lattice_spacing_details(rgba)
+    return (spacing_x.spacing, spacing_x.confidence), (spacing_y.spacing, spacing_y.confidence)
+
+
+def _extract_spacing_modes(estimate: SpacingEstimate) -> list[SpacingMode]:
+    if not estimate.candidate_cells or not estimate.candidate_scores:
+        return []
+    cells = np.asarray(estimate.candidate_cells, dtype=np.float32)
+    scores = np.asarray(estimate.candidate_scores, dtype=np.float32)
+    if scores.size == 0:
+        return []
+    best_score = float(np.max(scores))
+    minimum_relative = 0.42 if estimate.confidence < 0.2 else 0.52 if estimate.confidence < 0.45 else 0.62
+    peak_indices: list[int] = []
+    for index, score in enumerate(scores):
+        left = float(scores[index - 1]) if index > 0 else -float("inf")
+        right = float(scores[index + 1]) if index + 1 < scores.size else -float("inf")
+        relative_score = float(score / max(1e-6, best_score))
+        prominence = float(score - max(left, right, 0.0))
+        if score + 1e-6 < left or score + 1e-6 < right:
+            continue
+        if relative_score < minimum_relative and prominence < 0.02:
+            continue
+        peak_indices.append(index)
+    if not peak_indices:
+        peak_indices = [int(np.argmax(scores))]
+    modes: list[SpacingMode] = []
+    for index in peak_indices:
+        cell_size = float(cells[index])
+        score = float(scores[index])
+        relative_score = float(score / max(1e-6, best_score))
+        family_score = score
+        for other_index in peak_indices:
+            if other_index == index:
+                continue
+            other_cell = float(cells[other_index])
+            other_score = float(scores[other_index])
+            ratio = max(cell_size, other_cell) / max(1e-6, min(cell_size, other_cell))
+            harmonic = int(round(ratio))
+            if harmonic < 2 or harmonic > 4 or abs(ratio - harmonic) > 0.12:
+                continue
+            harmonic_weight = 0.42 if other_cell > cell_size else 0.24
+            family_score += other_score * harmonic_weight / float(np.sqrt(harmonic))
+        modes.append(
+            SpacingMode(
+                cell_size=cell_size,
+                score=score,
+                relative_score=relative_score,
+                family_score=family_score,
+            )
+        )
+    modes.sort(key=lambda item: (item.family_score, item.score, item.cell_size), reverse=True)
+    selected: list[SpacingMode] = []
+    for mode in modes:
+        if any(abs(existing.cell_size - mode.cell_size) <= 0.75 for existing in selected):
+            continue
+        selected.append(mode)
+        if len(selected) >= 6:
+            break
+    return selected
+
+
+def _spacing_mode_radius(mode: SpacingMode, confidence: float) -> int:
+    if confidence >= 0.72 and mode.relative_score >= 0.94:
+        return 0
+    if confidence >= 0.45 or mode.relative_score >= 0.8:
+        return 1
+    return 2
+
+
+def _axis_target_sizes_from_spacing_spectrum(axis_length: int, estimate: SpacingEstimate) -> list[tuple[int, int, float]]:
+    suggestions: list[tuple[int, int, float]] = []
+    modes = _extract_spacing_modes(estimate)
+    for mode in modes:
+        target_size = max(1, int(round(axis_length / max(1e-6, mode.cell_size))))
+        suggestions.append((target_size, _spacing_mode_radius(mode, estimate.confidence), float(mode.family_score)))
+    if estimate.spacing is not None:
+        refined_size = max(1, int(round(axis_length / max(1e-6, estimate.spacing))))
+        refined_weight = float(modes[0].family_score + 0.05) if modes else 1.0
+        suggestions.append((refined_size, 0 if estimate.confidence >= 0.72 else 1, refined_weight))
+    suggestions.sort(key=lambda item: item[2], reverse=True)
+    return suggestions
+
+
+def _guided_target_sizes_from_spacing_spectra(
+    width: int,
+    height: int,
+    *,
+    spacing_x_estimate: SpacingEstimate | None,
+    spacing_y_estimate: SpacingEstimate | None,
+) -> list[tuple[int, int]]:
+    guided: list[tuple[int, int, float]] = []
+    if width >= height:
+        if spacing_x_estimate is not None:
+            guided.extend(_axis_target_sizes_from_spacing_spectrum(width, spacing_x_estimate))
+        if spacing_y_estimate is not None:
+            guided.extend(_axis_target_sizes_from_spacing_spectrum(height, spacing_y_estimate))
+    else:
+        if spacing_y_estimate is not None:
+            guided.extend(_axis_target_sizes_from_spacing_spectrum(height, spacing_y_estimate))
+        if spacing_x_estimate is not None:
+            guided.extend(_axis_target_sizes_from_spacing_spectrum(width, spacing_x_estimate))
+    if not guided:
+        return []
+    guided.sort(key=lambda item: item[2], reverse=True)
+    merged: list[tuple[int, int, float]] = []
+    for size, radius, weight in guided:
+        for index, (existing_size, existing_radius, existing_weight) in enumerate(merged):
+            if abs(existing_size - size) <= max(existing_radius, radius) + 1:
+                chosen_size = existing_size if existing_weight >= weight else size
+                merged[index] = (chosen_size, max(existing_radius, radius), max(existing_weight, weight))
+                break
+        else:
+            merged.append((size, radius, weight))
+    merged.sort(key=lambda item: item[2], reverse=True)
+    return [(size, radius) for size, radius, _weight in merged[:8]]
 
 
 def _weighted_geometric_mean(values: list[float], weights: list[float]) -> float:
@@ -535,7 +722,9 @@ def infer_lattice(
     torch, _ = _require_torch()
     resolved_device = _resolve_device(torch, device)
     height, width = rgba.shape[:2]
-    spacing_x, spacing_y = _estimate_lattice_spacing(rgba)
+    spacing_x_estimate, spacing_y_estimate = _estimate_lattice_spacing_details(rgba)
+    spacing_x = (spacing_x_estimate.spacing, spacing_x_estimate.confidence)
+    spacing_y = (spacing_y_estimate.spacing, spacing_y_estimate.confidence)
     hinted_sizes = _hint_target_sizes_from_spacing(width, height, spacing_x, spacing_y)
     prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(
         rgba,
@@ -551,6 +740,8 @@ def infer_lattice(
         spacing_x=spacing_x,
         spacing_y=spacing_y,
         prior_reliability=prior_reliability,
+        spacing_x_estimate=spacing_x_estimate,
+        spacing_y_estimate=spacing_y_estimate,
     )
     phase_sample_count = int(phase_values.size * phase_values.size)
 
