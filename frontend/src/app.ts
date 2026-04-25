@@ -595,31 +595,36 @@ function renderSummary(): void {
 
 async function renderViewer(): Promise<void> {
   const frame = getSelectedFrame();
-  let leftAsset = state.preprocessedImage ?? state.sourceImage;
+  const debugViewerStage = new Set(["inference", "analysis", "selection", "rerank", "solver", "cleanup"]);
+  const showDebugViewer = debugViewerStage.has(state.stageKey);
+  let leftAsset = state.sourceImage;
   let rightAsset = state.finalOutputImage ?? state.cleanupImage ?? state.sourceImage;
   let leftLabel = "Input";
   let rightLabel = "Output";
 
-  if (state.latticeImage) {
-    leftAsset = state.latticeImage;
-    leftLabel = "Lattice Prep";
-  }
-  if (state.guidanceImage) {
-    leftAsset = state.guidanceImage;
-    leftLabel = "Guidance";
-  }
-  if (frame) {
-    leftAsset = frame.samplingOverlayImage;
-    rightAsset = frame.outputImage;
-    leftLabel = "Sampling Overlay";
-    rightLabel = "Current Output";
-  } else if (state.cleanupImage) {
-    if (state.heatmapImage) {
-      leftAsset = state.heatmapImage;
-      leftLabel = "Cleanup Heatmap";
+  if (showDebugViewer) {
+    leftAsset = state.preprocessedImage ?? state.sourceImage;
+    if (state.latticeImage) {
+      leftAsset = state.latticeImage;
+      leftLabel = "Lattice Prep";
     }
-    rightAsset = state.cleanupImage;
-    rightLabel = "Cleaned Output";
+    if (state.guidanceImage) {
+      leftAsset = state.guidanceImage;
+      leftLabel = "Guidance";
+    }
+    if (frame) {
+      leftAsset = frame.samplingOverlayImage;
+      rightAsset = frame.outputImage;
+      leftLabel = "Sampling Overlay";
+      rightLabel = "Current Output";
+    } else if (state.cleanupImage) {
+      if (state.heatmapImage) {
+        leftAsset = state.heatmapImage;
+        leftLabel = "Cleanup Heatmap";
+      }
+      rightAsset = state.cleanupImage;
+      rightLabel = "Cleaned Output";
+    }
   }
 
   leftVizLabel.textContent = leftLabel;
