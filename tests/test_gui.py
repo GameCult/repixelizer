@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import asyncio
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +15,39 @@ from repixelizer.pipeline import run_pipeline_rgba
 from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.params import SolverHyperParams
 from repixelizer.types import InferenceCandidate, InferenceResult, PhaseFieldSourceAnalysis, SolverArtifacts
+
+
+async def _get_response_headers(app, path: str) -> tuple[int, dict[str, str]]:
+    messages: list[dict[str, object]] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("ascii"),
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+        "root_path": "",
+    }
+    await app(scope, receive, send)
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    status = int(start["status"])
+    headers = {
+        key.decode("latin-1").lower(): value.decode("latin-1")
+        for key, value in start.get("headers", [])
+    }
+    return status, headers
 
 
 def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
@@ -86,6 +120,21 @@ def test_create_job_upload_field_validates_without_forward_ref_errors() -> None:
 
     assert errors == []
     assert value.filename == "tiny.png"
+
+
+def test_gui_static_assets_disable_browser_caching() -> None:
+    from repixelizer.gui import create_app
+
+    app = create_app()
+    html_status, html_headers = asyncio.run(_get_response_headers(app, "/app/"))
+    js_status, js_headers = asyncio.run(_get_response_headers(app, "/app/app.js"))
+
+    assert html_status == 200
+    assert js_status == 200
+    assert html_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert js_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert html_headers["pragma"] == "no-cache"
+    assert js_headers["pragma"] == "no-cache"
 
 
 def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:

@@ -374,6 +374,15 @@ def create_app():
     jobs: dict[str, GuiJob] = {}
     static_dir = _static_dir()
 
+    @app.middleware("http")
+    async def disable_gui_asset_caching(request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/app"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
