@@ -508,6 +508,7 @@ p {
 .field input,
 .field select {
   width: 100%;
+  box-sizing: border-box;
   min-height: 42px;
   padding: 8px 10px;
   font-size: 1.02rem;
@@ -875,14 +876,18 @@ p {
 .zoom-block {
   min-width: 0;
   width: min(100%, 180px);
+  overflow: hidden;
 }
 
 .zoom-block input[type="range"] {
   display: block;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
   min-height: 24px;
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
 }
 
 .editor-stage {
