@@ -288,6 +288,8 @@ p {
 .brand,
 .brand-lockup,
 .copy-stack,
+.header-side,
+.header-link-row,
 .header-instructions {
   display: grid;
   gap: 10px;
@@ -335,6 +337,53 @@ p {
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
   gap: 16px;
   align-items: start;
+}
+
+.header-side {
+  align-content: start;
+  min-width: 0;
+}
+
+.header-link-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  min-height: 88px;
+}
+
+.header-github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 5.2rem;
+  height: 5.2rem;
+  padding: 0;
+  color: rgba(247, 239, 216, 0.96);
+  text-decoration: none;
+  line-height: 0;
+  flex: 0 0 auto;
+}
+
+.header-github-link svg {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  fill: currentColor;
+  filter:
+    drop-shadow(0 0 0.9rem rgba(89, 183, 255, 0.34))
+    drop-shadow(0 0 1.6rem rgba(89, 183, 255, 0.14));
+}
+
+.header-github-link:hover,
+.header-github-link:focus-visible {
+  color: #fff3e8;
+}
+
+.header-github-link:hover svg,
+.header-github-link:focus-visible svg {
+  filter:
+    drop-shadow(0 0 0.45rem rgba(255, 216, 74, 0.44))
+    drop-shadow(0 0 1.2rem rgba(255, 174, 26, 0.22));
 }
 
 .header-instructions {
@@ -1010,6 +1059,11 @@ select:focus-visible {
 
   .viewer-head {
     align-items: flex-start;
+  }
+
+  .header-link-row {
+    justify-content: flex-start;
+    min-height: 0;
   }
 
   .brand-lockup {
