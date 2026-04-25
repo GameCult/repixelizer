@@ -9,14 +9,14 @@
   <body>
     <div class="shell app-shell">
       <div class="app-grid">
-        <main class="workspace page-content">
-          <header class="app-shell-header">
+        <main class="workspace">
+          <header class="app-shell-header ui-surface ui-frame">
             <div class="brand">
               <div class="brand-lockup">
                 <div class="brand-emblem" aria-hidden="true">
                   <span class="brand-emblem-core"></span>
                 </div>
-                <div class="copy-stack brand-copy">
+                <div class="copy-stack">
                   <p class="eyebrow">Live Pipeline</p>
                   <h1>Repixelizer</h1>
                   <p class="copy-tag brand-tag">Take fake pixel art, force it onto a real lattice, then inspect the crime scene frame by frame.</p>
@@ -31,41 +31,41 @@
             </div>
           </header>
 
-          <section class="hero viewer-panel">
+          <section class="hero panel-stack ui-surface ui-frame">
             <div class="card-head viewer-head">
-              <div class="copy-stack card-copy viewer-heading">
+              <div class="copy-stack">
                 <h2 id="viewerTitle">Pipeline Stages</h2>
               </div>
             </div>
             <div id="metricsPanel" class="metrics-panel">
-              <div id="statusPanel" class="metric-chip metric-status-block" data-job-state="idle">
+              <div id="statusPanel" class="status-panel ui-surface ui-frame" data-job-state="idle">
                 <div class="status-heading">
                   <span id="statusBadge" class="status-badge">Idle</span>
                   <p id="statusStage" class="status-stage">Waiting for input</p>
                 </div>
-                <p id="statusText" class="status-text metrics-status-text">Choose a file, then run the machine.</p>
+                <p id="statusText" class="status-text">Choose a file, then run the machine.</p>
                 <div class="status-activity" aria-hidden="true">
                   <span class="status-activity-bar"></span>
                 </div>
                 <div id="statusMetrics" class="status-metrics"></div>
               </div>
             </div>
-            <canvas id="lossCanvas" class="loss-canvas" width="800" height="148" hidden></canvas>
-            <div class="viewer-grid viewer-grid-dual">
-              <figure class="viz-card">
+            <canvas id="lossCanvas" class="loss-canvas ui-surface" width="800" height="148" hidden></canvas>
+            <div class="viewer-grid">
+              <figure class="viz-card ui-surface ui-frame">
                 <div class="viz-label" id="leftVizLabel">Input</div>
                 <canvas id="leftCanvas"></canvas>
               </figure>
-              <figure class="viz-card">
+              <figure class="viz-card ui-surface ui-frame">
                 <div class="viz-label" id="rightVizLabel">Output</div>
                 <canvas id="rightCanvas"></canvas>
               </figure>
             </div>
-            <div class="viewer-inspect-row">
+            <div class="viewer-inspect-row ui-surface ui-frame">
               <span class="viz-label viewer-inspect-label">Zoom</span>
               <p class="viewer-inspect-copy">Hold left mouse in either preview to inspect both panels together. Drag while holding to pan around. Release to drop back to fit view.</p>
               <label class="field viewer-inspect-field">
-                <select id="inspectZoomInput">
+                <select id="inspectZoomInput" class="field-control">
                   <option value="1">Native source</option>
                   <option value="2">2x</option>
                   <option value="4">4x</option>
@@ -75,9 +75,9 @@
             </div>
           </section>
 
-          <section class="card editor-panel">
-            <div class="card-head editor-head">
-              <div class="copy-stack card-copy">
+          <section class="card panel-stack ui-surface ui-frame">
+            <div class="card-head">
+              <div class="copy-stack">
                 <p class="eyebrow">Pixel Fixes</p>
                 <h2>Output Editor</h2>
                 <p class="copy-tag">Pencil the stragglers. Wheel zooms to cursor, middle mouse pans, Alt steals color.</p>
@@ -88,41 +88,41 @@
               </div>
             </div>
 
-            <div class="editor-toolbar">
-              <div class="paint-block">
+            <div class="editor-toolbar ui-surface ui-frame">
+              <div class="editor-paint-controls">
                 <div id="paintSwatch" class="paint-swatch"></div>
-                <div class="rgba-inputs">
+                <div class="editor-rgba-fields">
                   <label class="field">
-                    <span>R</span>
-                    <input id="paintR" type="number" min="0" max="255" value="255" />
+                    <span class="field-label">R</span>
+                    <input id="paintR" class="field-control" type="number" min="0" max="255" value="255" />
                   </label>
                   <label class="field">
-                    <span>G</span>
-                    <input id="paintG" type="number" min="0" max="255" value="255" />
+                    <span class="field-label">G</span>
+                    <input id="paintG" class="field-control" type="number" min="0" max="255" value="255" />
                   </label>
                   <label class="field">
-                    <span>B</span>
-                    <input id="paintB" type="number" min="0" max="255" value="255" />
+                    <span class="field-label">B</span>
+                    <input id="paintB" class="field-control" type="number" min="0" max="255" value="255" />
                   </label>
                   <label class="field">
-                    <span>A</span>
-                    <input id="paintA" type="number" min="0" max="255" value="255" />
+                    <span class="field-label">A</span>
+                    <input id="paintA" class="field-control" type="number" min="0" max="255" value="255" />
                   </label>
                 </div>
               </div>
-              <div class="zoom-block field">
-                <label for="zoomInput">Zoom</label>
+              <div class="editor-zoom-control field">
+                <label for="zoomInput" class="field-label">Zoom</label>
                 <input id="zoomInput" type="range" min="4" max="32" step="1" value="12" />
                 <span id="zoomValue">12x</span>
               </div>
-              <label class="toggle-row compact">
+              <label class="toggle-row ui-surface ui-frame">
                 <input id="gridToggle" type="checkbox" checked />
                 <span>Grid</span>
               </label>
             </div>
 
             <div class="editor-stage">
-              <div class="checkerboard editor-surface" id="editorSurface">
+              <div class="checkerboard editor-surface ui-surface ui-frame" id="editorSurface">
                 <canvas id="editorCanvas"></canvas>
                 <canvas id="editorGridCanvas"></canvas>
               </div>
@@ -137,24 +137,24 @@
         </main>
 
         <aside class="sidebar">
-          <section class="card section-block">
+          <section class="card sidebar-section ui-surface ui-frame">
             <div class="card-head">
-              <div class="copy-stack card-copy">
+              <div class="copy-stack">
                 <h2>Input</h2>
                 <p class="copy-tag">Start with the ugly input.</p>
               </div>
               <button id="pickFileButton" class="button button-small button-secondary" type="button">Choose File</button>
             </div>
             <input id="fileInput" type="file" accept="image/png,image/*" hidden />
-            <button id="dropzone" class="dropzone" type="button">
+            <button id="dropzone" class="dropzone ui-surface ui-frame" type="button">
               <strong>Drop image</strong>
               <span id="dropzoneLabel">PNG, sprite scrap, cursed logo. Whatever started this.</span>
             </button>
           </section>
 
-          <section class="card section-block">
+          <section class="card sidebar-section ui-surface ui-frame">
             <div class="card-head">
-              <div class="copy-stack card-copy">
+              <div class="copy-stack">
                 <h2>Run Controls</h2>
                 <p class="copy-tag">Pin what you know. Search what you do not.</p>
               </div>
@@ -162,7 +162,7 @@
             <form id="controlsForm" class="controls-grid">
               <label class="field">
                 <span class="field-heading">
-                  <span>Device</span>
+                  <span class="field-label">Device</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -172,7 +172,7 @@
                     >?</span
                   >
                 </span>
-                <select id="deviceInput" name="device">
+                <select id="deviceInput" class="field-control" name="device">
                   <option value="auto" selected>auto</option>
                   <option value="cpu">cpu</option>
                   <option value="cuda">cuda</option>
@@ -180,7 +180,7 @@
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Target Size</span>
+                  <span class="field-label">Target Size</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -190,11 +190,11 @@
                     >?</span
                   >
                 </span>
-                <input id="targetSizeInput" name="targetSize" type="number" min="1" placeholder="auto" />
+                <input id="targetSizeInput" class="field-control" name="targetSize" type="number" min="1" placeholder="auto" />
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Target Width</span>
+                  <span class="field-label">Target Width</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -204,11 +204,11 @@
                     >?</span
                   >
                 </span>
-                <input id="targetWidthInput" name="targetWidth" type="number" min="1" placeholder="auto" />
+                <input id="targetWidthInput" class="field-control" name="targetWidth" type="number" min="1" placeholder="auto" />
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Target Height</span>
+                  <span class="field-label">Target Height</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -218,11 +218,11 @@
                     >?</span
                   >
                 </span>
-                <input id="targetHeightInput" name="targetHeight" type="number" min="1" placeholder="auto" />
+                <input id="targetHeightInput" class="field-control" name="targetHeight" type="number" min="1" placeholder="auto" />
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Phase X</span>
+                  <span class="field-label">Phase X</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -232,11 +232,11 @@
                     >?</span
                   >
                 </span>
-                <input id="phaseXInput" name="phaseX" type="number" step="0.05" placeholder="search" />
+                <input id="phaseXInput" class="field-control" name="phaseX" type="number" step="0.05" placeholder="search" />
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Phase Y</span>
+                  <span class="field-label">Phase Y</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -246,11 +246,11 @@
                     >?</span
                   >
                 </span>
-                <input id="phaseYInput" name="phaseY" type="number" step="0.05" placeholder="search" />
+                <input id="phaseYInput" class="field-control" name="phaseY" type="number" step="0.05" placeholder="search" />
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Steps</span>
+                  <span class="field-label">Steps</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -260,11 +260,11 @@
                     >?</span
                   >
                 </span>
-                <input id="stepsInput" name="steps" type="number" min="0" value="48" />
+                <input id="stepsInput" class="field-control" name="steps" type="number" min="0" value="48" />
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span>Seed</span>
+                  <span class="field-label">Seed</span>
                   <span
                     class="help-tip"
                     tabindex="0"
@@ -274,9 +274,9 @@
                     >?</span
                   >
                 </span>
-                <input id="seedInput" name="seed" type="number" min="0" value="7" />
+                <input id="seedInput" class="field-control" name="seed" type="number" min="0" value="7" />
               </label>
-              <label class="toggle-row">
+              <label class="toggle-row ui-surface ui-frame">
                 <input id="stripBackgroundInput" name="stripBackground" type="checkbox" />
                 <span class="toggle-copy">
                   <span>Strip checkerboard-ish junk</span>
@@ -290,7 +290,7 @@
                   >
                 </span>
               </label>
-              <label class="toggle-row">
+              <label class="toggle-row ui-surface ui-frame">
                 <input id="skipRerankInput" name="skipRerank" type="checkbox" />
                 <span class="toggle-copy">
                   <span>Skip low-confidence phase rerank</span>
@@ -308,9 +308,9 @@
             <button id="runButton" class="button" type="button">Run The Machine</button>
           </section>
 
-          <section class="card section-block">
+          <section class="card sidebar-section ui-surface ui-frame">
             <div class="card-head">
-              <div class="copy-stack card-copy">
+              <div class="copy-stack">
                 <h2>Inference</h2>
                 <p class="copy-tag">The ruler and where it landed.</p>
               </div>
@@ -321,9 +321,9 @@
             <div id="candidateList" class="candidate-list"></div>
           </section>
 
-          <section class="card section-block">
+          <section class="card sidebar-section ui-surface ui-frame">
             <div class="card-head">
-              <div class="copy-stack card-copy">
+              <div class="copy-stack">
                 <h2>Run Notes</h2>
                 <p class="copy-tag">A small log of what the machine thinks it is doing.</p>
               </div>

@@ -158,7 +158,7 @@ function renderEventLog() {
     }
     for (const entry of state.eventLog) {
         const node = document.createElement("div");
-        node.className = "event-item";
+        node.className = "info-card event-item";
         node.innerHTML = `<strong>${entry.label}</strong><span>${entry.detail}</span>`;
         eventLog.appendChild(node);
     }
@@ -349,7 +349,7 @@ function renderStatusMetricItems(items) {
     statusMetrics.style.setProperty("--status-metric-count", String(Math.max(items.length, 1)));
     for (const { label, value } of items) {
         const node = document.createElement("div");
-        node.className = "status-metric";
+        node.className = "info-card status-metric";
         node.title = `${label}: ${value}`;
         node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
         statusMetrics.appendChild(node);
@@ -368,15 +368,15 @@ function renderInference() {
         return;
     }
     inferenceSummary.innerHTML = `
-    <div class="summary-card">
+    <div class="info-card summary-card">
       <strong>Chosen Grid</strong>
       <span>${state.inference.target_width} x ${state.inference.target_height}</span>
     </div>
-    <div class="summary-card">
+    <div class="info-card summary-card">
       <strong>Phase</strong>
       <span>${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}</span>
     </div>
-    <div class="summary-card">
+    <div class="info-card summary-card">
       <strong>Confidence</strong>
       <span>${formatNumber(state.inference.confidence, 3)}</span>
     </div>
@@ -385,7 +385,7 @@ function renderInference() {
     const topCandidates = state.inference.top_candidates.slice(0, 6);
     for (const candidate of topCandidates) {
         const node = document.createElement("div");
-        node.className = "candidate-card";
+        node.className = "info-card candidate-card";
         const rerank = candidate.breakdown["phase_rerank_rank"];
         node.innerHTML = `
       <strong>${candidate.target_width} x ${candidate.target_height}</strong>
@@ -492,7 +492,7 @@ function renderSummary() {
     ];
     for (const [label, value] of entries) {
         const card = document.createElement("div");
-        card.className = "summary-card";
+        card.className = "info-card summary-card";
         card.innerHTML = `<strong>${label}</strong><span>${formatNumber(value, 3)}</span>`;
         summaryPanel.appendChild(card);
     }
@@ -825,11 +825,11 @@ function renderEditor() {
         }
     }
     editorMeta.innerHTML = `
-    <div class="summary-card">
+    <div class="info-card summary-card">
       <strong>Canvas</strong>
       <span>${offscreenCanvas.width} x ${offscreenCanvas.height}</span>
     </div>
-    <div class="summary-card">
+    <div class="info-card summary-card">
       <strong>State</strong>
       <span>${state.editorDirty ? "Edited" : "Matches solver output"}</span>
     </div>
