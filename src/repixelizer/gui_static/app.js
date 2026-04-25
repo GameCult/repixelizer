@@ -97,6 +97,7 @@ const state = {
     finalOutputImage: null,
     runSummary: null,
     solverStepBudget: 0,
+    lossAxisMax: null,
     eventLog: [],
     paintColor: [255, 255, 255, 255],
     editorBaseAsset: null,
@@ -189,6 +190,7 @@ function resetRunArtifacts(options = {}) {
     state.finalOutputImage = null;
     state.runSummary = null;
     state.solverStepBudget = 0;
+    state.lossAxisMax = null;
     state.eventLog = [];
     state.editorBaseAsset = null;
     state.editorDirty = false;
@@ -488,7 +490,10 @@ function renderLossPlaceholder(context, width, heading, detail) {
 }
 function getLossDomainMax() {
     const frameDomain = state.frames.reduce((best, frame) => Math.max(best, frame.totalSteps), 0);
-    return Math.max(frameDomain, state.solverStepBudget);
+    if (state.solverStepBudget > 0) {
+        return Math.max(1, state.solverStepBudget);
+    }
+    return Math.max(1, frameDomain);
 }
 function buildLossSamples() {
     return state.frames
@@ -524,17 +529,19 @@ function renderLossChart() {
     context.fillRect(0, 0, width, height);
     const domainMax = getLossDomainMax();
     const samples = buildLossSamples();
-    const chartLeft = 56;
+    const observedMaxLoss = samples.length === 0 ? null : Math.max(...samples.map((sample) => sample.loss));
+    if (observedMaxLoss !== null) {
+        state.lossAxisMax = Math.max(state.lossAxisMax ?? 0, observedMaxLoss);
+    }
+    const axisMaxLoss = Math.max(0.001, state.lossAxisMax ?? observedMaxLoss ?? 1);
+    const maxLoss = axisMaxLoss * 1.05;
+    const minLoss = 0;
+    const chartLeft = 74;
     const chartRight = width - 18;
     const chartTop = 16;
-    const chartBottom = height - 28;
+    const chartBottom = height - 36;
     const chartWidth = chartRight - chartLeft;
     const chartHeight = chartBottom - chartTop;
-    const rawMinLoss = samples.length === 0 ? 0 : Math.min(...samples.map((sample) => sample.loss));
-    const rawMaxLoss = samples.length === 0 ? 1 : Math.max(...samples.map((sample) => sample.loss));
-    const domainPadding = rawMaxLoss - rawMinLoss < 1e-6 ? Math.max(0.0025, Math.abs(rawMaxLoss) * 0.05) : 0;
-    const minLoss = rawMinLoss - domainPadding;
-    const maxLoss = rawMaxLoss + domainPadding;
     const span = Math.max(1e-6, maxLoss - minLoss);
     const yTicks = 4;
     context.strokeStyle = "rgba(255,255,255,0.08)";
@@ -566,10 +573,22 @@ function renderLossChart() {
     }
     context.fillStyle = "rgba(255, 216, 74, 0.9)";
     context.font = "10px 'Press Start 2P', monospace";
-    context.fillText("SOLVER STEP", chartLeft + chartWidth * 0.5, height - 14);
+    context.fillText(`SOLVER STEP (0-${domainMax})`, chartLeft + chartWidth * 0.5, height - 18);
+    context.save();
+    context.translate(20, chartTop + chartHeight * 0.5);
+    context.rotate(-Math.PI / 2);
+    context.fillText("LOSS", 0, 0);
+    context.restore();
     context.strokeStyle = "rgba(255, 216, 74, 0.18)";
     context.lineWidth = 1.5;
     context.strokeRect(chartLeft, chartTop, chartWidth, chartHeight);
+    context.strokeStyle = "rgba(255, 216, 74, 0.42)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(chartLeft, chartTop);
+    context.lineTo(chartLeft, chartBottom);
+    context.lineTo(chartRight, chartBottom);
+    context.stroke();
     if (samples.length === 0) {
         renderLossPlaceholder(context, width, "Phase-field solve", state.solverStepBudget <= 0
             ? "Solver steps were pinned to zero, so there is no loss walk to chart."

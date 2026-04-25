@@ -629,7 +629,7 @@ p {
 
 .loss-canvas {
   width: 100%;
-  height: 120px;
+  height: 148px;
   display: block;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
