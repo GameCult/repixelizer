@@ -417,6 +417,8 @@ def _select_phase_candidate_with_reconstruction(
                     **common,
                 )
 
+        rerank_observer.phase_field_include_snapshot = False  # type: ignore[attr-defined]
+
         candidate_artifacts, _candidate_diagnostics = _run_reconstruction(
             source,
             inference=candidate_inference,

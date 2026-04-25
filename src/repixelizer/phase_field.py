@@ -330,11 +330,11 @@ def _phase_field_loss(torch, F, prep: _PhaseFieldPrep, disp_t, solver_params: So
         + magnitude * solver_params.phase_field_magnitude_weight
     )
     terms = {
-        "local_coherence": float(local_coherence.detach().cpu().item()),
-        "local_edge": float(local_edge.detach().cpu().item()),
-        "smoothness": float(smoothness.detach().cpu().item()),
-        "collapse": float(collapse.detach().cpu().item()),
-        "magnitude": float(magnitude.detach().cpu().item()),
+        "local_coherence": local_coherence.detach(),
+        "local_edge": local_edge.detach(),
+        "smoothness": smoothness.detach(),
+        "collapse": collapse.detach(),
+        "magnitude": magnitude.detach(),
     }
     return loss, sampled_rgba, terms
 
@@ -368,6 +368,65 @@ def _observer_snapshot(
     }
 
 
+def _materialize_phase_terms(terms: dict[str, object]) -> dict[str, float]:
+    materialized: dict[str, float] = {}
+    for key, value in terms.items():
+        if hasattr(value, "detach"):
+            materialized[key] = float(value.detach().cpu().item())
+        else:
+            materialized[key] = float(value)
+    return materialized
+
+
+def _materialize_loss_history(torch, values: list[object]) -> list[float]:
+    if not values:
+        return []
+    normalized = []
+    for value in values:
+        if hasattr(value, "detach"):
+            normalized.append(value.detach().reshape(()))
+        else:
+            normalized.append(torch.tensor(float(value)))
+    stacked = torch.stack(normalized)
+    return [float(item) for item in stacked.cpu().tolist()]
+
+
+def _observer_option(observer: PipelineObserver | None, name: str, default: object) -> object:
+    if observer is None:
+        return default
+    direct = getattr(observer, name, None)
+    if direct is not None:
+        return direct
+    owner = getattr(observer, "__self__", None)
+    if owner is not None:
+        owner_value = getattr(owner, name, None)
+        if owner_value is not None:
+            return owner_value
+    return default
+
+
+def _observer_preview_stride(observer: PipelineObserver | None) -> int:
+    raw = _observer_option(observer, "phase_field_preview_stride", 1)
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _observer_needs_phase_field_snapshot(observer: PipelineObserver | None) -> bool:
+    return bool(_observer_option(observer, "phase_field_include_snapshot", True))
+
+
+def _should_emit_phase_field_step(step: int, total_steps: int, *, preview_stride: int) -> bool:
+    if total_steps <= 0:
+        return True
+    if preview_stride <= 1:
+        return True
+    if step >= total_steps:
+        return False
+    return step % max(1, preview_stride) == 0
+
+
 def optimize_phase_field(
     rgba: np.ndarray,
     inference: InferenceResult,
@@ -384,6 +443,8 @@ def optimize_phase_field(
     torch.manual_seed(seed)
     if device == "cuda":
         torch.cuda.manual_seed_all(seed)
+    preview_stride = _observer_preview_stride(observer)
+    include_snapshots = _observer_needs_phase_field_snapshot(observer)
 
     prep = _prepare_phase_field(
         torch,
@@ -394,16 +455,16 @@ def optimize_phase_field(
         solver_params,
         device=device,
     )
-    emit_observer(
-        observer,
-        "phase_field_prepared",
-        uv0_px=prep.uv0_px_t[0].detach().cpu().numpy().astype(np.float32),
-        guidance=prep.guidance.copy(),
-        cell_x=float(prep.cell_x),
-        cell_y=float(prep.cell_y),
-        target_width=int(inference.target_width),
-        target_height=int(inference.target_height),
-    )
+    prepared_payload = {
+        "cell_x": float(prep.cell_x),
+        "cell_y": float(prep.cell_y),
+        "target_width": int(inference.target_width),
+        "target_height": int(inference.target_height),
+    }
+    if include_snapshots:
+        prepared_payload["uv0_px"] = prep.uv0_px_t[0].detach().cpu().numpy().astype(np.float32)
+        prepared_payload["guidance"] = prep.guidance.copy()
+    emit_observer(observer, "phase_field_prepared", **prepared_payload)
 
     disp_t = torch.zeros_like(prep.uv0_px_t, device=device, dtype=torch.float32, requires_grad=True)
     optimizer = torch.optim.Adam([disp_t], lr=solver_params.phase_field_learning_rate)
@@ -411,16 +472,16 @@ def optimize_phase_field(
     initial_x = np.rint(prep.uv0_px_t[0, ..., 0].detach().cpu().numpy()).astype(np.int32).clip(0, prep.width - 1)
     initial_y = np.rint(prep.uv0_px_t[0, ..., 1].detach().cpu().numpy()).astype(np.int32).clip(0, prep.height - 1)
     initial_rgba = _nearest_source_rgba(rgba, initial_x, initial_y)
-    emit_observer(
-        observer,
-        "phase_field_initial",
-        step=0,
-        total_steps=int(max(0, steps)),
-        **_observer_snapshot(prep, rgba, prep.uv0_px_t[0].detach().cpu().numpy().astype(np.float32)),
-    )
+    initial_payload = {
+        "step": 0,
+        "total_steps": int(max(0, steps)),
+    }
+    if include_snapshots:
+        initial_payload.update(_observer_snapshot(prep, rgba, prep.uv0_px_t[0].detach().cpu().numpy().astype(np.float32)))
+    emit_observer(observer, "phase_field_initial", **initial_payload)
 
-    loss_history: list[float] = []
-    final_terms: dict[str, float] = {}
+    loss_history_raw: list[object] = []
+    final_terms_raw: dict[str, object] = {}
     min_dx = solver_params.phase_field_min_spacing_ratio * prep.cell_x
     min_dy = solver_params.phase_field_min_spacing_ratio * prep.cell_y
     max_dx = solver_params.phase_field_max_displacement_ratio * prep.cell_x
@@ -443,30 +504,33 @@ def optimize_phase_field(
             width=prep.width,
             height=prep.height,
         )
-        loss_value = float(loss.detach().cpu().item())
-        loss_history.append(loss_value)
-        final_terms = terms
-        if observer is not None:
-            current_pos = (prep.uv0_px_t + disp_t)[0].detach().cpu().numpy().astype(np.float32)
-            emit_observer(
-                observer,
-                "phase_field_step",
-                step=int(step_index + 1),
-                total_steps=int(max(0, steps)),
-                loss=loss_value,
-                terms=terms.copy(),
-                **_observer_snapshot(prep, rgba, current_pos),
-            )
+        loss_detached = loss.detach()
+        loss_history_raw.append(loss_detached)
+        final_terms_raw = terms
+        step_number = int(step_index + 1)
+        if observer is not None and _should_emit_phase_field_step(step_number, int(max(0, steps)), preview_stride=preview_stride):
+            payload = {
+                "step": step_number,
+                "total_steps": int(max(0, steps)),
+                "loss": float(loss_detached.cpu().item()),
+                "terms": _materialize_phase_terms(terms),
+            }
+            if include_snapshots:
+                current_pos = (prep.uv0_px_t + disp_t)[0].detach().cpu().numpy().astype(np.float32)
+                payload.update(_observer_snapshot(prep, rgba, current_pos))
+            emit_observer(observer, "phase_field_step", **payload)
 
     with torch.no_grad():
         if steps <= 0:
-            loss, _sampled_rgba, final_terms = _phase_field_loss(torch, F, prep, disp_t, solver_params)
-            loss_history.append(float(loss.detach().cpu().item()))
+            loss, _sampled_rgba, final_terms_raw = _phase_field_loss(torch, F, prep, disp_t, solver_params)
+            loss_history_raw.append(loss.detach())
         final_px = prep.uv0_px_t + disp_t
         final_x = torch.round(final_px[..., 0]).clamp(0, prep.width - 1).to(dtype=torch.long)
         final_y = torch.round(final_px[..., 1]).clamp(0, prep.height - 1).to(dtype=torch.long)
         final_pos_norm = _pixel_to_normalized(final_px.clone(), width=prep.width, height=prep.height)[0].detach().cpu().numpy()
 
+    loss_history = _materialize_loss_history(torch, loss_history_raw)
+    final_terms = _materialize_phase_terms(final_terms_raw)
     final_x_np = final_x[0].detach().cpu().numpy().astype(np.int32)
     final_y_np = final_y[0].detach().cpu().numpy().astype(np.int32)
     target_rgba = _nearest_source_rgba(rgba, final_x_np, final_y_np)
@@ -495,15 +559,17 @@ def optimize_phase_field(
             **final_terms,
         },
     }
-    emit_observer(
-        observer,
-        "phase_field_final",
-        step=int(max(0, steps)),
-        total_steps=int(max(0, steps)),
-        phase_metrics=stage_diagnostics["phase_field"].copy(),
-        loss_history=loss_history.copy(),
-        **_observer_snapshot(prep, rgba, final_px[0].detach().cpu().numpy().astype(np.float32)),
-    )
+    final_payload = {
+        "step": int(max(0, steps)),
+        "total_steps": int(max(0, steps)),
+        "phase_metrics": stage_diagnostics["phase_field"].copy(),
+        "loss_history": loss_history.copy(),
+    }
+    if loss_history:
+        final_payload["loss"] = float(loss_history[-1])
+    if include_snapshots:
+        final_payload.update(_observer_snapshot(prep, rgba, final_px[0].detach().cpu().numpy().astype(np.float32)))
+    emit_observer(observer, "phase_field_final", **final_payload)
     return SolverArtifacts(
         target_rgba=target_rgba,
         uv_field=final_pos_norm,

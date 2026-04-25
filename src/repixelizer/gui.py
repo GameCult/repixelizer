@@ -136,6 +136,8 @@ class GuiJob:
     job_id: str
     filename: str
     created_at: float = field(default_factory=time.time)
+    phase_field_preview_stride: int = 4
+    phase_field_include_snapshot: bool = True
     status: str = "queued"
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)

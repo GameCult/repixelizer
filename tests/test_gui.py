@@ -83,6 +83,39 @@ def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
     assert events[-4:] == ["cleanup_completed", "stage_started", "palette_completed", "pipeline_completed"]
 
 
+def test_run_pipeline_rgba_respects_phase_field_preview_stride() -> None:
+    source = make_emblem(12, 12)
+    fake = fake_pixelize(source, upscale=6, phase_x=0.12, phase_y=-0.08, blur_radius=0.35, seed=5)
+
+    class PreviewObserver:
+        phase_field_preview_stride = 2
+
+        def __init__(self) -> None:
+            self.events: list[tuple[str, dict[str, object]]] = []
+
+        def __call__(self, event: str, payload: dict[str, object]) -> None:
+            self.events.append((event, payload))
+
+    observer = PreviewObserver()
+
+    run_pipeline_rgba(
+        fake,
+        target_width=12,
+        target_height=12,
+        phase_x=0.0,
+        phase_y=0.0,
+        steps=5,
+        device="cpu",
+        enable_phase_rerank=False,
+        observer=observer,
+    )
+
+    phase_steps = [payload["step"] for event, payload in observer.events if event == "phase_field_step"]
+    assert phase_steps == [2, 4]
+    final_payload = next(payload for event, payload in observer.events if event == "phase_field_final")
+    assert final_payload["step"] == 5
+
+
 def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch, capsys) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "scripts" / "run_gui.py"
