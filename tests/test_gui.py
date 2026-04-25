@@ -17,7 +17,7 @@ from repixelizer.params import SolverHyperParams
 from repixelizer.types import InferenceCandidate, InferenceResult, PhaseFieldSourceAnalysis, SolverArtifacts
 
 
-async def _get_response_headers(app, path: str) -> tuple[int, dict[str, str]]:
+async def _get_response(app, path: str) -> tuple[int, dict[str, str], bytes]:
     messages: list[dict[str, object]] = []
 
     async def receive():
@@ -42,12 +42,13 @@ async def _get_response_headers(app, path: str) -> tuple[int, dict[str, str]]:
     }
     await app(scope, receive, send)
     start = next(message for message in messages if message["type"] == "http.response.start")
+    body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
     status = int(start["status"])
     headers = {
         key.decode("latin-1").lower(): value.decode("latin-1")
         for key, value in start.get("headers", [])
     }
-    return status, headers
+    return status, headers, body
 
 
 def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
@@ -126,8 +127,8 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     from repixelizer.gui import create_app
 
     app = create_app()
-    html_status, html_headers = asyncio.run(_get_response_headers(app, "/app/"))
-    js_status, js_headers = asyncio.run(_get_response_headers(app, "/app/app.js"))
+    html_status, html_headers, html_body = asyncio.run(_get_response(app, "/app/"))
+    js_status, js_headers, _js_body = asyncio.run(_get_response(app, "/app/app.js"))
 
     assert html_status == 200
     assert js_status == 200
@@ -135,6 +136,9 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     assert js_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert html_headers["pragma"] == "no-cache"
     assert js_headers["pragma"] == "no-cache"
+    html_text = html_body.decode("utf-8")
+    assert "./styles.css?v=" in html_text
+    assert "./app.js?v=" in html_text
 
 
 def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:

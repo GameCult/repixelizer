@@ -357,6 +357,18 @@ def _static_dir() -> Path:
     return Path(__file__).with_name("gui_static")
 
 
+def _versioned_gui_index(static_dir: Path) -> str:
+    index_path = static_dir / "index.html"
+    styles_path = static_dir / "styles.css"
+    script_path = static_dir / "app.js"
+    styles_version = int(styles_path.stat().st_mtime_ns)
+    script_version = int(script_path.stat().st_mtime_ns)
+    html = index_path.read_text(encoding="utf-8")
+    html = html.replace("./styles.css", f"./styles.css?v={styles_version}")
+    html = html.replace("./app.js", f"./app.js?v={script_version}")
+    return html
+
+
 def create_app():
     deps = _require_gui_dependencies()
     FastAPI = deps["FastAPI"]
@@ -459,7 +471,12 @@ def create_app():
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     if static_dir.exists():
-        app.mount("/app", StaticFiles(directory=static_dir, html=True), name="app")
+        @app.get("/app")
+        @app.get("/app/")
+        def gui_index():
+            return HTMLResponse(_versioned_gui_index(static_dir))
+
+        app.mount("/app", StaticFiles(directory=static_dir, html=False), name="app")
 
         @app.get("/")
         def root():
