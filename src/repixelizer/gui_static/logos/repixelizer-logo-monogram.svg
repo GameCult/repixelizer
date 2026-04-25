@@ -5,15 +5,19 @@
     <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
       <path d="M 12 0 L 0 0 0 12" fill="none" stroke="#ffd84a" stroke-opacity="0.08" stroke-width="1" />
     </pattern>
+    <symbol id="tile-ghost" overflow="visible"><rect class="ghost" x="0" y="0" width="9" height="9" rx="1.6" ry="1.6" /></symbol>
+    <symbol id="tile-main" overflow="visible"><rect class="tile-main" x="0" y="0" width="9" height="9" rx="1.6" ry="1.6" /></symbol>
+    <symbol id="tile-bright" overflow="visible"><rect class="tile-bright" x="0" y="0" width="9" height="9" rx="1.6" ry="1.6" /></symbol>
+    <symbol id="tile-dark" overflow="visible"><rect class="tile-dark" x="0" y="0" width="9" height="9" rx="1.6" ry="1.6" /></symbol>
     <style>
       svg { shape-rendering: crispEdges; }
       .badge { fill: #0a1b2f; stroke: #ffd84a; stroke-width: 6; }
       .rim { fill: none; stroke: #1d4d75; stroke-width: 6; }
       .grid { fill: url(#grid); opacity: 0.32; }
-      .ghost { fill: #8fe2c8; opacity: 0.18; }
-      .tile-main { fill: #ffe48a; }
-      .tile-bright { fill: #fff7cf; }
-      .tile-dark { fill: #d79a31; }
+      .ghost { fill: #8fe2c8; fill-opacity: 0.18; stroke: #dffef2; stroke-opacity: 0.12; stroke-width: 0.7; }
+      .tile-main { fill: #ffe48a; stroke: #fff0ba; stroke-opacity: 0.28; stroke-width: 0.7; }
+      .tile-bright { fill: #fff7cf; stroke: #fffdf1; stroke-opacity: 0.38; stroke-width: 0.7; }
+      .tile-dark { fill: #d79a31; stroke: #f0be65; stroke-opacity: 0.28; stroke-width: 0.7; }
     </style>
   </defs>
 
@@ -23,279 +27,279 @@
 
   <g transform="translate(52 52)">
     <g transform="translate(11 0)">
-      <rect class="ghost" x="0" y="0" width="9" height="9" />
-      <rect class="ghost" x="11" y="0" width="9" height="9" />
-      <rect class="ghost" x="22" y="0" width="9" height="9" />
-      <rect class="ghost" x="33" y="0" width="9" height="9" />
-      <rect class="ghost" x="44" y="0" width="9" height="9" />
-      <rect class="ghost" x="55" y="0" width="9" height="9" />
-      <rect class="ghost" x="66" y="0" width="9" height="9" />
-      <rect class="ghost" x="77" y="0" width="9" height="9" />
-      <rect class="ghost" x="88" y="0" width="9" height="9" />
-      <rect class="ghost" x="99" y="0" width="9" height="9" />
-      <rect class="ghost" x="110" y="0" width="9" height="9" />
-      <rect class="ghost" x="121" y="0" width="9" height="9" />
-      <rect class="ghost" x="0" y="11" width="9" height="9" />
-      <rect class="ghost" x="11" y="11" width="9" height="9" />
-      <rect class="ghost" x="22" y="11" width="9" height="9" />
-      <rect class="ghost" x="33" y="11" width="9" height="9" />
-      <rect class="ghost" x="44" y="11" width="9" height="9" />
-      <rect class="ghost" x="55" y="11" width="9" height="9" />
-      <rect class="ghost" x="66" y="11" width="9" height="9" />
-      <rect class="ghost" x="77" y="11" width="9" height="9" />
-      <rect class="ghost" x="88" y="11" width="9" height="9" />
-      <rect class="ghost" x="99" y="11" width="9" height="9" />
-      <rect class="ghost" x="110" y="11" width="9" height="9" />
-      <rect class="ghost" x="121" y="11" width="9" height="9" />
-      <rect class="ghost" x="0" y="22" width="9" height="9" />
-      <rect class="ghost" x="11" y="22" width="9" height="9" />
-      <rect class="ghost" x="22" y="22" width="9" height="9" />
-      <rect class="ghost" x="33" y="22" width="9" height="9" />
-      <rect class="ghost" x="110" y="22" width="9" height="9" />
-      <rect class="ghost" x="121" y="22" width="9" height="9" />
-      <rect class="ghost" x="132" y="22" width="9" height="9" />
-      <rect class="ghost" x="143" y="22" width="9" height="9" />
-      <rect class="ghost" x="0" y="33" width="9" height="9" />
-      <rect class="ghost" x="11" y="33" width="9" height="9" />
-      <rect class="ghost" x="22" y="33" width="9" height="9" />
-      <rect class="ghost" x="33" y="33" width="9" height="9" />
-      <rect class="ghost" x="110" y="33" width="9" height="9" />
-      <rect class="ghost" x="121" y="33" width="9" height="9" />
-      <rect class="ghost" x="132" y="33" width="9" height="9" />
-      <rect class="ghost" x="143" y="33" width="9" height="9" />
-      <rect class="ghost" x="0" y="44" width="9" height="9" />
-      <rect class="ghost" x="11" y="44" width="9" height="9" />
-      <rect class="ghost" x="22" y="44" width="9" height="9" />
-      <rect class="ghost" x="33" y="44" width="9" height="9" />
-      <rect class="ghost" x="110" y="44" width="9" height="9" />
-      <rect class="ghost" x="121" y="44" width="9" height="9" />
-      <rect class="ghost" x="132" y="44" width="9" height="9" />
-      <rect class="ghost" x="143" y="44" width="9" height="9" />
-      <rect class="ghost" x="0" y="55" width="9" height="9" />
-      <rect class="ghost" x="11" y="55" width="9" height="9" />
-      <rect class="ghost" x="22" y="55" width="9" height="9" />
-      <rect class="ghost" x="33" y="55" width="9" height="9" />
-      <rect class="ghost" x="110" y="55" width="9" height="9" />
-      <rect class="ghost" x="121" y="55" width="9" height="9" />
-      <rect class="ghost" x="132" y="55" width="9" height="9" />
-      <rect class="ghost" x="143" y="55" width="9" height="9" />
-      <rect class="ghost" x="0" y="66" width="9" height="9" />
-      <rect class="ghost" x="11" y="66" width="9" height="9" />
-      <rect class="ghost" x="22" y="66" width="9" height="9" />
-      <rect class="ghost" x="33" y="66" width="9" height="9" />
-      <rect class="ghost" x="88" y="66" width="9" height="9" />
-      <rect class="ghost" x="99" y="66" width="9" height="9" />
-      <rect class="ghost" x="110" y="66" width="9" height="9" />
-      <rect class="ghost" x="121" y="66" width="9" height="9" />
-      <rect class="ghost" x="132" y="66" width="9" height="9" />
-      <rect class="ghost" x="143" y="66" width="9" height="9" />
-      <rect class="ghost" x="0" y="77" width="9" height="9" />
-      <rect class="ghost" x="11" y="77" width="9" height="9" />
-      <rect class="ghost" x="22" y="77" width="9" height="9" />
-      <rect class="ghost" x="33" y="77" width="9" height="9" />
-      <rect class="ghost" x="88" y="77" width="9" height="9" />
-      <rect class="ghost" x="99" y="77" width="9" height="9" />
-      <rect class="ghost" x="110" y="77" width="9" height="9" />
-      <rect class="ghost" x="121" y="77" width="9" height="9" />
-      <rect class="ghost" x="132" y="77" width="9" height="9" />
-      <rect class="ghost" x="143" y="77" width="9" height="9" />
-      <rect class="ghost" x="0" y="88" width="9" height="9" />
-      <rect class="ghost" x="11" y="88" width="9" height="9" />
-      <rect class="ghost" x="22" y="88" width="9" height="9" />
-      <rect class="ghost" x="33" y="88" width="9" height="9" />
-      <rect class="ghost" x="44" y="88" width="9" height="9" />
-      <rect class="ghost" x="55" y="88" width="9" height="9" />
-      <rect class="ghost" x="66" y="88" width="9" height="9" />
-      <rect class="ghost" x="77" y="88" width="9" height="9" />
-      <rect class="ghost" x="88" y="88" width="9" height="9" />
-      <rect class="ghost" x="99" y="88" width="9" height="9" />
-      <rect class="ghost" x="0" y="99" width="9" height="9" />
-      <rect class="ghost" x="11" y="99" width="9" height="9" />
-      <rect class="ghost" x="22" y="99" width="9" height="9" />
-      <rect class="ghost" x="33" y="99" width="9" height="9" />
-      <rect class="ghost" x="44" y="99" width="9" height="9" />
-      <rect class="ghost" x="55" y="99" width="9" height="9" />
-      <rect class="ghost" x="66" y="99" width="9" height="9" />
-      <rect class="ghost" x="77" y="99" width="9" height="9" />
-      <rect class="ghost" x="88" y="99" width="9" height="9" />
-      <rect class="ghost" x="99" y="99" width="9" height="9" />
-      <rect class="ghost" x="0" y="110" width="9" height="9" />
-      <rect class="ghost" x="11" y="110" width="9" height="9" />
-      <rect class="ghost" x="22" y="110" width="9" height="9" />
-      <rect class="ghost" x="33" y="110" width="9" height="9" />
-      <rect class="ghost" x="66" y="110" width="9" height="9" />
-      <rect class="ghost" x="77" y="110" width="9" height="9" />
-      <rect class="ghost" x="88" y="110" width="9" height="9" />
-      <rect class="ghost" x="99" y="110" width="9" height="9" />
-      <rect class="ghost" x="110" y="110" width="9" height="9" />
-      <rect class="ghost" x="121" y="110" width="9" height="9" />
-      <rect class="ghost" x="0" y="121" width="9" height="9" />
-      <rect class="ghost" x="11" y="121" width="9" height="9" />
-      <rect class="ghost" x="22" y="121" width="9" height="9" />
-      <rect class="ghost" x="33" y="121" width="9" height="9" />
-      <rect class="ghost" x="66" y="121" width="9" height="9" />
-      <rect class="ghost" x="77" y="121" width="9" height="9" />
-      <rect class="ghost" x="88" y="121" width="9" height="9" />
-      <rect class="ghost" x="99" y="121" width="9" height="9" />
-      <rect class="ghost" x="110" y="121" width="9" height="9" />
-      <rect class="ghost" x="121" y="121" width="9" height="9" />
-      <rect class="ghost" x="0" y="132" width="9" height="9" />
-      <rect class="ghost" x="11" y="132" width="9" height="9" />
-      <rect class="ghost" x="22" y="132" width="9" height="9" />
-      <rect class="ghost" x="33" y="132" width="9" height="9" />
-      <rect class="ghost" x="88" y="132" width="9" height="9" />
-      <rect class="ghost" x="99" y="132" width="9" height="9" />
-      <rect class="ghost" x="110" y="132" width="9" height="9" />
-      <rect class="ghost" x="121" y="132" width="9" height="9" />
-      <rect class="ghost" x="132" y="132" width="9" height="9" />
-      <rect class="ghost" x="143" y="132" width="9" height="9" />
-      <rect class="ghost" x="0" y="143" width="9" height="9" />
-      <rect class="ghost" x="11" y="143" width="9" height="9" />
-      <rect class="ghost" x="22" y="143" width="9" height="9" />
-      <rect class="ghost" x="33" y="143" width="9" height="9" />
-      <rect class="ghost" x="88" y="143" width="9" height="9" />
-      <rect class="ghost" x="99" y="143" width="9" height="9" />
-      <rect class="ghost" x="110" y="143" width="9" height="9" />
-      <rect class="ghost" x="121" y="143" width="9" height="9" />
-      <rect class="ghost" x="132" y="143" width="9" height="9" />
-      <rect class="ghost" x="143" y="143" width="9" height="9" />
+      <use href="#tile-ghost" x="0" y="0" />
+      <use href="#tile-ghost" x="11" y="0" />
+      <use href="#tile-ghost" x="22" y="0" />
+      <use href="#tile-ghost" x="33" y="0" />
+      <use href="#tile-ghost" x="44" y="0" />
+      <use href="#tile-ghost" x="55" y="0" />
+      <use href="#tile-ghost" x="66" y="0" />
+      <use href="#tile-ghost" x="77" y="0" />
+      <use href="#tile-ghost" x="88" y="0" />
+      <use href="#tile-ghost" x="99" y="0" />
+      <use href="#tile-ghost" x="110" y="0" />
+      <use href="#tile-ghost" x="121" y="0" />
+      <use href="#tile-ghost" x="0" y="11" />
+      <use href="#tile-ghost" x="11" y="11" />
+      <use href="#tile-ghost" x="22" y="11" />
+      <use href="#tile-ghost" x="33" y="11" />
+      <use href="#tile-ghost" x="44" y="11" />
+      <use href="#tile-ghost" x="55" y="11" />
+      <use href="#tile-ghost" x="66" y="11" />
+      <use href="#tile-ghost" x="77" y="11" />
+      <use href="#tile-ghost" x="88" y="11" />
+      <use href="#tile-ghost" x="99" y="11" />
+      <use href="#tile-ghost" x="110" y="11" />
+      <use href="#tile-ghost" x="121" y="11" />
+      <use href="#tile-ghost" x="0" y="22" />
+      <use href="#tile-ghost" x="11" y="22" />
+      <use href="#tile-ghost" x="22" y="22" />
+      <use href="#tile-ghost" x="33" y="22" />
+      <use href="#tile-ghost" x="110" y="22" />
+      <use href="#tile-ghost" x="121" y="22" />
+      <use href="#tile-ghost" x="132" y="22" />
+      <use href="#tile-ghost" x="143" y="22" />
+      <use href="#tile-ghost" x="0" y="33" />
+      <use href="#tile-ghost" x="11" y="33" />
+      <use href="#tile-ghost" x="22" y="33" />
+      <use href="#tile-ghost" x="33" y="33" />
+      <use href="#tile-ghost" x="110" y="33" />
+      <use href="#tile-ghost" x="121" y="33" />
+      <use href="#tile-ghost" x="132" y="33" />
+      <use href="#tile-ghost" x="143" y="33" />
+      <use href="#tile-ghost" x="0" y="44" />
+      <use href="#tile-ghost" x="11" y="44" />
+      <use href="#tile-ghost" x="22" y="44" />
+      <use href="#tile-ghost" x="33" y="44" />
+      <use href="#tile-ghost" x="110" y="44" />
+      <use href="#tile-ghost" x="121" y="44" />
+      <use href="#tile-ghost" x="132" y="44" />
+      <use href="#tile-ghost" x="143" y="44" />
+      <use href="#tile-ghost" x="0" y="55" />
+      <use href="#tile-ghost" x="11" y="55" />
+      <use href="#tile-ghost" x="22" y="55" />
+      <use href="#tile-ghost" x="33" y="55" />
+      <use href="#tile-ghost" x="110" y="55" />
+      <use href="#tile-ghost" x="121" y="55" />
+      <use href="#tile-ghost" x="132" y="55" />
+      <use href="#tile-ghost" x="143" y="55" />
+      <use href="#tile-ghost" x="0" y="66" />
+      <use href="#tile-ghost" x="11" y="66" />
+      <use href="#tile-ghost" x="22" y="66" />
+      <use href="#tile-ghost" x="33" y="66" />
+      <use href="#tile-ghost" x="88" y="66" />
+      <use href="#tile-ghost" x="99" y="66" />
+      <use href="#tile-ghost" x="110" y="66" />
+      <use href="#tile-ghost" x="121" y="66" />
+      <use href="#tile-ghost" x="132" y="66" />
+      <use href="#tile-ghost" x="143" y="66" />
+      <use href="#tile-ghost" x="0" y="77" />
+      <use href="#tile-ghost" x="11" y="77" />
+      <use href="#tile-ghost" x="22" y="77" />
+      <use href="#tile-ghost" x="33" y="77" />
+      <use href="#tile-ghost" x="88" y="77" />
+      <use href="#tile-ghost" x="99" y="77" />
+      <use href="#tile-ghost" x="110" y="77" />
+      <use href="#tile-ghost" x="121" y="77" />
+      <use href="#tile-ghost" x="132" y="77" />
+      <use href="#tile-ghost" x="143" y="77" />
+      <use href="#tile-ghost" x="0" y="88" />
+      <use href="#tile-ghost" x="11" y="88" />
+      <use href="#tile-ghost" x="22" y="88" />
+      <use href="#tile-ghost" x="33" y="88" />
+      <use href="#tile-ghost" x="44" y="88" />
+      <use href="#tile-ghost" x="55" y="88" />
+      <use href="#tile-ghost" x="66" y="88" />
+      <use href="#tile-ghost" x="77" y="88" />
+      <use href="#tile-ghost" x="88" y="88" />
+      <use href="#tile-ghost" x="99" y="88" />
+      <use href="#tile-ghost" x="0" y="99" />
+      <use href="#tile-ghost" x="11" y="99" />
+      <use href="#tile-ghost" x="22" y="99" />
+      <use href="#tile-ghost" x="33" y="99" />
+      <use href="#tile-ghost" x="44" y="99" />
+      <use href="#tile-ghost" x="55" y="99" />
+      <use href="#tile-ghost" x="66" y="99" />
+      <use href="#tile-ghost" x="77" y="99" />
+      <use href="#tile-ghost" x="88" y="99" />
+      <use href="#tile-ghost" x="99" y="99" />
+      <use href="#tile-ghost" x="0" y="110" />
+      <use href="#tile-ghost" x="11" y="110" />
+      <use href="#tile-ghost" x="22" y="110" />
+      <use href="#tile-ghost" x="33" y="110" />
+      <use href="#tile-ghost" x="66" y="110" />
+      <use href="#tile-ghost" x="77" y="110" />
+      <use href="#tile-ghost" x="88" y="110" />
+      <use href="#tile-ghost" x="99" y="110" />
+      <use href="#tile-ghost" x="110" y="110" />
+      <use href="#tile-ghost" x="121" y="110" />
+      <use href="#tile-ghost" x="0" y="121" />
+      <use href="#tile-ghost" x="11" y="121" />
+      <use href="#tile-ghost" x="22" y="121" />
+      <use href="#tile-ghost" x="33" y="121" />
+      <use href="#tile-ghost" x="66" y="121" />
+      <use href="#tile-ghost" x="77" y="121" />
+      <use href="#tile-ghost" x="88" y="121" />
+      <use href="#tile-ghost" x="99" y="121" />
+      <use href="#tile-ghost" x="110" y="121" />
+      <use href="#tile-ghost" x="121" y="121" />
+      <use href="#tile-ghost" x="0" y="132" />
+      <use href="#tile-ghost" x="11" y="132" />
+      <use href="#tile-ghost" x="22" y="132" />
+      <use href="#tile-ghost" x="33" y="132" />
+      <use href="#tile-ghost" x="88" y="132" />
+      <use href="#tile-ghost" x="99" y="132" />
+      <use href="#tile-ghost" x="110" y="132" />
+      <use href="#tile-ghost" x="121" y="132" />
+      <use href="#tile-ghost" x="132" y="132" />
+      <use href="#tile-ghost" x="143" y="132" />
+      <use href="#tile-ghost" x="0" y="143" />
+      <use href="#tile-ghost" x="11" y="143" />
+      <use href="#tile-ghost" x="22" y="143" />
+      <use href="#tile-ghost" x="33" y="143" />
+      <use href="#tile-ghost" x="88" y="143" />
+      <use href="#tile-ghost" x="99" y="143" />
+      <use href="#tile-ghost" x="110" y="143" />
+      <use href="#tile-ghost" x="121" y="143" />
+      <use href="#tile-ghost" x="132" y="143" />
+      <use href="#tile-ghost" x="143" y="143" />
     </g>
 
-    <rect class="tile-bright" x="0" y="0" width="9" height="9" />
-    <rect class="tile-main" x="11" y="0" width="9" height="9" />
-    <rect class="tile-main" x="22" y="0" width="9" height="9" />
-    <rect class="tile-dark" x="33" y="0" width="9" height="9" />
-    <rect class="tile-main" x="44" y="0" width="9" height="9" />
-    <rect class="tile-main" x="55" y="0" width="9" height="9" />
-    <rect class="tile-main" x="66" y="0" width="9" height="9" />
-    <rect class="tile-main" x="77" y="0" width="9" height="9" />
-    <rect class="tile-main" x="88" y="0" width="9" height="9" />
-    <rect class="tile-main" x="99" y="0" width="9" height="9" />
-    <rect class="tile-bright" x="110" y="0" width="9" height="9" />
-    <rect class="tile-main" x="121" y="0" width="9" height="9" />
-    <rect class="tile-dark" x="0" y="11" width="9" height="9" />
-    <rect class="tile-main" x="11" y="11" width="9" height="9" />
-    <rect class="tile-main" x="22" y="11" width="9" height="9" />
-    <rect class="tile-main" x="33" y="11" width="9" height="9" />
-    <rect class="tile-main" x="44" y="11" width="9" height="9" />
-    <rect class="tile-dark" x="55" y="11" width="9" height="9" />
-    <rect class="tile-main" x="66" y="11" width="9" height="9" />
-    <rect class="tile-main" x="77" y="11" width="9" height="9" />
-    <rect class="tile-main" x="88" y="11" width="9" height="9" />
-    <rect class="tile-main" x="99" y="11" width="9" height="9" />
-    <rect class="tile-dark" x="110" y="11" width="9" height="9" />
-    <rect class="tile-main" x="121" y="11" width="9" height="9" />
-    <rect class="tile-main" x="0" y="22" width="9" height="9" />
-    <rect class="tile-main" x="11" y="22" width="9" height="9" />
-    <rect class="tile-main" x="22" y="22" width="9" height="9" />
-    <rect class="tile-main" x="33" y="22" width="9" height="9" />
-    <rect class="tile-main" x="110" y="22" width="9" height="9" />
-    <rect class="tile-main" x="121" y="22" width="9" height="9" />
-    <rect class="tile-main" x="132" y="22" width="9" height="9" />
-    <rect class="tile-main" x="143" y="22" width="9" height="9" />
-    <rect class="tile-main" x="0" y="33" width="9" height="9" />
-    <rect class="tile-dark" x="11" y="33" width="9" height="9" />
-    <rect class="tile-main" x="22" y="33" width="9" height="9" />
-    <rect class="tile-main" x="33" y="33" width="9" height="9" />
-    <rect class="tile-main" x="110" y="33" width="9" height="9" />
-    <rect class="tile-dark" x="121" y="33" width="9" height="9" />
-    <rect class="tile-main" x="132" y="33" width="9" height="9" />
-    <rect class="tile-main" x="143" y="33" width="9" height="9" />
-    <rect class="tile-main" x="0" y="44" width="9" height="9" />
-    <rect class="tile-main" x="11" y="44" width="9" height="9" />
-    <rect class="tile-main" x="22" y="44" width="9" height="9" />
-    <rect class="tile-main" x="33" y="44" width="9" height="9" />
-    <rect class="tile-main" x="110" y="44" width="9" height="9" />
-    <rect class="tile-main" x="121" y="44" width="9" height="9" />
-    <rect class="tile-main" x="132" y="44" width="9" height="9" />
-    <rect class="tile-main" x="143" y="44" width="9" height="9" />
-    <rect class="tile-main" x="0" y="55" width="9" height="9" />
-    <rect class="tile-main" x="11" y="55" width="9" height="9" />
-    <rect class="tile-main" x="22" y="55" width="9" height="9" />
-    <rect class="tile-dark" x="33" y="55" width="9" height="9" />
-    <rect class="tile-main" x="110" y="55" width="9" height="9" />
-    <rect class="tile-main" x="121" y="55" width="9" height="9" />
-    <rect class="tile-main" x="132" y="55" width="9" height="9" />
-    <rect class="tile-dark" x="143" y="55" width="9" height="9" />
-    <rect class="tile-main" x="0" y="66" width="9" height="9" />
-    <rect class="tile-main" x="11" y="66" width="9" height="9" />
-    <rect class="tile-main" x="22" y="66" width="9" height="9" />
-    <rect class="tile-main" x="33" y="66" width="9" height="9" />
-    <rect class="tile-main" x="88" y="66" width="9" height="9" />
-    <rect class="tile-main" x="99" y="66" width="9" height="9" />
-    <rect class="tile-main" x="110" y="66" width="9" height="9" />
-    <rect class="tile-main" x="121" y="66" width="9" height="9" />
-    <rect class="tile-main" x="132" y="66" width="9" height="9" />
-    <rect class="tile-main" x="143" y="66" width="9" height="9" />
-    <rect class="tile-main" x="0" y="77" width="9" height="9" />
-    <rect class="tile-main" x="11" y="77" width="9" height="9" />
-    <rect class="tile-main" x="22" y="77" width="9" height="9" />
-    <rect class="tile-main" x="33" y="77" width="9" height="9" />
-    <rect class="tile-main" x="88" y="77" width="9" height="9" />
-    <rect class="tile-dark" x="99" y="77" width="9" height="9" />
-    <rect class="tile-main" x="110" y="77" width="9" height="9" />
-    <rect class="tile-main" x="121" y="77" width="9" height="9" />
-    <rect class="tile-main" x="132" y="77" width="9" height="9" />
-    <rect class="tile-main" x="143" y="77" width="9" height="9" />
-    <rect class="tile-main" x="0" y="88" width="9" height="9" />
-    <rect class="tile-dark" x="11" y="88" width="9" height="9" />
-    <rect class="tile-main" x="22" y="88" width="9" height="9" />
-    <rect class="tile-main" x="33" y="88" width="9" height="9" />
-    <rect class="tile-bright" x="44" y="88" width="9" height="9" />
-    <rect class="tile-main" x="55" y="88" width="9" height="9" />
-    <rect class="tile-main" x="66" y="88" width="9" height="9" />
-    <rect class="tile-main" x="77" y="88" width="9" height="9" />
-    <rect class="tile-main" x="88" y="88" width="9" height="9" />
-    <rect class="tile-main" x="99" y="88" width="9" height="9" />
-    <rect class="tile-main" x="0" y="99" width="9" height="9" />
-    <rect class="tile-main" x="11" y="99" width="9" height="9" />
-    <rect class="tile-main" x="22" y="99" width="9" height="9" />
-    <rect class="tile-main" x="33" y="99" width="9" height="9" />
-    <rect class="tile-main" x="44" y="99" width="9" height="9" />
-    <rect class="tile-main" x="55" y="99" width="9" height="9" />
-    <rect class="tile-main" x="66" y="99" width="9" height="9" />
-    <rect class="tile-main" x="77" y="99" width="9" height="9" />
-    <rect class="tile-main" x="88" y="99" width="9" height="9" />
-    <rect class="tile-main" x="99" y="99" width="9" height="9" />
-    <rect class="tile-bright" x="0" y="110" width="9" height="9" />
-    <rect class="tile-main" x="11" y="110" width="9" height="9" />
-    <rect class="tile-main" x="22" y="110" width="9" height="9" />
-    <rect class="tile-dark" x="33" y="110" width="9" height="9" />
-    <rect class="tile-main" x="66" y="110" width="9" height="9" />
-    <rect class="tile-main" x="77" y="110" width="9" height="9" />
-    <rect class="tile-main" x="88" y="110" width="9" height="9" />
-    <rect class="tile-main" x="99" y="110" width="9" height="9" />
-    <rect class="tile-bright" x="110" y="110" width="9" height="9" />
-    <rect class="tile-main" x="121" y="110" width="9" height="9" />
-    <rect class="tile-dark" x="0" y="121" width="9" height="9" />
-    <rect class="tile-main" x="11" y="121" width="9" height="9" />
-    <rect class="tile-main" x="22" y="121" width="9" height="9" />
-    <rect class="tile-main" x="33" y="121" width="9" height="9" />
-    <rect class="tile-main" x="66" y="121" width="9" height="9" />
-    <rect class="tile-main" x="77" y="121" width="9" height="9" />
-    <rect class="tile-main" x="88" y="121" width="9" height="9" />
-    <rect class="tile-main" x="99" y="121" width="9" height="9" />
-    <rect class="tile-dark" x="110" y="121" width="9" height="9" />
-    <rect class="tile-main" x="121" y="121" width="9" height="9" />
-    <rect class="tile-main" x="0" y="132" width="9" height="9" />
-    <rect class="tile-main" x="11" y="132" width="9" height="9" />
-    <rect class="tile-main" x="22" y="132" width="9" height="9" />
-    <rect class="tile-main" x="33" y="132" width="9" height="9" />
-    <rect class="tile-bright" x="88" y="132" width="9" height="9" />
-    <rect class="tile-dark" x="99" y="132" width="9" height="9" />
-    <rect class="tile-main" x="110" y="132" width="9" height="9" />
-    <rect class="tile-main" x="121" y="132" width="9" height="9" />
-    <rect class="tile-main" x="132" y="132" width="9" height="9" />
-    <rect class="tile-main" x="143" y="132" width="9" height="9" />
-    <rect class="tile-main" x="0" y="143" width="9" height="9" />
-    <rect class="tile-dark" x="11" y="143" width="9" height="9" />
-    <rect class="tile-main" x="22" y="143" width="9" height="9" />
-    <rect class="tile-main" x="33" y="143" width="9" height="9" />
-    <rect class="tile-main" x="88" y="143" width="9" height="9" />
-    <rect class="tile-main" x="99" y="143" width="9" height="9" />
-    <rect class="tile-main" x="110" y="143" width="9" height="9" />
-    <rect class="tile-dark" x="121" y="143" width="9" height="9" />
-    <rect class="tile-main" x="132" y="143" width="9" height="9" />
-    <rect class="tile-main" x="143" y="143" width="9" height="9" />
+    <use href="#tile-bright" x="0" y="0" />
+    <use href="#tile-main" x="11" y="0" />
+    <use href="#tile-main" x="22" y="0" />
+    <use href="#tile-dark" x="33" y="0" />
+    <use href="#tile-main" x="44" y="0" />
+    <use href="#tile-main" x="55" y="0" />
+    <use href="#tile-main" x="66" y="0" />
+    <use href="#tile-main" x="77" y="0" />
+    <use href="#tile-main" x="88" y="0" />
+    <use href="#tile-main" x="99" y="0" />
+    <use href="#tile-bright" x="110" y="0" />
+    <use href="#tile-main" x="121" y="0" />
+    <use href="#tile-dark" x="0" y="11" />
+    <use href="#tile-main" x="11" y="11" />
+    <use href="#tile-main" x="22" y="11" />
+    <use href="#tile-main" x="33" y="11" />
+    <use href="#tile-main" x="44" y="11" />
+    <use href="#tile-dark" x="55" y="11" />
+    <use href="#tile-main" x="66" y="11" />
+    <use href="#tile-main" x="77" y="11" />
+    <use href="#tile-main" x="88" y="11" />
+    <use href="#tile-main" x="99" y="11" />
+    <use href="#tile-dark" x="110" y="11" />
+    <use href="#tile-main" x="121" y="11" />
+    <use href="#tile-main" x="0" y="22" />
+    <use href="#tile-main" x="11" y="22" />
+    <use href="#tile-main" x="22" y="22" />
+    <use href="#tile-main" x="33" y="22" />
+    <use href="#tile-main" x="110" y="22" />
+    <use href="#tile-main" x="121" y="22" />
+    <use href="#tile-main" x="132" y="22" />
+    <use href="#tile-main" x="143" y="22" />
+    <use href="#tile-main" x="0" y="33" />
+    <use href="#tile-dark" x="11" y="33" />
+    <use href="#tile-main" x="22" y="33" />
+    <use href="#tile-main" x="33" y="33" />
+    <use href="#tile-main" x="110" y="33" />
+    <use href="#tile-dark" x="121" y="33" />
+    <use href="#tile-main" x="132" y="33" />
+    <use href="#tile-main" x="143" y="33" />
+    <use href="#tile-main" x="0" y="44" />
+    <use href="#tile-main" x="11" y="44" />
+    <use href="#tile-main" x="22" y="44" />
+    <use href="#tile-main" x="33" y="44" />
+    <use href="#tile-main" x="110" y="44" />
+    <use href="#tile-main" x="121" y="44" />
+    <use href="#tile-main" x="132" y="44" />
+    <use href="#tile-main" x="143" y="44" />
+    <use href="#tile-main" x="0" y="55" />
+    <use href="#tile-main" x="11" y="55" />
+    <use href="#tile-main" x="22" y="55" />
+    <use href="#tile-dark" x="33" y="55" />
+    <use href="#tile-main" x="110" y="55" />
+    <use href="#tile-main" x="121" y="55" />
+    <use href="#tile-main" x="132" y="55" />
+    <use href="#tile-dark" x="143" y="55" />
+    <use href="#tile-main" x="0" y="66" />
+    <use href="#tile-main" x="11" y="66" />
+    <use href="#tile-main" x="22" y="66" />
+    <use href="#tile-main" x="33" y="66" />
+    <use href="#tile-main" x="88" y="66" />
+    <use href="#tile-main" x="99" y="66" />
+    <use href="#tile-main" x="110" y="66" />
+    <use href="#tile-main" x="121" y="66" />
+    <use href="#tile-main" x="132" y="66" />
+    <use href="#tile-main" x="143" y="66" />
+    <use href="#tile-main" x="0" y="77" />
+    <use href="#tile-main" x="11" y="77" />
+    <use href="#tile-main" x="22" y="77" />
+    <use href="#tile-main" x="33" y="77" />
+    <use href="#tile-main" x="88" y="77" />
+    <use href="#tile-dark" x="99" y="77" />
+    <use href="#tile-main" x="110" y="77" />
+    <use href="#tile-main" x="121" y="77" />
+    <use href="#tile-main" x="132" y="77" />
+    <use href="#tile-main" x="143" y="77" />
+    <use href="#tile-main" x="0" y="88" />
+    <use href="#tile-dark" x="11" y="88" />
+    <use href="#tile-main" x="22" y="88" />
+    <use href="#tile-main" x="33" y="88" />
+    <use href="#tile-bright" x="44" y="88" />
+    <use href="#tile-main" x="55" y="88" />
+    <use href="#tile-main" x="66" y="88" />
+    <use href="#tile-main" x="77" y="88" />
+    <use href="#tile-main" x="88" y="88" />
+    <use href="#tile-main" x="99" y="88" />
+    <use href="#tile-main" x="0" y="99" />
+    <use href="#tile-main" x="11" y="99" />
+    <use href="#tile-main" x="22" y="99" />
+    <use href="#tile-main" x="33" y="99" />
+    <use href="#tile-main" x="44" y="99" />
+    <use href="#tile-main" x="55" y="99" />
+    <use href="#tile-main" x="66" y="99" />
+    <use href="#tile-main" x="77" y="99" />
+    <use href="#tile-main" x="88" y="99" />
+    <use href="#tile-main" x="99" y="99" />
+    <use href="#tile-bright" x="0" y="110" />
+    <use href="#tile-main" x="11" y="110" />
+    <use href="#tile-main" x="22" y="110" />
+    <use href="#tile-dark" x="33" y="110" />
+    <use href="#tile-main" x="66" y="110" />
+    <use href="#tile-main" x="77" y="110" />
+    <use href="#tile-main" x="88" y="110" />
+    <use href="#tile-main" x="99" y="110" />
+    <use href="#tile-bright" x="110" y="110" />
+    <use href="#tile-main" x="121" y="110" />
+    <use href="#tile-dark" x="0" y="121" />
+    <use href="#tile-main" x="11" y="121" />
+    <use href="#tile-main" x="22" y="121" />
+    <use href="#tile-main" x="33" y="121" />
+    <use href="#tile-main" x="66" y="121" />
+    <use href="#tile-main" x="77" y="121" />
+    <use href="#tile-main" x="88" y="121" />
+    <use href="#tile-main" x="99" y="121" />
+    <use href="#tile-dark" x="110" y="121" />
+    <use href="#tile-main" x="121" y="121" />
+    <use href="#tile-main" x="0" y="132" />
+    <use href="#tile-main" x="11" y="132" />
+    <use href="#tile-main" x="22" y="132" />
+    <use href="#tile-main" x="33" y="132" />
+    <use href="#tile-bright" x="88" y="132" />
+    <use href="#tile-dark" x="99" y="132" />
+    <use href="#tile-main" x="110" y="132" />
+    <use href="#tile-main" x="121" y="132" />
+    <use href="#tile-main" x="132" y="132" />
+    <use href="#tile-main" x="143" y="132" />
+    <use href="#tile-main" x="0" y="143" />
+    <use href="#tile-dark" x="11" y="143" />
+    <use href="#tile-main" x="22" y="143" />
+    <use href="#tile-main" x="33" y="143" />
+    <use href="#tile-main" x="88" y="143" />
+    <use href="#tile-main" x="99" y="143" />
+    <use href="#tile-main" x="110" y="143" />
+    <use href="#tile-dark" x="121" y="143" />
+    <use href="#tile-main" x="132" y="143" />
+    <use href="#tile-main" x="143" y="143" />
   </g>
 </svg>
