@@ -652,6 +652,27 @@ p {
   gap: 10px;
 }
 
+.viewer-inspect-row {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 8px 2px 0;
+}
+
+.viewer-inspect-field {
+  width: min(100%, 208px);
+  flex: 0 0 auto;
+}
+
+.viewer-inspect-copy {
+  flex: 1 1 320px;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.2;
+  color: var(--ui-text-muted);
+}
+
 .viz-card {
   margin: 0;
   padding: 10px;
@@ -1017,6 +1038,10 @@ select:focus-visible {
   .viewer-grid,
   .controls-grid {
     grid-template-columns: 1fr;
+  }
+
+  .viewer-inspect-row {
+    align-items: start;
   }
 
   .card-head {

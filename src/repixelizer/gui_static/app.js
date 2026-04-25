@@ -24,6 +24,7 @@ const leftCanvas = byId("leftCanvas");
 const rightCanvas = byId("rightCanvas");
 const leftVizLabel = byId("leftVizLabel");
 const rightVizLabel = byId("rightVizLabel");
+const inspectZoomInput = byId("inspectZoomInput");
 const paintSwatch = byId("paintSwatch");
 const zoomInput = byId("zoomInput");
 const zoomValue = byId("zoomValue");
@@ -99,6 +100,7 @@ const state = {
     solverStepBudget: 0,
     lossAxisMax: null,
     eventLog: [],
+    viewerInspectZoom: Number(inspectZoomInput.value),
     paintColor: [255, 255, 255, 255],
     editorBaseAsset: null,
     editorDirty: false,
@@ -279,17 +281,20 @@ async function drawAssetInspection(canvas, asset, focus) {
     context.fillRect(0, 0, displayWidth, displayHeight);
     const imageWidth = image.naturalWidth || asset.width;
     const imageHeight = image.naturalHeight || asset.height;
-    const viewportWidth = Math.min(displayWidth, imageWidth);
-    const viewportHeight = Math.min(displayHeight, imageHeight);
+    const zoomMultiplier = Math.max(1, state.viewerInspectZoom || 1);
+    const viewportWidth = Math.max(1, Math.min(Math.floor(displayWidth / zoomMultiplier), imageWidth));
+    const viewportHeight = Math.max(1, Math.min(Math.floor(displayHeight / zoomMultiplier), imageHeight));
+    const destWidth = Math.min(displayWidth, viewportWidth * zoomMultiplier);
+    const destHeight = Math.min(displayHeight, viewportHeight * zoomMultiplier);
     const focusX = Math.max(0, Math.min(1, focus.xRatio));
     const focusY = Math.max(0, Math.min(1, focus.yRatio));
     const centerX = imageWidth <= displayWidth ? imageWidth * 0.5 : focusX * imageWidth;
     const centerY = imageHeight <= displayHeight ? imageHeight * 0.5 : focusY * imageHeight;
     const sourceX = Math.max(0, Math.min(imageWidth - viewportWidth, Math.round(centerX - viewportWidth * 0.5)));
     const sourceY = Math.max(0, Math.min(imageHeight - viewportHeight, Math.round(centerY - viewportHeight * 0.5)));
-    const destX = Math.floor((displayWidth - viewportWidth) * 0.5);
-    const destY = Math.floor((displayHeight - viewportHeight) * 0.5);
-    context.drawImage(image, sourceX, sourceY, viewportWidth, viewportHeight, destX, destY, viewportWidth, viewportHeight);
+    const destX = Math.floor((displayWidth - destWidth) * 0.5);
+    const destY = Math.floor((displayHeight - destHeight) * 0.5);
+    context.drawImage(image, sourceX, sourceY, viewportWidth, viewportHeight, destX, destY, destWidth, destHeight);
 }
 async function fileToImageAsset(file) {
     const dataUrl = await new Promise((resolve, reject) => {
@@ -1291,6 +1296,13 @@ dropzone.addEventListener("drop", (event) => {
 });
 runButton.addEventListener("click", () => {
     void startRun();
+});
+inspectZoomInput.addEventListener("change", () => {
+    const value = Number(inspectZoomInput.value);
+    state.viewerInspectZoom = Number.isFinite(value) && value > 0 ? value : 1;
+    if (viewerInspect) {
+        scheduleViewerRender();
+    }
 });
 zoomInput.addEventListener("input", () => {
     setZoom(Number(zoomInput.value));
