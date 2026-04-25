@@ -252,7 +252,7 @@ async function drawAsset(canvas, asset) {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
 }
-async function drawAssetInspection(canvas, asset, pointer) {
+async function drawAssetInspection(canvas, asset, focus) {
     if (!asset) {
         await drawAsset(canvas, asset);
         return;
@@ -281,10 +281,10 @@ async function drawAssetInspection(canvas, asset, pointer) {
     const imageHeight = image.naturalHeight || asset.height;
     const viewportWidth = Math.min(displayWidth, imageWidth);
     const viewportHeight = Math.min(displayHeight, imageHeight);
-    const pointerX = Math.max(0, Math.min(displayWidth, pointer.clientX - rect.left));
-    const pointerY = Math.max(0, Math.min(displayHeight, pointer.clientY - rect.top));
-    const centerX = imageWidth <= displayWidth ? imageWidth * 0.5 : (pointerX / displayWidth) * imageWidth;
-    const centerY = imageHeight <= displayHeight ? imageHeight * 0.5 : (pointerY / displayHeight) * imageHeight;
+    const focusX = Math.max(0, Math.min(1, focus.xRatio));
+    const focusY = Math.max(0, Math.min(1, focus.yRatio));
+    const centerX = imageWidth <= displayWidth ? imageWidth * 0.5 : focusX * imageWidth;
+    const centerY = imageHeight <= displayHeight ? imageHeight * 0.5 : focusY * imageHeight;
     const sourceX = Math.max(0, Math.min(imageWidth - viewportWidth, Math.round(centerX - viewportWidth * 0.5)));
     const sourceY = Math.max(0, Math.min(imageHeight - viewportHeight, Math.round(centerY - viewportHeight * 0.5)));
     const destX = Math.floor((displayWidth - viewportWidth) * 0.5);
@@ -531,8 +531,9 @@ function resolveViewerPanels() {
     };
 }
 function syncViewerInspectCursor() {
-    leftCanvas.classList.toggle("is-inspecting", viewerInspect?.panel === "left");
-    rightCanvas.classList.toggle("is-inspecting", viewerInspect?.panel === "right");
+    const inspecting = viewerInspect !== null;
+    leftCanvas.classList.toggle("is-inspecting", inspecting);
+    rightCanvas.classList.toggle("is-inspecting", inspecting);
 }
 function scheduleViewerRender() {
     if (viewerRenderQueued) {
@@ -549,10 +550,10 @@ async function renderViewer() {
     leftVizLabel.textContent = currentViewerPanels.left.label;
     rightVizLabel.textContent = currentViewerPanels.right.label;
     await Promise.all([
-        viewerInspect?.panel === "left"
+        viewerInspect
             ? drawAssetInspection(leftCanvas, currentViewerPanels.left.asset, viewerInspect)
             : drawAsset(leftCanvas, currentViewerPanels.left.asset),
-        viewerInspect?.panel === "right"
+        viewerInspect
             ? drawAssetInspection(rightCanvas, currentViewerPanels.right.asset, viewerInspect)
             : drawAsset(rightCanvas, currentViewerPanels.right.asset),
     ]);
@@ -909,13 +910,16 @@ function beginViewerInspect(panel, event) {
         return;
     }
     event.preventDefault();
+    const canvas = panel === "left" ? leftCanvas : rightCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const xRatio = rect.width <= 0 ? 0.5 : Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const yRatio = rect.height <= 0 ? 0.5 : Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
     viewerInspect = {
         panel,
         pointerId: event.pointerId,
-        clientX: event.clientX,
-        clientY: event.clientY,
+        xRatio,
+        yRatio,
     };
-    const canvas = panel === "left" ? leftCanvas : rightCanvas;
     canvas.setPointerCapture(event.pointerId);
     syncViewerInspectCursor();
     scheduleViewerRender();
@@ -924,8 +928,10 @@ function updateViewerInspect(panel, event) {
     if (!viewerInspect || viewerInspect.panel !== panel || viewerInspect.pointerId !== event.pointerId) {
         return;
     }
-    viewerInspect.clientX = event.clientX;
-    viewerInspect.clientY = event.clientY;
+    const canvas = panel === "left" ? leftCanvas : rightCanvas;
+    const rect = canvas.getBoundingClientRect();
+    viewerInspect.xRatio = rect.width <= 0 ? 0.5 : Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    viewerInspect.yRatio = rect.height <= 0 ? 0.5 : Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
     scheduleViewerRender();
 }
 function endViewerInspect(pointerId = null) {
