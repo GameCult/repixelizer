@@ -201,6 +201,15 @@ p {
   gap: 10px;
 }
 
+.sidebar,
+.section-block,
+.summary-panel,
+.candidate-list,
+.event-log,
+.info-stack {
+  min-width: 0;
+}
+
 :is(.hero, .card, .metric-chip, .summary-card, .app-shell-header, .viz-card, .loss-canvas, .editor-toolbar, .editor-surface, .dropzone, .field input, .field select, .button, .toggle-row) {
   position: relative;
   overflow: hidden;
@@ -728,8 +737,14 @@ p {
   gap: 10px;
 }
 
+.status-metrics.status-metrics-fixed {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .status-metric {
   min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   padding: 8px 10px;
   border: 2px solid rgba(8, 36, 62, 0.88);
   background: linear-gradient(180deg, rgba(9, 27, 44, 0.96), rgba(5, 16, 28, 0.95));
@@ -748,6 +763,8 @@ p {
   font-size: 1rem;
   line-height: 1.12;
   color: var(--ui-text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @keyframes status-sweep {
@@ -764,6 +781,9 @@ p {
 .event-item,
 .metric-chip,
 .summary-card {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   border: 3px solid rgba(8, 36, 62, 0.88);
   background:
     linear-gradient(180deg, rgba(11, 32, 52, 0.96), rgba(6, 19, 35, 0.94));
@@ -781,6 +801,17 @@ p {
   font-size: 0.72rem;
   color: var(--ui-accent);
   text-transform: uppercase;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.candidate-card span,
+.event-item span,
+.summary-card span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .editor-actions {
@@ -919,6 +950,10 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .status-metrics.status-metrics-fixed {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .card-head {
     flex-wrap: wrap;
   }
@@ -966,5 +1001,9 @@ select:focus-visible {
 
   .button {
     width: 100%;
+  }
+
+  .status-metrics.status-metrics-fixed {
+    grid-template-columns: 1fr;
   }
 }

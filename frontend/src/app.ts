@@ -458,6 +458,7 @@ function renderInference(): void {
 
 function renderStatusMetrics(): void {
   statusMetrics.innerHTML = "";
+  statusMetrics.classList.toggle("status-metrics-fixed", state.stageKey === "solver");
   const items: Array<[string, string]> = [];
   const frame = getSelectedFrame();
   if (state.stageKey === "inference") {
@@ -505,15 +506,30 @@ function renderStatusMetrics(): void {
       items.push(["Confidence", formatNumber(state.phaseRerank.confidence, 3)]);
     }
   } else if (state.stageKey === "solver") {
-    if (state.phaseFieldPrep) {
-      items.push(["Grid", `${state.phaseFieldPrep.targetWidth} x ${state.phaseFieldPrep.targetHeight}`]);
-      items.push(["Cell pitch", `${formatNumber(state.phaseFieldPrep.cellX, 1)} x ${formatNumber(state.phaseFieldPrep.cellY, 1)} px`]);
-    }
-    if (frame) {
-      items.push(["Loss", frame.loss === null ? "n/a" : formatNumber(frame.loss, 4)]);
-      for (const [key, value] of Object.entries(frame.terms).slice(0, 4)) {
-        items.push([key.replaceAll("_", " "), formatNumber(value, 4)]);
-      }
+    const solverTerms: Array<[string, number | null]> = [
+      ["Coherence", frame?.terms.local_coherence ?? null],
+      ["Edge", frame?.terms.local_edge ?? null],
+      ["Smoothness", frame?.terms.smoothness ?? null],
+      ["Collapse", frame?.terms.collapse ?? null],
+      ["Magnitude", frame?.terms.magnitude ?? null],
+    ];
+    items.push([
+      "Grid",
+      state.phaseFieldPrep ? `${state.phaseFieldPrep.targetWidth} x ${state.phaseFieldPrep.targetHeight}` : "pending",
+    ]);
+    items.push([
+      "Step",
+      frame ? `${frame.step} / ${frame.totalSteps}` : `0 / ${Math.max(0, state.solverStepBudget)}`,
+    ]);
+    items.push([
+      "Cell pitch",
+      state.phaseFieldPrep
+        ? `${formatNumber(state.phaseFieldPrep.cellX, 1)} x ${formatNumber(state.phaseFieldPrep.cellY, 1)} px`
+        : "pending",
+    ]);
+    items.push(["Loss", frame?.loss === null || frame?.loss === undefined ? "n/a" : formatNumber(frame.loss, 4)]);
+    for (const [label, value] of solverTerms) {
+      items.push([label, formatNumber(value, 4)]);
     }
   }
   for (const [label, value] of items) {
