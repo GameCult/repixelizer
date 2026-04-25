@@ -282,6 +282,29 @@ function formatNumber(value, digits = 3) {
     }
     return value.toFixed(digits);
 }
+function formatGridValue(width, height, fallback = "pending") {
+    if (!width || !height) {
+        return fallback;
+    }
+    return `${width} x ${height}`;
+}
+function formatPhaseValue(phaseX, phaseY, fallback = "pending") {
+    if (phaseX === null || phaseX === undefined || phaseY === null || phaseY === undefined) {
+        return fallback;
+    }
+    return `${formatNumber(phaseX, 2)}, ${formatNumber(phaseY, 2)}`;
+}
+function renderStatusMetricItems(items) {
+    statusMetrics.innerHTML = "";
+    statusMetrics.style.setProperty("--status-metric-count", String(Math.max(items.length, 1)));
+    for (const { label, value } of items) {
+        const node = document.createElement("div");
+        node.className = "status-metric";
+        node.title = `${label}: ${value}`;
+        node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
+        statusMetrics.appendChild(node);
+    }
+}
 function getSelectedFrame() {
     if (state.frames.length === 0) {
         return null;
@@ -323,90 +346,86 @@ function renderInference() {
     }
 }
 function renderStatusMetrics() {
-    statusMetrics.innerHTML = "";
-    statusMetrics.classList.toggle("status-metrics-fixed", state.stageKey === "solver");
     const items = [];
     const frame = getSelectedFrame();
     if (state.stageKey === "inference") {
         if (state.latticeSearch) {
-            items.push(["Sizes", `${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}`]);
-            items.push(["Phase samples", String(state.latticeSearch.phaseSampleCount)]);
-            if (state.latticeSearch.currentTargetWidth && state.latticeSearch.currentTargetHeight) {
-                items.push(["Current grid", `${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight}`]);
-            }
-            if (state.latticeSearch.device) {
-                items.push(["Device", state.latticeSearch.device]);
-            }
-            if (state.latticeSearch.bestScore !== null) {
-                items.push(["Best score", formatNumber(state.latticeSearch.bestScore, 3)]);
-            }
+            items.push({ label: "Sizes", value: `${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}` });
+            items.push({ label: "Phases", value: String(state.latticeSearch.phaseSampleCount) });
+            items.push({
+                label: "Grid",
+                value: formatGridValue(state.latticeSearch.currentTargetWidth, state.latticeSearch.currentTargetHeight),
+            });
+            items.push({ label: "Device", value: state.latticeSearch.device ?? "pending" });
+            items.push({ label: "Best", value: formatNumber(state.latticeSearch.bestScore, 3) });
         }
     }
     else if (state.stageKey === "analysis" || state.stageKey === "selection") {
         if (state.inference) {
-            items.push(["Mode", state.inferenceMode === "fixed" ? "pinned" : state.inferenceMode ?? "search"]);
-            items.push(["Grid", `${state.inference.target_width} x ${state.inference.target_height}`]);
-            items.push(["Phase", `${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}`]);
-            items.push(["Confidence", formatNumber(state.inference.confidence, 3)]);
+            items.push({ label: "Mode", value: state.inferenceMode === "fixed" ? "pinned" : state.inferenceMode ?? "search" });
+            items.push({ label: "Grid", value: `${state.inference.target_width} x ${state.inference.target_height}` });
+            items.push({ label: "Phase", value: `${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}` });
+            items.push({ label: "Confidence", value: formatNumber(state.inference.confidence, 3) });
         }
     }
     else if (state.stageKey === "rerank") {
         if (state.phaseRerank) {
-            items.push(["Candidates", `${state.phaseRerank.completedCandidates} / ${state.phaseRerank.candidateCount}`]);
-            if (state.phaseRerank.currentCandidateIndex > 0) {
-                items.push(["Active candidate", `${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}`]);
-            }
-            items.push([
-                "Preview step",
-                state.phaseRerank.currentTotalSteps > 0
+            items.push({
+                label: "Done",
+                value: `${state.phaseRerank.completedCandidates} / ${state.phaseRerank.candidateCount}`,
+            });
+            items.push({
+                label: "Candidate",
+                value: state.phaseRerank.currentCandidateIndex > 0
+                    ? `${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}`
+                    : `0 / ${state.phaseRerank.candidateCount}`,
+            });
+            items.push({
+                label: "Preview",
+                value: state.phaseRerank.currentTotalSteps > 0
                     ? `${state.phaseRerank.currentStep} / ${state.phaseRerank.currentTotalSteps}`
-                    : String(state.phaseRerank.previewSteps),
-            ]);
-            if (state.phaseRerank.currentTargetWidth && state.phaseRerank.currentTargetHeight) {
-                items.push(["Grid", `${state.phaseRerank.currentTargetWidth} x ${state.phaseRerank.currentTargetHeight}`]);
-            }
-            if (state.phaseRerank.currentPhaseX !== null && state.phaseRerank.currentPhaseY !== null) {
-                items.push(["Phase", `${formatNumber(state.phaseRerank.currentPhaseX, 2)}, ${formatNumber(state.phaseRerank.currentPhaseY, 2)}`]);
-            }
-            if (state.phaseRerank.currentLoss !== null) {
-                items.push(["Loss", formatNumber(state.phaseRerank.currentLoss, 4)]);
-            }
-            items.push(["Confidence", formatNumber(state.phaseRerank.confidence, 3)]);
+                    : state.phaseRerank.previewSteps > 0
+                        ? `0 / ${state.phaseRerank.previewSteps}`
+                        : "skipped",
+            });
+            items.push({
+                label: "Grid",
+                value: formatGridValue(state.phaseRerank.currentTargetWidth, state.phaseRerank.currentTargetHeight),
+            });
+            items.push({
+                label: "Phase",
+                value: formatPhaseValue(state.phaseRerank.currentPhaseX, state.phaseRerank.currentPhaseY),
+            });
+            items.push({ label: "Loss", value: formatNumber(state.phaseRerank.currentLoss, 4) });
+            items.push({ label: "Confidence", value: formatNumber(state.phaseRerank.confidence, 3) });
         }
     }
     else if (state.stageKey === "solver") {
         const solverTerms = [
-            ["Coherence", frame?.terms.local_coherence ?? null],
-            ["Edge", frame?.terms.local_edge ?? null],
-            ["Smoothness", frame?.terms.smoothness ?? null],
-            ["Collapse", frame?.terms.collapse ?? null],
-            ["Magnitude", frame?.terms.magnitude ?? null],
+            { label: "Coherence", value: formatNumber(frame?.terms.local_coherence ?? null, 4) },
+            { label: "Edge", value: formatNumber(frame?.terms.local_edge ?? null, 4) },
+            { label: "Smoothness", value: formatNumber(frame?.terms.smoothness ?? null, 4) },
+            { label: "Collapse", value: formatNumber(frame?.terms.collapse ?? null, 4) },
+            { label: "Magnitude", value: formatNumber(frame?.terms.magnitude ?? null, 4) },
         ];
-        items.push([
-            "Grid",
-            state.phaseFieldPrep ? `${state.phaseFieldPrep.targetWidth} x ${state.phaseFieldPrep.targetHeight}` : "pending",
-        ]);
-        items.push([
-            "Step",
-            frame ? `${frame.step} / ${frame.totalSteps}` : `0 / ${Math.max(0, state.solverStepBudget)}`,
-        ]);
-        items.push([
-            "Cell pitch",
-            state.phaseFieldPrep
-                ? `${formatNumber(state.phaseFieldPrep.cellX, 1)} x ${formatNumber(state.phaseFieldPrep.cellY, 1)} px`
+        items.push({
+            label: "Grid",
+            value: state.phaseFieldPrep ? `${state.phaseFieldPrep.targetWidth} x ${state.phaseFieldPrep.targetHeight}` : "pending",
+        });
+        items.push({
+            label: "Step",
+            value: frame ? `${frame.step} / ${frame.totalSteps}` : `0 / ${Math.max(0, state.solverStepBudget)}`,
+        });
+        items.push({
+            label: "Cell pitch",
+            value: state.phaseFieldPrep
+                ? `${formatNumber(state.phaseFieldPrep.cellX, 1)}x${formatNumber(state.phaseFieldPrep.cellY, 1)} px`
                 : "pending",
-        ]);
-        items.push(["Loss", frame?.loss === null || frame?.loss === undefined ? "n/a" : formatNumber(frame.loss, 4)]);
-        for (const [label, value] of solverTerms) {
-            items.push([label, formatNumber(value, 4)]);
-        }
+        });
+        items.push({ label: "Loss", value: frame?.loss === null || frame?.loss === undefined ? "n/a" : formatNumber(frame.loss, 4) });
+        items.push(...solverTerms);
     }
-    for (const [label, value] of items) {
-        const node = document.createElement("div");
-        node.className = "status-metric";
-        node.innerHTML = `<strong>${label}</strong><span>${value}</span>`;
-        statusMetrics.appendChild(node);
-    }
+    renderStatusMetricItems(items);
 }
 function renderSummary() {
     summaryPanel.innerHTML = "";
