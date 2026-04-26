@@ -22,6 +22,7 @@ constraints:
   - Use visible structure and focused fixtures, not just lattice proxy metrics.
   - Keep compare mode, diagnostics, tuning, and GUI observer surfaces working.
   - Avoid reviving trays, portrait layers, or multi-stage solver religions.
+  - Treat hosted convenience as the product path; do not prioritize native desktop packaging unless it clearly beats hosted access on revenue, support burden, or strategy.
 
 invariants:
   - The map is canonical and slow-changing.
@@ -69,6 +70,7 @@ accepted_design:
   - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.
   - The tracked badge fixture and sword-tip focus are the current reality check for solver changes.
   - The algorithm map and forward plan must stay separate from scratch and evidence so the notes do not congeal into one giant lying blob.
+  - The open-source distribution story is self-hosting; the paid offer is hosted convenience, not a desktop-app paywall.
 
 landed_baseline:
   - Lattice inference with fixed or searched target dimensions and optional low-confidence phase rerank.

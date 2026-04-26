@@ -36,6 +36,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 - `E:\Projects\gamecult-access\docs\architecture.md` is the future shared design for reusable GameCult-hosted access across experiments.
 - `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md` is the Repixelizer-specific binding onto that future shared access layer.
 - current hosted-demo truth is still just the queue and limit machinery in `src/repixelizer/gui.py` plus the frontend runtime-config plumbing.
+- product strategy is hosted convenience first: keep the code open, let self-hosters suffer voluntarily, and do not burn time on native desktop packaging unless it clearly beats hosting on revenue, support, or strategy.
 
 ## Critical Doctrine
 
@@ -67,6 +68,7 @@ The exact current control flow is documented in
 - Do not let cleanup become the real solver.
 - Do not let `state/evidence.jsonl` turn into an activity feed.
 - Do not restart broad exploratory surgery when the current weak spot is still one bounded tapered-contour blemish.
+- Do not drift into desktop-app fantasies just because the web GUI is nice now. The default commercial path is still hosted access.
 
 ## Verification Guardrails
 
