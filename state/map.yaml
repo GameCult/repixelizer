@@ -66,6 +66,7 @@ accepted_design:
   - `src/repixelizer/analysis.py` provides the normalized edge scout used for loss and cleanup guidance.
   - `src/repixelizer/phase_field.py` owns the one honest optimization variable: `disp_t`.
   - Hosted demo jobs now use a direct autocorr lattice path: one consensus size, one cheap phase probe, capped by the hosted output limit, with phase rerank disabled.
+  - Hosted mode owns the public front door in `src/repixelizer/gui.py`: `/` is a landing page there, while local/self-host runs keep root as a plain redirect to `/app/`.
   - The optimizer starts from fixed lattice centers, uses a wider displacement budget than the earlier tighter leash, optimizes displacement with projected Adam, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.

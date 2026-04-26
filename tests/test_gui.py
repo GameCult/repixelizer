@@ -306,6 +306,37 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     assert "./app.js?v=" in html_text
 
 
+def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    app = create_app()
+    status, headers, body = asyncio.run(_get_response(app, "/"))
+    html = body.decode("utf-8")
+
+    assert status == 200
+    assert headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+    assert "Repixelizer hosted demo" in html
+    assert "Force fake pixel art back onto a real grid." in html
+    assert 'href="/app/"' in html
+
+
+def test_gui_local_root_keeps_redirect_to_app(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.delenv("REPIXELIZER_HOSTED_DEMO", raising=False)
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    app = create_app()
+    status, headers, _body = asyncio.run(_get_response(app, "/"))
+
+    assert status in {302, 307}
+    assert headers["location"] == "/app/"
+    assert headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
+
+
 def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
     class _FakeCuda:
         @staticmethod

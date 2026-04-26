@@ -861,6 +861,285 @@ def _versioned_gui_index(static_dir: Path) -> str:
     return html
 
 
+def _landing_page_html(config: HostedDemoConfig) -> str:
+    demo_limits = (
+        f"{config.max_output_dimension}px output cap, "
+        f"{config.default_steps} default solver steps, "
+        f"{config.queue_capacity} waiting slots"
+    )
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Repixelizer</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap");
+      :root {{
+        color-scheme: dark;
+        --bg-top: #01040b;
+        --bg-mid: #020813;
+        --bg-bottom: #01050d;
+        --panel-top: #0a2239;
+        --panel-bottom: #061627;
+        --surface-top: #061424;
+        --surface-bottom: #030b16;
+        --text-bright: #f7efd8;
+        --text: #efe5c9;
+        --text-muted: #d3bb7f;
+        --accent: #ffd84a;
+        --accent-strong: #ffae1a;
+        --border: #0a2740;
+        --shadow: rgba(0, 0, 0, 0.55);
+      }}
+      * {{ box-sizing: border-box; }}
+      html, body {{ min-height: 100%; }}
+      body {{
+        margin: 0;
+        background:
+          repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 3px),
+          repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 4px),
+          linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 46%, var(--bg-bottom) 100%);
+        color: var(--text);
+        font-family: "VT323", "Courier New", monospace;
+        font-size: 26px;
+        line-height: 1.22;
+        letter-spacing: 0.01em;
+      }}
+      body::before {{
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at 14% 18%, rgba(255, 216, 74, 0.08), transparent 26%),
+          radial-gradient(circle at 84% 20%, rgba(255, 174, 26, 0.11), transparent 24%),
+          radial-gradient(circle at 24% 76%, rgba(255, 216, 74, 0.04), transparent 22%),
+          radial-gradient(circle at 78% 82%, rgba(255, 174, 26, 0.04), transparent 24%);
+        opacity: 0.35;
+      }}
+      a {{ color: inherit; }}
+      .shell {{
+        width: min(1160px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }}
+      .hero {{
+        position: relative;
+        overflow: hidden;
+        border: 3px solid rgba(158, 112, 22, 0.94);
+        background:
+          linear-gradient(180deg, rgba(9, 28, 46, 0.96), rgba(4, 13, 24, 0.98)),
+          linear-gradient(135deg, rgba(255, 216, 74, 0.06), transparent 34%);
+        box-shadow: inset 0 0 0 2px rgba(7, 24, 44, 0.9), 0 18px 52px var(--shadow);
+        padding: 24px;
+      }}
+      .hero::after {{
+        content: "";
+        position: absolute;
+        inset: 10px;
+        border: 1px solid rgba(255, 216, 74, 0.1);
+        pointer-events: none;
+      }}
+      .eyebrow, h1, h2, .button {{
+        font-family: "Press Start 2P", "VT323", monospace;
+      }}
+      .eyebrow {{
+        margin: 0 0 18px;
+        color: var(--accent);
+        font-size: 0.7rem;
+        line-height: 1.6;
+        text-transform: uppercase;
+      }}
+      h1 {{
+        margin: 0;
+        color: var(--text-bright);
+        font-size: clamp(1.7rem, 4vw, 3.15rem);
+        line-height: 1.15;
+        max-width: 13ch;
+      }}
+      .lede {{
+        max-width: 26ch;
+        margin: 20px 0 0;
+        color: var(--text);
+        font-size: clamp(1.1rem, 2vw, 1.45rem);
+      }}
+      .hero-grid {{
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.95fr);
+        gap: 20px;
+        align-items: end;
+      }}
+      .cta-row {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }}
+      .button {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 54px;
+        padding: 0 18px;
+        text-decoration: none;
+        text-transform: uppercase;
+        font-size: 0.72rem;
+        line-height: 1.45;
+        border: 2px solid var(--accent-strong);
+        background: linear-gradient(180deg, #ffd84a, #ffb01f);
+        color: #1b1202;
+        box-shadow: inset 0 -2px 0 rgba(0,0,0,0.24);
+      }}
+      .button.secondary {{
+        background: linear-gradient(180deg, rgba(15, 40, 64, 0.96), rgba(7, 19, 32, 0.98));
+        color: var(--text-bright);
+        border-color: var(--border);
+      }}
+      .stats, .grid {{
+        display: grid;
+        gap: 14px;
+      }}
+      .stats {{
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 22px;
+      }}
+      .stat, .panel {{
+        border: 2px solid var(--border);
+        background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
+        box-shadow: inset 0 0 0 1px rgba(255, 216, 74, 0.05);
+      }}
+      .stat {{
+        padding: 14px;
+      }}
+      .stat strong {{
+        display: block;
+        color: var(--text-bright);
+        font-size: 1.05rem;
+      }}
+      .stat span {{
+        display: block;
+        color: var(--text-muted);
+        margin-top: 8px;
+      }}
+      .hero-note {{
+        padding: 16px 18px;
+      }}
+      .hero-note p {{
+        margin: 0 0 12px;
+      }}
+      .hero-note p:last-child {{
+        margin-bottom: 0;
+      }}
+      .stack {{
+        margin-top: 20px;
+      }}
+      .stack h2 {{
+        margin: 0 0 14px;
+        color: var(--text-bright);
+        font-size: 1rem;
+        line-height: 1.5;
+      }}
+      .grid {{
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }}
+      .panel {{
+        padding: 16px;
+      }}
+      .panel p {{
+        margin: 0;
+      }}
+      .panel strong {{
+        display: block;
+        margin-bottom: 10px;
+        color: var(--accent);
+        font-family: "Press Start 2P", "VT323", monospace;
+        font-size: 0.62rem;
+        line-height: 1.5;
+        text-transform: uppercase;
+      }}
+      .footer {{
+        margin-top: 18px;
+        color: var(--text-muted);
+      }}
+      @media (max-width: 900px) {{
+        .hero-grid, .grid, .stats {{
+          grid-template-columns: 1fr;
+        }}
+        body {{
+          font-size: 23px;
+        }}
+        .shell {{
+          width: min(100% - 18px, 1160px);
+          padding-top: 12px;
+          padding-bottom: 24px;
+        }}
+        .hero {{
+          padding: 18px;
+        }}
+      }}
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow">Repixelizer hosted demo</p>
+            <h1>Force fake pixel art back onto a real grid.</h1>
+            <p class="lede">
+              Repixelizer takes AI-slop pixel cosplay, infers the lattice it should have had, then drags it back onto an actual coherent mosaic.
+            </p>
+            <div class="cta-row">
+              <a class="button" href="/app/">Open the demo</a>
+              <a class="button secondary" href="https://github.com/GameCult/repixelizer">View the repo</a>
+            </div>
+            <div class="stats">
+              <div class="stat">
+                <strong>One engine</strong>
+                <span>Phase-field reconstruction. No pipeline graveyard.</span>
+              </div>
+              <div class="stat">
+                <strong>Hosted limits</strong>
+                <span>{demo_limits}</span>
+              </div>
+              <div class="stat">
+                <strong>Lean inference</strong>
+                <span>Autocorr lattice, cheap phase probe, then the real solve.</span>
+              </div>
+            </div>
+          </div>
+          <aside class="panel hero-note">
+            <h2>What it is for</h2>
+            <p>Bad AI badge art. Mushy fake sprites. Grid-shaped lies with enough latent structure left to salvage.</p>
+            <p>It is not a miracle worker, and it is definitely not here to pretend it invented hand-authored pixel art from nothing.</p>
+          </aside>
+        </div>
+      </section>
+      <section class="stack">
+        <h2>How the machine behaves</h2>
+        <div class="grid">
+          <article class="panel">
+            <strong>1. Read the grid</strong>
+            <p>Infer one plausible lattice from autocorrelation instead of wandering through a candidate carnival all day.</p>
+          </article>
+          <article class="panel">
+            <strong>2. Find the phase</strong>
+            <p>Probe a tiny phase grid up front so the solver does not begin life already standing in a pothole.</p>
+          </article>
+          <article class="panel">
+            <strong>3. Let the field work</strong>
+            <p>Run one displacement field with enough leash to recover detail instead of compensating with decorative nonsense.</p>
+          </article>
+        </div>
+        <p class="footer">Self-hosters can still go straight to <a href="/app/">the app</a>. Hosted mode just gets a front door instead of making everyone trip over raw controls immediately.</p>
+      </section>
+    </main>
+  </body>
+</html>
+"""
+
+
 def create_app():
     deps = _require_gui_dependencies()
     FastAPI = deps["FastAPI"]
@@ -1026,6 +1305,8 @@ def create_app():
 
         @app.get("/")
         def root():
+            if config.hosted_demo:
+                return HTMLResponse(_landing_page_html(config))
             return RedirectResponse(url="/app/")
     else:  # pragma: no cover - only relevant before frontend assets exist
         @app.get("/")

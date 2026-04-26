@@ -38,7 +38,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 - The old tray optimizer is dead and should stay dead unless the entire machine map changes for a real reason.
 - `E:\Projects\Heimdall\docs\architecture.md` is the future shared design for reusable GameCult-hosted access across experiments.
 - `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md` is the Repixelizer-specific binding onto that future shared access layer.
-- current hosted-demo truth is still just the queue and limit machinery in `src/repixelizer/gui.py` plus the frontend runtime-config plumbing.
+- current hosted-demo truth lives in `src/repixelizer/gui.py`: queue and limit machinery, hosted direct-autocorr inference defaults, and a hosted-only landing page at `/` while self-host/local runs still redirect root straight to `/app/`.
 - product strategy is hosted convenience first: keep the code open, let self-hosters suffer voluntarily, and do not burn time on native desktop packaging unless it clearly beats hosting on revenue, support, or strategy.
 
 ## Critical Doctrine
