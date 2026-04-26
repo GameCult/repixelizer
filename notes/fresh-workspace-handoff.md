@@ -30,6 +30,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 - The live pipeline is `source -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
 - searched lattice inference now trusts autocorrelation only; it keeps a tiny near-best lag plateau and looks for cross-axis consensus before collapsing to one lattice family. the old change-interval / pixel-walk sizing path was cut after it kept steering the badge away from the `126` family, and the projected edge-energy spectral pass was also removed after floor-hugging to 2px / 626-family aliases on the dense landscape fixture
 - hosted demo inference now uses one direct autocorr-consensus size plus the cheap inferred phase, capped by the hosted output limit. it no longer silently pins unspecified jobs to `max_output_dimension`
+- hosted web access now has an explicit seam in `src/repixelizer/access.py`; `src/repixelizer/gui.py` binds request subjects, guards hosted routes, and stamps queued jobs with local owner metadata for future Heimdall wiring
 - The low-confidence phase rerank path is a short preview solve, not a second full optimizer.
 - the phase field now has a wider displacement budget, so moderate phase mistakes are allowed to get corrected by the field instead of relying purely on rerank ceremony
 - Cleanup is secondary and usually a no-op; the core result is supposed to come from the solver, not cleanup cosplay.
@@ -56,6 +57,7 @@ The current spine:
 - lattice inference with fixed-size and searched-size paths
 - searched lattice inference currently trusts autocorrelation only, not the rejected pixel-walk or spectral priors
 - hosted demo inference uses the direct autocorr path and keeps phase rerank off
+- hosted route auth belongs in `src/repixelizer/access.py` + `src/repixelizer/gui.py`, not in the solver or pipeline
 - low-confidence phase rerank through short preview reconstruction
 - edge analysis feeding one projected displacement-field optimizer with a wider displacement leash
 - nearest-source final sampling from `uv0_px + disp_t`
@@ -74,6 +76,7 @@ The exact current control flow is documented in
 - Do not let `state/evidence.jsonl` turn into an activity feed.
 - Do not restart broad exploratory surgery when the current weak spot is still one bounded tapered-contour blemish.
 - Do not drift into desktop-app fantasies just because the web GUI is nice now. The default commercial path is still hosted access.
+- Do not let future Heimdall work smear auth logic into `src/repixelizer/pipeline.py`, `src/repixelizer/inference.py`, or the solver stack. The seam is already in the hosted web layer; use it.
 
 ## Verification Guardrails
 

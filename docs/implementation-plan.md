@@ -27,6 +27,12 @@ Inference now splits three ways:
 - searched lattice for the full local workflow
 - direct autocorr lattice for the hosted demo path: one consensus size, one cheap phase probe, no size search, no phase rerank
 
+The hosted web shell now also has an auth seam:
+
+- `src/repixelizer/access.py` owns the app-local access boundary and local ownership checks
+- `src/repixelizer/gui.py` owns hosted route policy, landing-page behavior, and queue/job stamping
+- self-host and local runs stay permissive by default unless `GC_ACCESS_*` turns the seam on
+
 ## What is working
 
 - lattice size and phase inference are still shared and still CUDA-capable
@@ -120,6 +126,15 @@ Rules:
 - do not reintroduce portrait layers, candidate trays, or solver-stage religions
 - if a new term lands, it must belong cleanly in the one-field objective
 - if a result looks better and the metrics disagree, fix the metrics rather than worshipping them
+
+### 4. Keep hosted auth surgery out of the solver
+
+Current stance:
+
+- Heimdall integration belongs in the hosted web layer, not in the reconstruction pipeline
+- queued jobs now have local owner metadata so future auth can resolve job access from local session/account instead of provider ids
+- the repo is only "auth-ready", not "auth-landed"
+- `GC_ACCESS_MODE=trusted-header` exists as a thin local seam for future integration and route-policy tests; it is not the final Heimdall story
 
 ## Guardrails
 

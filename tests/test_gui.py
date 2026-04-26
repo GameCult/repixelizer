@@ -10,10 +10,13 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+import pytest
 from starlette.datastructures import UploadFile
+from fastapi import HTTPException
 
 import repixelizer.inference as inference_module
 import repixelizer.pipeline as pipeline_module
+from repixelizer.access import AccessSubject, bind_access_subject
 from repixelizer.observe import PipelineCancelled
 from repixelizer.pipeline import run_pipeline_rgba
 from repixelizer.synthetic import fake_pixelize, make_emblem
@@ -21,25 +24,43 @@ from repixelizer.params import SolverHyperParams
 from repixelizer.types import InferenceCandidate, InferenceResult, PhaseFieldSourceAnalysis, SolverArtifacts
 
 
-async def _get_response(app, path: str) -> tuple[int, dict[str, str], bytes]:
+async def _get_response(
+    app,
+    path: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    body: bytes = b"",
+) -> tuple[int, dict[str, str], bytes]:
     messages: list[dict[str, object]] = []
+    sent = False
 
     async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+        nonlocal sent
+        if sent:
+            return {"type": "http.disconnect"}
+        sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(message):
         messages.append(message)
 
+    raw_headers = []
+    if headers:
+        raw_headers.extend(
+            (key.lower().encode("latin-1"), value.encode("latin-1"))
+            for key, value in headers.items()
+        )
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "GET",
+        "method": method.upper(),
         "scheme": "http",
         "path": path,
         "raw_path": path.encode("ascii"),
         "query_string": b"",
-        "headers": [],
+        "headers": raw_headers,
         "client": ("127.0.0.1", 12345),
         "server": ("testserver", 80),
         "root_path": "",
@@ -323,6 +344,37 @@ def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> Non
     assert 'href="/app/"' in html
 
 
+def test_gui_hosted_app_redirects_to_landing_when_auth_required(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "trusted-header")
+    monkeypatch.setenv("GC_ACCESS_REQUIRED", "1")
+
+    app = create_app()
+    status, headers, _body = asyncio.run(_get_response(app, "/app/"))
+
+    assert status in {302, 303, 307}
+    assert headers["location"] == "/"
+
+
+def test_gui_api_jobs_denies_unauthenticated_request_when_auth_required(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "trusted-header")
+    monkeypatch.setenv("GC_ACCESS_REQUIRED", "1")
+
+    app = create_app()
+    status, _headers, body = asyncio.run(_get_response(app, "/api/jobs", method="POST"))
+    payload = _response_json(type("Response", (), {"body": body})())
+
+    assert status == 401
+    assert payload["detail"] == "Sign-in required."
+
+
 def test_gui_local_root_keeps_redirect_to_app(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 
@@ -499,6 +551,26 @@ def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: P
     assert payload["ui"]["showDeviceControl"] is False
     assert payload["ui"]["showStripBackgroundControl"] is False
     assert payload["ui"]["showQueuePanel"] is True
+    assert payload["auth"]["enabled"] is False
+    assert payload["auth"]["mode"] == "off"
+
+
+def test_gui_auth_session_endpoint_reports_anonymous_subject_by_default(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    app = create_app()
+    status, _headers, body = asyncio.run(_get_response(app, "/api/auth/session"))
+    payload = _response_json(type("Response", (), {"body": body})())
+
+    assert status == 200
+    assert payload["auth"]["enabled"] is False
+    assert payload["subject"]["authenticated"] is False
+    assert payload["subject"]["capabilities"] == sorted(
+        ["admin_access", "app_access", "job_cancel_own", "job_read_own", "queue_submit"]
+    )
 
 
 def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:
@@ -539,6 +611,62 @@ def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:
     assert options["lattice_inference_mode"] == "autocorr"
     assert options["max_inferred_target_size"] == 256
     assert options["skip_phase_rerank"] is True
+
+
+def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "trusted-header")
+    monkeypatch.setenv("GC_ACCESS_REQUIRED", "1")
+
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    get_job = _route_endpoint(app, "/api/jobs/{job_id}", "GET")
+
+    subject = AccessSubject(
+        account_id="acct-1",
+        session_id="sess-1",
+        access_revision=4,
+        capabilities=frozenset({"queue_submit", "job_read_own", "job_cancel_own"}),
+        auth_mode="trusted-header",
+    )
+    with bind_access_subject(subject):
+        created = asyncio.run(
+            create_job(
+                image=UploadFile(filename="tiny.png", file=io.BytesIO(_png_bytes())),
+                target_size=None,
+                target_width=None,
+                target_height=None,
+                phase_x=None,
+                phase_y=None,
+                steps=None,
+                seed=7,
+                device="auto",
+                strip_background=False,
+                skip_phase_rerank=False,
+            )
+        )
+    assert created.status_code == 200
+    job_id = _response_json(created)["jobId"]
+
+    with bind_access_subject(subject):
+        owned = get_job(job_id)
+    assert owned.status_code == 200
+
+    intruder = AccessSubject(
+        account_id="acct-2",
+        session_id="sess-2",
+        access_revision=8,
+        capabilities=frozenset({"job_read_own"}),
+        auth_mode="trusted-header",
+    )
+    with bind_access_subject(intruder):
+        with pytest.raises(HTTPException) as excinfo:
+            get_job(job_id)
+    assert excinfo.value.status_code == 403
+    assert "different local account or session" in str(excinfo.value.detail)
 
 
 def test_gui_queue_panel_defaults_off_for_local_runs_and_can_be_forced(monkeypatch, tmp_path: Path) -> None:

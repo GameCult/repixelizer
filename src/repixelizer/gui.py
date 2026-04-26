@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .access import AccessController, AccessDenied, bind_access_subject
 from .diagnostics import _displacement_preview_rgba
 from .inference import inference_to_json
 from .observe import PipelineCancelled
@@ -237,6 +238,9 @@ class GuiJob:
     filename: str
     options: dict[str, Any]
     spool_path: Path
+    account_id: str | None = None
+    session_id: str | None = None
+    access_revision: int | None = None
     created_at: float = field(default_factory=time.time)
     last_heartbeat_at: float = field(default_factory=time.time)
     phase_field_preview_stride: int = 4
@@ -648,7 +652,16 @@ class GuiJobManager:
             self._started = False
         self._purge_spool_dir()
 
-    def submit_job(self, *, filename: str, raw: bytes, options: dict[str, Any]) -> GuiJob:
+    def submit_job(
+        self,
+        *,
+        filename: str,
+        raw: bytes,
+        options: dict[str, Any],
+        account_id: str | None = None,
+        session_id: str | None = None,
+        access_revision: int | None = None,
+    ) -> GuiJob:
         self.start()
         suffix = Path(filename or "input.png").suffix or ".png"
         job = GuiJob(
@@ -656,6 +669,9 @@ class GuiJobManager:
             filename=filename or "input.png",
             options=options,
             spool_path=self.config.spool_dir / f"{uuid.uuid4().hex}{suffix}",
+            account_id=account_id,
+            session_id=session_id,
+            access_revision=access_revision,
             phase_field_preview_stride=self.config.phase_field_preview_stride,
         )
         job.spool_path.write_bytes(raw)
@@ -861,12 +877,27 @@ def _versioned_gui_index(static_dir: Path) -> str:
     return html
 
 
-def _landing_page_html(config: HostedDemoConfig) -> str:
+def _landing_page_html(config: HostedDemoConfig, auth: dict[str, Any] | None = None) -> str:
     demo_limits = (
         f"{config.max_output_dimension}px output cap, "
         f"{config.default_steps} default solver steps, "
         f"{config.queue_capacity} waiting slots"
     )
+    auth_enabled = bool(auth and auth.get("enabled"))
+    login_url = None if auth is None else auth.get("loginUrl")
+    primary_href = login_url or "/app/"
+    primary_label = "Sign in to the demo" if auth_enabled else "Open the demo"
+    hero_note = (
+        "Hosted access will be gated through Heimdall once the auth pass lands."
+        if auth_enabled
+        else "It is not a miracle worker, and it is definitely not here to pretend it invented hand-authored pixel art from nothing."
+    )
+    auth_notice = ""
+    if auth_enabled and not login_url:
+        auth_notice = (
+            '<p class="footer">Auth is enabled here, but no Heimdall login URL has been wired yet. '
+            'That means the front door is ready and the key is still missing.</p>'
+        )
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -1091,7 +1122,7 @@ def _landing_page_html(config: HostedDemoConfig) -> str:
               Repixelizer takes AI-slop pixel cosplay, infers the lattice it should have had, then drags it back onto an actual coherent mosaic.
             </p>
             <div class="cta-row">
-              <a class="button" href="/app/">Open the demo</a>
+              <a class="button" href="{primary_href}">{primary_label}</a>
               <a class="button secondary" href="https://github.com/GameCult/repixelizer">View the repo</a>
             </div>
             <div class="stats">
@@ -1112,7 +1143,7 @@ def _landing_page_html(config: HostedDemoConfig) -> str:
           <aside class="panel hero-note">
             <h2>What it is for</h2>
             <p>Bad AI badge art. Mushy fake sprites. Grid-shaped lies with enough latent structure left to salvage.</p>
-            <p>It is not a miracle worker, and it is definitely not here to pretend it invented hand-authored pixel art from nothing.</p>
+            <p>{hero_note}</p>
           </aside>
         </div>
       </section>
@@ -1133,6 +1164,7 @@ def _landing_page_html(config: HostedDemoConfig) -> str:
           </article>
         </div>
         <p class="footer">Self-hosters can still go straight to <a href="/app/">the app</a>. Hosted mode just gets a front door instead of making everyone trip over raw controls immediately.</p>
+        {auth_notice}
       </section>
     </main>
   </body>
@@ -1155,6 +1187,7 @@ def create_app():
 
     config = HostedDemoConfig.from_env()
     manager = GuiJobManager(config)
+    access_controller = AccessController.from_env(hosted_demo=config.hosted_demo)
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -1176,13 +1209,71 @@ def create_app():
             response.headers["Expires"] = "0"
         return response
 
+    @app.middleware("http")
+    async def bind_access_context(request, call_next):
+        path = request.url.path
+
+        async def call_with_subject(subject):
+            with bind_access_subject(subject):
+                return await call_next(request)
+
+        def resolve_job_subject(capability: str):
+            parts = [part for part in path.split("/") if part]
+            if len(parts) < 3:
+                return access_controller.peek_request_subject(request)
+            job = manager.get_job(parts[2])
+            if job is None:
+                return access_controller.peek_request_subject(request)
+            subject = access_controller.require_request_capability(request, capability)
+            access_controller.require_subject_job_access(subject, job)
+            return subject
+
+        try:
+            if path in {"/", "/api/health", "/api/config", "/api/auth/session"}:
+                subject = access_controller.peek_request_subject(request)
+            elif path == "/api/queue":
+                if access_controller.runtime.protect_queue:
+                    subject = access_controller.require_request_capability(request, "app_access")
+                else:
+                    subject = access_controller.peek_request_subject(request)
+            elif path == "/api/jobs" and request.method.upper() == "POST":
+                subject = access_controller.require_request_capability(request, "queue_submit")
+            elif path.startswith("/api/jobs/"):
+                capability = "job_cancel_own" if request.method.upper() == "DELETE" else "job_read_own"
+                subject = resolve_job_subject(capability)
+            elif path == "/app" or path.startswith("/app/"):
+                if access_controller.runtime.enabled and access_controller.runtime.required:
+                    subject = access_controller.require_request_capability(request, "app_access")
+                else:
+                    subject = access_controller.peek_request_subject(request)
+            else:
+                subject = access_controller.peek_request_subject(request)
+        except AccessDenied as exc:
+            if path == "/app" or path.startswith("/app/"):
+                return RedirectResponse(url=access_controller.app_gate_redirect_url(), status_code=303)
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+        return await call_with_subject(subject)
+
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/api/config")
     def get_config():
-        return JSONResponse(config.public_payload())
+        payload = config.public_payload()
+        payload["auth"] = access_controller.public_payload()
+        return JSONResponse(payload)
+
+    @app.get("/api/auth/session")
+    def get_auth_session():
+        subject = access_controller.current_subject()
+        return JSONResponse(
+            {
+                "auth": access_controller.public_payload(),
+                "subject": subject.to_public_json(),
+            }
+        )
 
     @app.get("/api/queue")
     def get_queue():
@@ -1190,9 +1281,15 @@ def create_app():
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):
-        payload = manager.get_job_state_payload(job_id)
-        if payload is None:
+        job = manager.get_job(job_id)
+        if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        try:
+            access_controller.require_current_job_access(job, "job_read_own")
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        payload = manager.get_job_state_payload(job_id)
+        assert payload is not None
         return JSONResponse(payload)
 
     @app.post("/api/jobs")
@@ -1227,7 +1324,17 @@ def create_app():
                 strip_background=strip_background,
                 skip_phase_rerank=skip_phase_rerank,
             )
-            job = manager.submit_job(filename=filename, raw=raw, options=options)
+            subject = access_controller.require_current_capability("queue_submit")
+            job = manager.submit_job(
+                filename=filename,
+                raw=raw,
+                options=options,
+                account_id=subject.account_id,
+                session_id=subject.session_id,
+                access_revision=subject.access_revision,
+            )
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         except QueueFullError as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1253,16 +1360,28 @@ def create_app():
 
     @app.post("/api/jobs/{job_id}/heartbeat")
     def job_heartbeat(job_id: str):
-        payload = manager.heartbeat(job_id)
-        if payload is None:
+        job = manager.get_job(job_id)
+        if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        try:
+            access_controller.require_current_job_access(job, "job_read_own")
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        payload = manager.heartbeat(job_id)
+        assert payload is not None
         return JSONResponse(payload)
 
     @app.delete("/api/jobs/{job_id}")
     def cancel_job(job_id: str):
-        payload = manager.cancel_job(job_id, "Canceled because the browser left or explicitly bailed.")
-        if payload is None:
+        job = manager.get_job(job_id)
+        if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        try:
+            access_controller.require_current_job_access(job, "job_cancel_own")
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        payload = manager.cancel_job(job_id, "Canceled because the browser left or explicitly bailed.")
+        assert payload is not None
         return JSONResponse(payload)
 
     @app.get("/api/jobs/{job_id}/events")
@@ -1270,6 +1389,10 @@ def create_app():
         job = manager.get_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
+        try:
+            access_controller.require_current_job_access(job, "job_read_own")
+        except AccessDenied as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
         def generate():
             index = 0
@@ -1306,7 +1429,7 @@ def create_app():
         @app.get("/")
         def root():
             if config.hosted_demo:
-                return HTMLResponse(_landing_page_html(config))
+                return HTMLResponse(_landing_page_html(config, access_controller.public_payload()))
             return RedirectResponse(url="/app/")
     else:  # pragma: no cover - only relevant before frontend assets exist
         @app.get("/")
