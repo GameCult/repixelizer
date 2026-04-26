@@ -315,12 +315,18 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
     class _FakeTorch:
         cuda = _FakeCuda()
 
+    fake_estimate = inference_module.AutocorrEstimate(
+        best_lag=4.0,
+        best_score=0.9,
+        candidate_lags=(4.0,),
+        candidate_scores=(0.9,),
+    )
     monkeypatch.setattr(inference_module, "_require_torch", lambda: (_FakeTorch(), object()))
-    monkeypatch.setattr(inference_module, "_estimate_lattice_autocorr_details", lambda rgba: (4.0, 4.0))
+    monkeypatch.setattr(inference_module, "_estimate_lattice_autocorr_details", lambda rgba: (fake_estimate, fake_estimate))
     monkeypatch.setattr(
         inference_module,
         "_hint_target_sizes_from_autocorr",
-        lambda width, height, *, autocorr_x, autocorr_y, shared_prior: [],
+        lambda width, height, *, autocorr_x_estimate, autocorr_y_estimate, shared_prior: [],
     )
     monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba: (4.0, 4.0, 0.5))
     monkeypatch.setattr(

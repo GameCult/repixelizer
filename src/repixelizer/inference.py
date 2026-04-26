@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from .io import premultiply
 from .metrics import source_lattice_evidence_breakdown
 from .observe import PipelineObserver, check_observer_cancelled, emit_observer
 from .types import InferenceCandidate, InferenceResult
+
+
+@dataclass(frozen=True)
+class AutocorrEstimate:
+    best_lag: float
+    best_score: float
+    candidate_lags: tuple[float, ...]
+    candidate_scores: tuple[float, ...]
 
 
 def _require_torch():
@@ -70,8 +80,13 @@ def _autocorr_size_window(
         return None
     center = int(round(float(np.median(np.asarray(hinted_sizes, dtype=np.float32)))))
     spread = max(abs(int(size) - center) for size in hinted_sizes)
+    center_support = hinted_sizes.count(center)
+    support_ratio = center_support / max(1, len(hinted_sizes))
+    nearest_other = min((abs(int(size) - center) for size in hinted_sizes if int(size) != center), default=0)
     if spread == 0:
         radius = 0 if prior_reliability >= 0.82 else 1
+    elif support_ratio >= 0.5 and prior_reliability >= 0.82:
+        radius = 1 if nearest_other <= 2 else 2
     elif spread <= 2 and prior_reliability >= 0.72:
         radius = 1
     elif spread <= 4 and prior_reliability >= 0.55:
@@ -102,20 +117,35 @@ def _resolve_candidate_dims_from_autocorr(
     return narrowed or dims
 
 
-def _estimate_cell_size(profile: np.ndarray) -> float:
+def _estimate_cell_size_details(profile: np.ndarray) -> AutocorrEstimate:
     centered = profile.astype(np.float32) - float(np.mean(profile))
     max_lag = min(64, max(4, profile.shape[0] // 3))
-    best_lag = 1
+    lags = np.arange(2, max_lag + 1, dtype=np.float32)
+    if lags.size == 0:
+        return AutocorrEstimate(best_lag=1.0, best_score=0.0, candidate_lags=(), candidate_scores=())
+    scores: list[float] = []
+    best_lag = float(lags[0])
     best_score = -float("inf")
-    for lag in range(2, max_lag + 1):
+    for lag_value in lags:
+        lag = int(lag_value)
         left = centered[:-lag]
         right = centered[lag:]
         denom = float(np.linalg.norm(left) * np.linalg.norm(right)) + 1e-6
         score = float(np.dot(left, right) / denom)
+        scores.append(score)
         if score > best_score:
             best_score = score
-            best_lag = lag
-    return float(best_lag)
+            best_lag = float(lag)
+    return AutocorrEstimate(
+        best_lag=best_lag,
+        best_score=float(best_score),
+        candidate_lags=tuple(float(lag) for lag in lags.tolist()),
+        candidate_scores=tuple(float(score) for score in scores),
+    )
+
+
+def _estimate_cell_size(profile: np.ndarray) -> float:
+    return _estimate_cell_size_details(profile).best_lag
 
 
 def _edge_profiles(rgba: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -130,9 +160,52 @@ def _edge_profiles(rgba: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return profile_x, profile_y
 
 
-def _estimate_lattice_autocorr_details(rgba: np.ndarray) -> tuple[float, float]:
+def _estimate_lattice_autocorr_details(rgba: np.ndarray) -> tuple[AutocorrEstimate, AutocorrEstimate]:
     profile_x, profile_y = _edge_profiles(rgba)
-    return _estimate_cell_size(profile_x), _estimate_cell_size(profile_y)
+    return _estimate_cell_size_details(profile_x), _estimate_cell_size_details(profile_y)
+
+
+def _autocorr_plateau_lags(estimate: AutocorrEstimate, min_relative: float = 0.96) -> list[tuple[float, float]]:
+    if not estimate.candidate_lags or not estimate.candidate_scores:
+        return []
+    lags = np.asarray(estimate.candidate_lags, dtype=np.float32)
+    scores = np.asarray(estimate.candidate_scores, dtype=np.float32)
+    best_index = int(np.argmax(scores))
+    threshold = float(scores[best_index]) * min_relative
+    keep = {best_index}
+    left = best_index - 1
+    while left >= 0 and float(scores[left]) >= threshold:
+        keep.add(left)
+        left -= 1
+    right = best_index + 1
+    while right < scores.size and float(scores[right]) >= threshold:
+        keep.add(right)
+        right += 1
+    return [(float(lags[index]), float(scores[index])) for index in sorted(keep)]
+
+
+def _consensus_autocorr_lag(
+    estimate_x: AutocorrEstimate,
+    estimate_y: AutocorrEstimate,
+) -> tuple[float, float] | None:
+    plateau_x = _autocorr_plateau_lags(estimate_x)
+    plateau_y = _autocorr_plateau_lags(estimate_y)
+    if not plateau_x or not plateau_y:
+        return None
+    best: tuple[float, float] | None = None
+    best_score = -float("inf")
+    for lag_x, score_x in plateau_x:
+        for lag_y, score_y in plateau_y:
+            if abs(lag_x - lag_y) > 1.0:
+                continue
+            combined_score = score_x + score_y - abs(lag_x - lag_y) * 0.05
+            candidate_lag = _weighted_geometric_mean([lag_x, lag_y], [score_x, score_y])
+            # When ambiguity is nearly tied, prefer the denser reading.
+            combined_score += (1.0 / max(1e-6, candidate_lag)) * 0.01
+            if combined_score > best_score:
+                best_score = combined_score
+                best = (candidate_lag, combined_score)
+    return best
 
 
 def _weighted_geometric_mean(values: list[float], weights: list[float]) -> float:
@@ -164,8 +237,23 @@ def _estimate_lattice_prior_details(
     rgba: np.ndarray,
 ) -> tuple[float, float, float]:
     autocorr_x, autocorr_y = _estimate_lattice_autocorr_details(rgba)
-    axis_x = (autocorr_x, 1.0)
-    axis_y = (autocorr_y, 1.0)
+    consensus = _consensus_autocorr_lag(autocorr_x, autocorr_y)
+    if consensus is not None:
+        shared_prior = float(consensus[0])
+        best_x = max(1e-6, autocorr_x.best_score)
+        best_y = max(1e-6, autocorr_y.best_score)
+        relative_x = next(
+            (score / best_x for lag, score in _autocorr_plateau_lags(autocorr_x) if abs(lag - shared_prior) <= 1.0),
+            autocorr_x.best_score / best_x,
+        )
+        relative_y = next(
+            (score / best_y for lag, score in _autocorr_plateau_lags(autocorr_y) if abs(lag - shared_prior) <= 1.0),
+            autocorr_y.best_score / best_y,
+        )
+        reliability = float(np.clip(0.55 + 0.4 * ((relative_x + relative_y) * 0.5), 0.55, 0.95))
+        return shared_prior, shared_prior, reliability
+    axis_x = (autocorr_x.best_lag, 1.0)
+    axis_y = (autocorr_y.best_lag, 1.0)
     shared_prior, reliability = _combine_axis_priors([axis_x, axis_y])
     return shared_prior, shared_prior, reliability
 
@@ -174,25 +262,36 @@ def _hint_target_sizes_from_autocorr(
     width: int,
     height: int,
     *,
-    autocorr_x: float,
-    autocorr_y: float,
+    autocorr_x_estimate: AutocorrEstimate,
+    autocorr_y_estimate: AutocorrEstimate,
     shared_prior: float,
 ) -> list[int]:
-    hinted_sizes: set[int] = set()
+    hinted_sizes: list[int] = []
     if width >= height:
         major = width
         minor = height
-        major_cell = autocorr_x
-        minor_cell = autocorr_y
+        major_estimate = autocorr_x_estimate
+        minor_estimate = autocorr_y_estimate
     else:
         major = height
         minor = width
-        major_cell = autocorr_y
-        minor_cell = autocorr_x
-    hinted_sizes.add(max(1, int(round(major / max(1e-6, major_cell)))))
-    minor_target = max(1, int(round(minor / max(1e-6, minor_cell))))
-    hinted_sizes.add(max(1, int(round(major * minor_target / max(1, minor)))))
-    hinted_sizes.add(max(1, int(round(major / max(1e-6, shared_prior)))))
+        major_estimate = autocorr_y_estimate
+        minor_estimate = autocorr_x_estimate
+
+    hinted_sizes.extend(
+        max(1, int(round(major / max(1e-6, lag))))
+        for lag, _score in _autocorr_plateau_lags(major_estimate)
+    )
+    for lag, _score in _autocorr_plateau_lags(minor_estimate):
+        minor_target = max(1, int(round(minor / max(1e-6, lag))))
+        hinted_sizes.append(max(1, int(round(major * minor_target / max(1, minor)))))
+
+    consensus = _consensus_autocorr_lag(autocorr_x_estimate, autocorr_y_estimate)
+    if consensus is not None:
+        consensus_size = max(1, int(round(major / max(1e-6, consensus[0]))))
+        hinted_sizes.append(consensus_size)
+        hinted_sizes.append(consensus_size)
+    hinted_sizes.append(max(1, int(round(major / max(1e-6, shared_prior)))))
     return sorted(hinted_sizes)
 
 
@@ -441,15 +540,15 @@ def infer_lattice(
     torch, _ = _require_torch()
     resolved_device = _resolve_device(torch, device)
     height, width = rgba.shape[:2]
-    autocorr_x, autocorr_y = _estimate_lattice_autocorr_details(rgba)
+    autocorr_x_estimate, autocorr_y_estimate = _estimate_lattice_autocorr_details(rgba)
     prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(
         rgba,
     )
     hinted_sizes = _hint_target_sizes_from_autocorr(
         width,
         height,
-        autocorr_x=autocorr_x,
-        autocorr_y=autocorr_y,
+        autocorr_x_estimate=autocorr_x_estimate,
+        autocorr_y_estimate=autocorr_y_estimate,
         shared_prior=prior_cell_x,
     )
     phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)

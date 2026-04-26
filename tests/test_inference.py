@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from repixelizer.inference import (
+    AutocorrEstimate,
+    _consensus_autocorr_lag,
     _estimate_lattice_autocorr_details,
     _estimate_lattice_prior_details,
     _candidate_dims,
@@ -22,18 +24,44 @@ from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.types import InferenceCandidate
 
 
+def _make_autocorr_estimate(
+    *,
+    best_lag: int,
+    peaks: dict[int, float],
+    start: int = 2,
+    stop: int = 24,
+) -> AutocorrEstimate:
+    candidate_lags = tuple(float(lag) for lag in range(start, stop + 1))
+    candidate_scores = tuple(float(peaks.get(lag, 0.1)) for lag in range(start, stop + 1))
+    return AutocorrEstimate(
+        best_lag=float(best_lag),
+        best_score=float(peaks[best_lag]),
+        candidate_lags=candidate_lags,
+        candidate_scores=candidate_scores,
+    )
+
+
 def test_combined_axis_prior_prefers_consistent_shared_cell_size() -> None:
     shared_prior, reliability = _combine_axis_priors([(9.0, 0.7), (11.2, 0.2)])
     assert 8.5 < shared_prior < 10.5
     assert 0.2 < reliability < 0.6
 
 
+def test_autocorr_consensus_prefers_shared_dense_neighbor() -> None:
+    estimate_x = _make_autocorr_estimate(best_lag=11, peaks={10: 0.724, 11: 0.732})
+    estimate_y = _make_autocorr_estimate(best_lag=10, peaks={10: 0.878, 11: 0.859})
+    consensus = _consensus_autocorr_lag(estimate_x, estimate_y)
+    assert consensus is not None
+    assert 9.9 <= consensus[0] <= 10.2
+
+
 def test_autocorr_hints_can_add_dense_candidates_around_true_size() -> None:
+    estimate = _make_autocorr_estimate(best_lag=8, peaks={8: 0.92})
     hinted_sizes = _hint_target_sizes_from_autocorr(
         1024,
         1024,
-        autocorr_x=8.0,
-        autocorr_y=8.0,
+        autocorr_x_estimate=estimate,
+        autocorr_y_estimate=estimate,
         shared_prior=8.0,
     )
     dims = _candidate_dims(1024, 1024, None, hinted_sizes=hinted_sizes)
@@ -83,8 +111,8 @@ def test_dense_landscape_candidate_search_keeps_autocorr_size() -> None:
     hinted_sizes = _hint_target_sizes_from_autocorr(
         rgba.shape[1],
         rgba.shape[0],
-        autocorr_x=autocorr_x,
-        autocorr_y=autocorr_y,
+        autocorr_x_estimate=autocorr_x,
+        autocorr_y_estimate=autocorr_y,
         shared_prior=prior_x,
     )
     dims = _resolve_candidate_dims_from_autocorr(
@@ -97,6 +125,14 @@ def test_dense_landscape_candidate_search_keeps_autocorr_size() -> None:
     sizes = {width for width, _ in dims}
     assert any(size > 256 for size in sizes)
     assert any(abs(size - 418) <= 1 for size in sizes)
+
+
+def test_badge_autocorr_consensus_stays_in_canonical_family() -> None:
+    rgba = load_rgba(Path("tests/fixtures/real/ai-badge-cleaned.png"))
+    result = infer_lattice(rgba, device="cpu")
+    assert result.target_width in {125, 126}
+    assert result.top_candidates
+    assert result.top_candidates[0].target_width in {125, 126}
 
 
 def test_top_candidates_are_diversified_by_size() -> None:
@@ -184,12 +220,13 @@ def test_infer_lattice_honors_cooperative_cancellation(monkeypatch) -> None:
         def check_cancelled(self) -> bool:
             return True
 
+    fake_estimate = _make_autocorr_estimate(best_lag=4, peaks={4: 0.9})
     monkeypatch.setattr(inference_module, "_require_torch", lambda: (_FakeTorch(), object()))
-    monkeypatch.setattr(inference_module, "_estimate_lattice_autocorr_details", lambda rgba: (4.0, 4.0))
+    monkeypatch.setattr(inference_module, "_estimate_lattice_autocorr_details", lambda rgba: (fake_estimate, fake_estimate))
     monkeypatch.setattr(
         inference_module,
         "_hint_target_sizes_from_autocorr",
-        lambda width, height, *, autocorr_x, autocorr_y, shared_prior: [],
+        lambda width, height, *, autocorr_x_estimate, autocorr_y_estimate, shared_prior: [],
     )
     monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba: (4.0, 4.0, 0.5))
     monkeypatch.setattr(
