@@ -164,15 +164,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind")
     parser.add_argument("--reload", action="store_true", help="Enable autoreload while developing the GUI server")
+    parser.add_argument(
+        "--queue-ui",
+        choices=("auto", "show", "hide"),
+        default="auto",
+        help="Whether to show the queue panel in the frontend. auto follows hosted-demo mode.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     repo_root = _repo_root()
     _ensure_src_on_path()
-    from repixelizer.gui import main as gui_main
 
     args = build_parser().parse_args(argv)
+    if args.queue_ui == "show":
+        os.environ["REPIXELIZER_SHOW_QUEUE_PANEL"] = "1"
+    elif args.queue_ui == "hide":
+        os.environ["REPIXELIZER_SHOW_QUEUE_PANEL"] = "0"
+    else:
+        os.environ.pop("REPIXELIZER_SHOW_QUEUE_PANEL", None)
+    from repixelizer.gui import main as gui_main
+
     try:
         message = _reclaim_stale_gui_port(args.host, args.port, repo_root)
     except RuntimeError as exc:

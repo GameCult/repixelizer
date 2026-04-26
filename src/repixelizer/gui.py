@@ -148,6 +148,7 @@ def _env_int(name: str, default: int) -> int:
 @dataclass(slots=True)
 class HostedDemoConfig:
     hosted_demo: bool
+    show_queue_panel: bool
     max_upload_bytes: int
     max_input_dimension: int
     max_output_dimension: int
@@ -180,6 +181,7 @@ class HostedDemoConfig:
             spool_dir = Path(tempfile.gettempdir()) / "repixelizer-gui-spool"
         return cls(
             hosted_demo=hosted_demo,
+            show_queue_panel=_env_flag("REPIXELIZER_SHOW_QUEUE_PANEL", hosted_demo),
             max_upload_bytes=max(1, _env_int("REPIXELIZER_MAX_UPLOAD_BYTES", defaults["max_upload_bytes"])),
             max_input_dimension=max(1, _env_int("REPIXELIZER_MAX_INPUT_DIMENSION", defaults["max_input_dimension"])),
             max_output_dimension=max(1, _env_int("REPIXELIZER_MAX_OUTPUT_DIMENSION", defaults["max_output_dimension"])),
@@ -200,6 +202,7 @@ class HostedDemoConfig:
         return {
             "showDeviceControl": not self.hosted_demo,
             "showStripBackgroundControl": not self.hosted_demo,
+            "showQueuePanel": self.show_queue_panel,
         }
 
     def public_payload(self) -> dict[str, Any]:
@@ -962,6 +965,7 @@ def create_app():
                 "stateUrl": f"/api/jobs/{job.job_id}",
                 "queuePosition": state_payload["queuePosition"],
                 "queueDepth": state_payload["queueDepth"],
+                "waitingCount": state_payload["waitingCount"],
                 "queueCapacity": state_payload["queueCapacity"],
                 "heartbeatIntervalSeconds": state_payload["heartbeatIntervalSeconds"],
                 "staleAfterSeconds": state_payload["staleAfterSeconds"],

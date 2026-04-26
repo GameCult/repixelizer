@@ -56,6 +56,7 @@ type RuntimeConfig = {
   ui: {
     showDeviceControl: boolean;
     showStripBackgroundControl: boolean;
+    showQueuePanel: boolean;
   };
 };
 
@@ -213,6 +214,7 @@ const phaseYInput = byId<HTMLInputElement>("phaseYInput");
 const stepsInput = byId<HTMLInputElement>("stepsInput");
 const seedInput = byId<HTMLInputElement>("seedInput");
 const runControlsCopy = byId<HTMLParagraphElement>("runControlsCopy");
+const queuePanel = byId<HTMLElement>("queuePanel");
 const queueSummaryPanel = byId<HTMLDivElement>("queueSummary");
 const cancelJobButton = byId<HTMLButtonElement>("cancelJobButton");
 const deviceField = byId<HTMLElement>("deviceField");
@@ -361,6 +363,11 @@ function renderEventLog(): void {
 }
 
 function renderQueueSummary(): void {
+  if (!state.runtimeConfig?.ui.showQueuePanel) {
+    queueSummaryPanel.innerHTML = "";
+    cancelJobButton.hidden = true;
+    return;
+  }
   queueSummaryPanel.innerHTML = "";
   if (hasActiveJob()) {
     const cards: Array<[string, string]> = [
@@ -436,6 +443,16 @@ function hasActiveJob(): boolean {
   return state.jobId !== null && ["queued", "running", "waiting"].includes(state.status);
 }
 
+function queueSummaryFromState(activeStatus: string | null = state.status): QueueSummary {
+  return {
+    queueDepth: state.queueDepth,
+    waitingCount: state.waitingCount,
+    queueCapacity: state.queueCapacity || (state.runtimeConfig?.limits.queueCapacity ?? 0),
+    hasActiveJob: state.queueDepth > 0,
+    activeStatus,
+  };
+}
+
 function formatByteLimit(bytes: number): string {
   if (bytes >= 1024 * 1024) {
     return `${formatNumber(bytes / (1024 * 1024), 1)} MiB`;
@@ -473,6 +490,7 @@ function applyRuntimeConfig(config: RuntimeConfig): void {
   state.runtimeConfig = config;
   deviceField.hidden = !config.ui.showDeviceControl;
   stripBackgroundField.hidden = !config.ui.showStripBackgroundControl;
+  queuePanel.hidden = !config.ui.showQueuePanel;
   stepsInput.max = String(config.limits.maxSteps);
   if (stepsInput.value.trim() === "" || Number(stepsInput.value) > config.limits.maxSteps || Number(stepsInput.value) === 48) {
     stepsInput.value = String(config.limits.defaultSteps);
@@ -747,15 +765,20 @@ function renderStatusMetrics(): void {
   const items: StatusMetricItem[] = [];
   const frame = getSelectedFrame();
   if (state.stageKey === "queued" || state.status === "queued" || state.status === "waiting") {
-    items.push({
-      label: "Line",
-      value:
-        state.queuePosition === null || state.queueDepth <= 0
-          ? "pending"
-          : `${state.queuePosition} / ${Math.max(state.queueDepth, state.queuePosition)}`,
-    });
-    items.push({ label: "Waiting", value: `${state.waitingCount} / ${state.queueCapacity || (state.runtimeConfig?.limits.queueCapacity ?? 0)}` });
-    items.push({ label: "Heartbeat", value: `${state.heartbeatIntervalSeconds}s` });
+    if (state.runtimeConfig?.ui.showQueuePanel) {
+      items.push({
+        label: "Line",
+        value:
+          state.queuePosition === null || state.queueDepth <= 0
+            ? "pending"
+            : `${state.queuePosition} / ${Math.max(state.queueDepth, state.queuePosition)}`,
+      });
+      items.push({
+        label: "Waiting",
+        value: `${state.waitingCount} / ${state.queueCapacity || (state.runtimeConfig?.limits.queueCapacity ?? 0)}`,
+      });
+      items.push({ label: "Heartbeat", value: `${state.heartbeatIntervalSeconds}s` });
+    }
   } else if (state.stageKey === "inference") {
     if (state.latticeSearch) {
       items.push({ label: "Sizes", value: `${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}` });
@@ -1385,6 +1408,11 @@ async function loadRuntimeConfig(): Promise<void> {
 }
 
 async function refreshQueueSummary(): Promise<void> {
+  if (!state.runtimeConfig?.ui.showQueuePanel) {
+    state.queueSummary = null;
+    renderQueueSummary();
+    return;
+  }
   if (hasActiveJob()) {
     return;
   }
@@ -1404,6 +1432,10 @@ function stopQueuePolling(): void {
 }
 
 function syncQueuePolling(): void {
+  if (!state.runtimeConfig?.ui.showQueuePanel) {
+    stopQueuePolling();
+    return;
+  }
   if (hasActiveJob()) {
     stopQueuePolling();
     return;
@@ -1555,13 +1587,7 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       break;
     case "queue_state":
       applyQueueState(payload as Partial<JobStateSnapshot>);
-      state.queueSummary = {
-        queueDepth: state.queueDepth,
-        waitingCount: state.waitingCount,
-        queueCapacity: state.queueCapacity,
-        hasActiveJob: state.queueDepth > 0,
-        activeStatus: state.status,
-      };
+      state.queueSummary = queueSummaryFromState();
       break;
     case "job_canceled":
       stopHeartbeat();
@@ -1570,8 +1596,8 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       addLog("Canceled", String(payload.message ?? "Canceled the job."));
       runButton.disabled = false;
       currentEventSource?.close();
+      await refreshQueueSummary().catch(() => undefined);
       syncQueuePolling();
-      void refreshQueueSummary().catch(() => undefined);
       break;
     case "job_failed":
       stopHeartbeat();
@@ -1580,8 +1606,8 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       addLog("Failure", String(payload.message ?? "The run failed."));
       runButton.disabled = false;
       currentEventSource?.close();
+      await refreshQueueSummary().catch(() => undefined);
       syncQueuePolling();
-      void refreshQueueSummary().catch(() => undefined);
       break;
     case "stage_started":
       setJobState("running");
@@ -1795,8 +1821,8 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       runButton.disabled = false;
       currentEventSource?.close();
       await loadEditorAsset(state.finalOutputImage);
+      await refreshQueueSummary().catch(() => undefined);
       syncQueuePolling();
-      void refreshQueueSummary().catch(() => undefined);
       break;
     default:
       break;
@@ -1852,13 +1878,7 @@ async function startRun(): Promise<void> {
     const payload = (await response.json()) as JobStateSnapshot;
     state.jobId = payload.jobId;
     applyJobSnapshot(payload);
-    state.queueSummary = {
-      queueDepth: payload.queueDepth,
-      waitingCount: payload.waitingCount,
-      queueCapacity: payload.queueCapacity,
-      hasActiveJob: payload.queueDepth > 0,
-      activeStatus: payload.status,
-    };
+    state.queueSummary = queueSummaryFromState(payload.status);
     connectEventStream(payload.jobId);
     syncHeartbeat();
     syncQueuePolling();
@@ -2133,10 +2153,12 @@ async function initializeApp(): Promise<void> {
   } catch (error) {
     addLog("Config", error instanceof Error ? error.message : "Failed to load runtime config.");
   }
-  try {
-    await refreshQueueSummary();
-  } catch (error) {
-    addLog("Queue", error instanceof Error ? error.message : "Failed to load queue summary.");
+  if (state.runtimeConfig?.ui.showQueuePanel) {
+    try {
+      await refreshQueueSummary();
+    } catch (error) {
+      addLog("Queue", error instanceof Error ? error.message : "Failed to load queue summary.");
+    }
   }
   syncQueuePolling();
   await renderEverything();

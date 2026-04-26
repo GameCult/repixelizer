@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import asyncio
+import os
 import threading
 import time
 from pathlib import Path
@@ -170,6 +171,25 @@ def test_repo_gui_runner_dispatches_to_gui_main(monkeypatch, capsys) -> None:
     assert "Open: http://127.0.0.1:8123/app/" in output
     assert "Health: http://127.0.0.1:8123/api/health" in output
     assert "Reload: on" in output
+
+
+def test_repo_gui_runner_queue_ui_override_sets_env(monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "run_gui.py"
+    spec = importlib.util.spec_from_file_location("repixelizer_run_gui_script", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.delenv("REPIXELIZER_SHOW_QUEUE_PANEL", raising=False)
+    monkeypatch.setattr(module, "_reclaim_stale_gui_port", lambda host, port, repo_root: None)
+    monkeypatch.setattr("repixelizer.gui.main", lambda **_: 0)
+
+    exit_code = module.main(["--queue-ui", "show"])
+
+    assert exit_code == 0
+    assert os.environ["REPIXELIZER_SHOW_QUEUE_PANEL"] == "1"
 
 
 def test_repo_gui_runner_reclaims_stale_gui_port_before_launch(monkeypatch, capsys) -> None:
@@ -441,6 +461,25 @@ def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: P
     assert payload["limits"]["defaultSteps"] == 32
     assert payload["ui"]["showDeviceControl"] is False
     assert payload["ui"]["showStripBackgroundControl"] is False
+    assert payload["ui"]["showQueuePanel"] is True
+
+
+def test_gui_queue_panel_defaults_off_for_local_runs_and_can_be_forced(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.delenv("REPIXELIZER_HOSTED_DEMO", raising=False)
+    monkeypatch.delenv("REPIXELIZER_SHOW_QUEUE_PANEL", raising=False)
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    app = create_app()
+    payload = _response_json(_route_endpoint(app, "/api/config", "GET")())
+    assert payload["hostedDemo"] is False
+    assert payload["ui"]["showQueuePanel"] is False
+
+    monkeypatch.setenv("REPIXELIZER_SHOW_QUEUE_PANEL", "1")
+    app = create_app()
+    payload = _response_json(_route_endpoint(app, "/api/config", "GET")())
+    assert payload["ui"]["showQueuePanel"] is True
 
 
 def test_gui_queue_rejects_eleventh_waiting_job(monkeypatch, tmp_path: Path) -> None:

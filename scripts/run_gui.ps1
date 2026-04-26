@@ -1,7 +1,9 @@
 param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8000,
-    [switch]$Reload
+    [switch]$Reload,
+    [ValidateSet("auto", "show", "hide")]
+    [string]$QueueUI = "auto"
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +17,8 @@ if (-not (Test-Path $python)) {
 $args = @(
     (Join-Path $repoRoot "scripts\run_gui.py"),
     "--host", $BindHost,
-    "--port", $Port
+    "--port", $Port,
+    "--queue-ui", $QueueUI
 )
 
 if ($Reload) {
