@@ -2,7 +2,7 @@
 
 ## Summary
 
-Repixelizer is a standalone Python CLI for converting "fake pixel art" into true grid-aligned pixel art. The target use cases are single-image icons, emblems, logos, and simple sprites, especially images that already resemble pixel art but fail to obey a consistent pixel lattice.
+Repixelizer is a Python tool with a CLI and web GUI for converting "fake pixel art" into true grid-aligned pixel art. The target use cases are single-image icons, emblems, logos, and simple sprites, especially images that already resemble pixel art but fail to obey a consistent pixel lattice.
 
 The project exists because generated imagery often creates appealing pixel-like local patterns while violating the actual constraints of pixel art:
 - inconsistent subpixel alignment
@@ -24,7 +24,7 @@ Repixelizer treats this as lattice inference plus reconstruction rather than a r
 
 - full sprite-sheet or animation consistency
 - manual painting or mask authoring as a required workflow
-- a desktop GUI
+- a native desktop app
 - generalized photo-to-pixel-art stylization
 - a learned model trained on a large dataset
 
@@ -195,6 +195,5 @@ The tool is successful for v1 if it can:
 The design should leave room for:
 - manual region hints or lock zones
 - multi-frame consistency for sprite sheets
-- GUI tooling
 - more advanced warping or lattice-field models
 - learned priors or ranking models for candidate outputs

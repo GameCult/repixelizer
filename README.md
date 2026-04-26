@@ -1,20 +1,41 @@
 # Repixelizer
 
-Repixelizer is a standalone Python CLI for images that are doing a pixel art impression instead of actually respecting the grid.
+Repixelizer is a Python tool for images that are doing a pixel art impression instead of actually respecting the grid.
 
 It is aimed at the annoying middle ground: sprites, emblems, and logos that look locally pixelated but fall apart the second you ask them to commit to one lattice like grown-ups.
 
 Instead of pretending this is a resize problem, Repixelizer treats it as lattice inference plus local structure preservation: infer the implied grid, choose real output cells, and snap them back onto a coherent pixel lattice while preserving the source's local adjacency patterns.
 
-## Examples
+## GUI First
 
-Repixelizer was built to rescue fake pixel art, but it can also be used to generate pixel art directly from non-pixel source art when the shapes are clean and the local structure is doing something useful.
+The web GUI is the main way to use this thing unless you enjoy raw flags for sport.
 
-Rows show the source art, a plain Lanczos downscale, and the live `phase-field` solver. The bottom row also carries the tracked sword-tip closeup, because that tiny patch is one of the more honest tests of whether the machine is preserving structure instead of just faking confidence.
+It gives you:
 
-![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
+- drag-and-drop input
+- live pipeline feedback while lattice search, rerank, and solving run
+- synchronized input/output inspection zoom for close comparison
+- a built-in output editor for single-pixel cleanup with eyedropper and pencil tools
 
-That is the pitch in one image: same mess, same ruler, one machine forced to prove it actually understands the grid.
+Run it from the repo checkout:
+
+```powershell
+.\scripts\run_gui.ps1
+```
+
+If you want to bypass the PowerShell wrapper and call Python directly:
+
+```powershell
+.\.venv\Scripts\python scripts\run_gui.py
+```
+
+If you want to support the official hosted deployment and help us scale the poor little server when people start leaning on it, join the [GameCult Patreon](https://www.patreon.com/GameCult). At `$10` per subscriber, the math gets a lot less tragic.
+
+## Example
+
+This closeup from the badge fixture is the whole pitch in miniature: same ugly source patch, same target grid, one output that finally quits bluffing.
+
+![Repixelizer badge closeup](docs/readme-assets/guard-right-crop-source-final.png)
 
 ## Current Status
 
@@ -22,6 +43,7 @@ This repo is past the "pile of hopeful heuristics" stage and into "real machine,
 
 What exists now:
 
+- a web GUI with drag-and-drop, live diagnostics, comparison tools, and pixel cleanup
 - lattice inference with CUDA support
 - a lean displacement-field optimizer in `src/repixelizer/phase_field.py`
 - automatic diagnostics, comparisons, and benchmark runs
@@ -51,7 +73,13 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -e .[dev]
 ```
 
-Run the optimizer:
+Launch the GUI:
+
+```powershell
+.\scripts\run_gui.ps1
+```
+
+Run the optimizer from the CLI:
 
 ```powershell
 repixelize input.png --out output.png
@@ -63,18 +91,6 @@ Run the optimizer plus baselines:
 
 ```powershell
 repixelize compare input.png --out output.png --diagnostics-dir diagnostics
-```
-
-Run the GUI from the repo checkout:
-
-```powershell
-.\scripts\run_gui.ps1
-```
-
-If you want to bypass the PowerShell wrapper and call Python directly:
-
-```powershell
-.\.venv\Scripts\python scripts\run_gui.py
 ```
 
 ## Corpus And Benchmarks
@@ -147,16 +163,6 @@ Run the focused test suite with:
 ```powershell
 .venv\Scripts\python -m pytest -q
 ```
-
-## Regenerating README Assets
-
-The README images are generated from repo-tracked fixtures, not from random artifacts left lying around:
-
-```powershell
-.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
-```
-
-That regenerates the main README sheet, the standalone sword-guard closeup strip, and scratch outputs under `artifacts/readme-build/` so you can inspect the actual low-res results used to build the docs sample.
 
 ## Diagnostic Closeups
 
