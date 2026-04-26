@@ -2,9 +2,15 @@
 
 Repixelizer is a Python tool for images that are doing a pixel art impression instead of actually respecting the grid.
 
-It is aimed at the annoying middle ground: sprites, emblems, and logos that look locally pixelated but fall apart the second you ask them to commit to one lattice like grown-ups.
+It is aimed at the annoying middle ground: sprites, emblems, and logos that
+look locally pixelated but fall apart the second you ask them to commit to one
+lattice like grown-ups.
 
-Instead of pretending this is a resize problem, Repixelizer treats it as lattice inference plus local structure preservation: infer the implied grid, choose real output cells, and snap them back onto a coherent pixel lattice while preserving the source's local adjacency patterns.
+Instead of pretending this is a resize problem, Repixelizer treats it as
+lattice inference plus `phase-field` reconstruction: infer the ruler, scout the
+edges, give every output cell a tiny shove vector, nudge those shoves until the
+cells settle into quieter paint while staying in order, then sample once and go
+home.
 
 ## GUI First
 
@@ -13,7 +19,7 @@ The web GUI is the main way to use this thing unless you enjoy raw flags for spo
 It gives you:
 
 - drag-and-drop input
-- live pipeline feedback while lattice search, rerank, and solving run
+- live phase-field feedback while lattice search, rerank, and solving run
 - synchronized input/output inspection zoom for close comparison
 - a built-in output editor for single-pixel cleanup with eyedropper and pencil tools
 
@@ -33,38 +39,52 @@ If you want to support the official hosted deployment and help us scale the poor
 
 ## Example
 
-This badge sheet is the whole pitch in one image: same source mess, same
-target grid, same cheap Lanczos baseline, and one canonical `phase-field`
-result that finally commits to the lattice.
+This badge sheet is the whole pitch in one image: same ugly fake-pixel source,
+same target grid, same cheap Lanczos baseline, and one `phase-field` result
+that finally commits to the lattice.
 
 Each panel also carries the same sword-guard inset, so the nasty little taper
 problem has nowhere to hide.
 
 ![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
+## How It Works
+
+Repixelizer does one thing:
+
+`source image -> lattice inference -> edge scout -> fixed lattice centers ->
+projected displacement-field optimization -> nearest source sample -> cleanup /
+diagnostics`
+
+In plainer language:
+
+1. infer the target lattice size and phase
+2. build one edge scout map over the source
+3. nail down fixed lattice centers
+4. run the `phase-field` solve by optimizing one `(dx, dy)` shove vector per
+   output cell
+5. sample the source once from the final displaced cell positions
+6. clean up the discrete result, optionally fit a palette, and write
+   diagnostics
+
+That is the machine described in `docs/lean-optimizer-algorithm-map.md`.
+Comparison mode just runs that same `phase-field` result next to the baselines.
+
 ## Current Status
 
-This repo is past the "pile of hopeful heuristics" stage and into "real machine, still experimental."
+This repo is past the "pile of hopeful heuristics" stage and into "real
+machine, still experimental."
 
 What exists now:
 
 - a web GUI with drag-and-drop, live diagnostics, comparison tools, and pixel cleanup
 - lattice inference with CUDA support
-- a lean displacement-field optimizer in `src/repixelizer/phase_field.py`
+- the `phase-field` reconstruction engine in `src/repixelizer/phase_field.py`
 - automatic diagnostics, comparisons, and benchmark runs
 - a tuning harness for offline parameter sweeps
 - metrics that finally care about visible structure instead of only pleasing the lattice accountant
-
-What changed recently:
-
-- the old tray-based optimizer is gone
-- `phase-field` is now the canonical and only reconstruction path
 - `source_structure` is reported alongside `source_fidelity`, because the old metric was happily calling better-looking images worse
 - the tracked sword-tip blemish on the AI badge has its own focused fixture in `tests/fixtures/real/ai-badge-tip-focus.json`
-
-Current read on the engine:
-
-- `phase-field` is the machine. It currently produces the best-looking badge result in the repo, especially on internal linework, even though it still widens the tracked sword-tip stroke a bit too much.
 
 Current weak spots:
 
@@ -175,7 +195,7 @@ The README images are generated from repo-tracked fixtures, not from random
 artifacts left lying around:
 
 ```powershell
-.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
+.venv\Scripts\python scripts\generate_readme_previews.py --input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
 ```
 
 That regenerates the main README sheet, the standalone sword-guard closeup

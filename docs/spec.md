@@ -67,8 +67,8 @@ The canonical workflow should be fully automatic:
 
 No manual masks or user-authored region hints are assumed in v1.
 
-This is the only canonical reconstruction pipeline in the repo. Comparison mode
-adds baselines, not alternate reconstruction engines.
+This is the canonical machine in the repo. Comparison mode just runs that same
+`phase-field` result next to the baselines.
 
 ### CLI shape
 
@@ -157,12 +157,13 @@ This stage is intentionally heuristic and local in v1.
 ### 5. Baselines and comparison mode
 
 The project must ship comparison baselines:
+- Lanczos downscale
 - naive resize
 - resize plus error diffusion
 
 `compare` mode should run:
 - the same `phase-field` pipeline
-- both baselines
+- all baselines
 - metric collection
 - a visual contact sheet
 

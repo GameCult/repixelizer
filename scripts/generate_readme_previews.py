@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from repixelizer.baselines import lanczos_resize_baseline
-from repixelizer.io import load_rgba, nearest_resize, save_rgba
+from repixelizer.io import load_rgba, save_rgba
 from repixelizer.pipeline import run_pipeline
 
 
@@ -20,14 +20,9 @@ class RenderedPanel:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Regenerate the README comparison sheets and closeups from repo fixtures.")
+    parser = argparse.ArgumentParser(description="Regenerate the README comparison sheet and closeups from repo fixtures.")
     parser.add_argument(
-        "--vector-input",
-        default="tests/fixtures/real/ai-badge-vector.png",
-        help="High-resolution non-pixel badge source.",
-    )
-    parser.add_argument(
-        "--ai-input",
+        "--input",
         default="tests/fixtures/real/ai-badge-cleaned.png",
         help="Cleaned AI fake-pixel badge source.",
     )
@@ -47,12 +42,6 @@ def _parse_args() -> argparse.Namespace:
         help="Directory for intermediate low-res outputs and diagnostics.",
     )
     parser.add_argument(
-        "--vector-target-size",
-        type=int,
-        default=128,
-        help="Target size for the non-pixel source repixelization run.",
-    )
-    parser.add_argument(
         "--guard-cell-bbox",
         nargs=4,
         type=int,
@@ -61,25 +50,25 @@ def _parse_args() -> argparse.Namespace:
         help="Sword-guard crop bounds in output-grid cell coordinates for the AI row.",
     )
     parser.add_argument(
-        "--engine-target-width",
+        "--target-width",
         type=int,
         default=126,
         help="Pinned target width for the canonical badge comparison.",
     )
     parser.add_argument(
-        "--engine-target-height",
+        "--target-height",
         type=int,
         default=126,
         help="Pinned target height for the canonical badge comparison.",
     )
     parser.add_argument(
-        "--engine-phase-x",
+        "--phase-x",
         type=float,
         default=0.0,
         help="Pinned lattice phase X for the canonical badge comparison.",
     )
     parser.add_argument(
-        "--engine-phase-y",
+        "--phase-y",
         type=float,
         default=-0.2,
         help="Pinned lattice phase Y for the canonical badge comparison.",
@@ -276,94 +265,40 @@ def main() -> None:
     scratch_dir = Path(args.scratch_dir)
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
-    vector_input = Path(args.vector_input)
-    ai_input = Path(args.ai_input)
+    source_input = Path(args.input)
     out_sheet = Path(args.out_sheet)
     out_guard_crop = Path(args.out_guard_crop)
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
     out_guard_crop.parent.mkdir(parents=True, exist_ok=True)
 
-    vector_phase_field_result = run_pipeline(
-        vector_input,
-        scratch_dir / "badge-vector-phase-field.png",
-        target_width=args.vector_target_size,
-        target_height=args.vector_target_size,
-        phase_x=0.0,
-        phase_y=0.0,
-        diagnostics_dir=scratch_dir / "vector-phase-field-diag",
-        steps=args.steps,
-        device=args.device,
-        enable_phase_rerank=False,
-    )
-    ai_result = run_pipeline(
-        ai_input,
-        scratch_dir / "badge-ai-repixelized.png",
-        diagnostics_dir=scratch_dir / "ai-diag",
-        steps=args.steps,
-        device=args.device,
-    )
-    phase_field_engine_result = run_pipeline(
-        ai_input,
+    phase_field_result = run_pipeline(
+        source_input,
         scratch_dir / "badge-ai-phase-field-pinned.png",
-        target_width=args.engine_target_width,
-        target_height=args.engine_target_height,
-        phase_x=args.engine_phase_x,
-        phase_y=args.engine_phase_y,
-        diagnostics_dir=scratch_dir / "engine-phase-field-diag",
+        target_width=args.target_width,
+        target_height=args.target_height,
+        phase_x=args.phase_x,
+        phase_y=args.phase_y,
+        diagnostics_dir=scratch_dir / "phase-field-diag",
         steps=args.steps,
         device=args.device,
         enable_phase_rerank=False,
     )
 
-    vector_source = load_rgba(vector_input)
-    ai_source = load_rgba(ai_input)
-    vector_lanczos = lanczos_resize_baseline(vector_source, width=args.vector_target_size, height=args.vector_target_size)
-    ai_lanczos = lanczos_resize_baseline(
-        ai_source,
-        width=ai_result.inference.target_width,
-        height=ai_result.inference.target_height,
-    )
+    source_rgba = load_rgba(source_input)
+    lanczos = lanczos_resize_baseline(source_rgba, width=args.target_width, height=args.target_height)
 
-    save_rgba(scratch_dir / "badge-vector-lanczos.png", vector_lanczos)
-    save_rgba(scratch_dir / "badge-ai-lanczos.png", ai_lanczos)
+    save_rgba(scratch_dir / "badge-ai-lanczos.png", lanczos)
 
     panel_width = 320
     panel_height = 360
-    row_gap = 18
     col_gap = 18
     margin = 24
     row_title_height = 22
 
-    vector_panels = [
+    panels = [
         _render_panel(
             "Source",
-            rgba=vector_source,
-            pixelated=False,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle="Glossy badge art",
-        ),
-        _render_panel(
-            "Lanczos",
-            rgba=vector_lanczos,
-            pixelated=True,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle=f"{args.vector_target_size}x{args.vector_target_size} naive baseline",
-        ),
-        _render_panel(
-            "Phase-field",
-            rgba=vector_phase_field_result.output_rgba,
-            pixelated=True,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle=f"{args.vector_target_size}x{args.vector_target_size} pinned lattice",
-        ),
-    ]
-    ai_panels = [
-        _render_panel(
-            "Source",
-            rgba=ai_source,
+            rgba=source_rgba,
             pixelated=False,
             panel_width=panel_width,
             panel_height=panel_height,
@@ -371,103 +306,68 @@ def main() -> None:
         ),
         _render_panel(
             "Lanczos",
-            rgba=ai_lanczos,
+            rgba=lanczos,
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
-            subtitle=f"{args.engine_target_width}x{args.engine_target_height} naive baseline",
+            subtitle=f"{args.target_width}x{args.target_height} baseline",
         ),
         _render_panel(
             "Phase-field",
-            rgba=phase_field_engine_result.output_rgba,
+            rgba=phase_field_result.output_rgba,
             pixelated=True,
             panel_width=panel_width,
             panel_height=panel_height,
-            subtitle=f"{args.engine_target_width}x{args.engine_target_height} pinned lattice",
+            subtitle=f"{args.target_width}x{args.target_height} pinned lattice",
         ),
     ]
 
     guard_bbox = _cell_bbox_to_source_bbox(
         tuple(args.guard_cell_bbox),
-        source_width=ai_source.shape[1],
-        source_height=ai_source.shape[0],
-        target_width=ai_result.inference.target_width,
-        target_height=ai_result.inference.target_height,
+        source_width=source_rgba.shape[1],
+        source_height=source_rgba.shape[0],
+        target_width=args.target_width,
+        target_height=args.target_height,
     )
-    vector_guard_bbox = _cell_bbox_to_source_bbox(
-        tuple(args.guard_cell_bbox),
-        source_width=vector_source.shape[1],
-        source_height=vector_source.shape[0],
-        target_width=args.vector_target_size,
-        target_height=args.vector_target_size,
-    )
-    vector_guard_inset_bbox = _shrink_bbox_bottom_right(vector_guard_bbox, scale_x=0.5, scale_y=0.5)
-    vector_lanczos_preview = nearest_resize(vector_lanczos, width=vector_source.shape[1], height=vector_source.shape[0])
-    vector_phase_field_preview = nearest_resize(
-        vector_phase_field_result.output_rgba,
-        width=vector_source.shape[1],
-        height=vector_source.shape[0],
-    )
-    for panel in vector_panels:
+    guard_cell_inset_bbox = _shrink_bbox_bottom_right(tuple(args.guard_cell_bbox), scale_x=0.5, scale_y=0.5)
+    guard_inset_bbox = _shrink_bbox_bottom_right(guard_bbox, scale_x=0.5, scale_y=0.5)
+    for panel in panels:
         _draw_source_bbox(
             panel,
-            vector_guard_inset_bbox,
-            source_width=vector_source.shape[1],
-            source_height=vector_source.shape[0],
-        )
-    vector_crops = [
-        _crop_rgba(vector_source, vector_guard_inset_bbox),
-        _crop_rgba(vector_lanczos_preview, vector_guard_inset_bbox),
-        _crop_rgba(vector_phase_field_preview, vector_guard_inset_bbox),
-    ]
-    for panel, crop in zip(vector_panels, vector_crops, strict=True):
-        _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
-
-    ai_guard_cell_inset_bbox = _shrink_bbox_bottom_right(tuple(args.guard_cell_bbox), scale_x=0.5, scale_y=0.5)
-    ai_guard_inset_bbox = _shrink_bbox_bottom_right(guard_bbox, scale_x=0.5, scale_y=0.5)
-    for panel in ai_panels:
-        _draw_source_bbox(
-            panel,
-            ai_guard_inset_bbox,
-            source_width=ai_source.shape[1],
-            source_height=ai_source.shape[0],
+            guard_inset_bbox,
+            source_width=source_rgba.shape[1],
+            source_height=source_rgba.shape[0],
         )
 
     guard_strip = _build_guard_strip(
-        _crop_rgba(ai_source, guard_bbox),
-        _crop_rgba(ai_lanczos, tuple(args.guard_cell_bbox)),
-        _crop_rgba(phase_field_engine_result.output_rgba, tuple(args.guard_cell_bbox)),
+        _crop_rgba(source_rgba, guard_bbox),
+        _crop_rgba(lanczos, tuple(args.guard_cell_bbox)),
+        _crop_rgba(phase_field_result.output_rgba, tuple(args.guard_cell_bbox)),
         title=None,
     )
     guard_strip.save(out_guard_crop)
-    ai_crops = [
-        _crop_rgba(ai_source, ai_guard_inset_bbox),
-        _crop_rgba(ai_lanczos, ai_guard_cell_inset_bbox),
-        _crop_rgba(phase_field_engine_result.output_rgba, ai_guard_cell_inset_bbox),
+    inset_crops = [
+        _crop_rgba(source_rgba, guard_inset_bbox),
+        _crop_rgba(lanczos, guard_cell_inset_bbox),
+        _crop_rgba(phase_field_result.output_rgba, guard_cell_inset_bbox),
     ]
-    for panel, crop in zip(ai_panels, ai_crops, strict=True):
+    for panel, crop in zip(panels, inset_crops, strict=True):
         _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
     width = margin * 2 + panel_width * 3 + col_gap * 2
-    height = margin * 2 + row_title_height * 2 + panel_height * 2 + row_gap
+    height = margin * 2 + row_title_height + panel_height
     canvas = Image.new("RGBA", (width, height), (11, 11, 13, 255))
     draw = ImageDraw.Draw(canvas)
-    draw.text((margin, margin - 2), "Non-pixel source -> 128x128 pinned lattice", fill=(255, 255, 255, 255))
     draw.text(
-        (margin, margin + row_title_height + panel_height + row_gap - 2),
-        f"AI fake pixel art -> {args.engine_target_width}x{args.engine_target_height} pinned lattice @ ({args.engine_phase_x:.1f}, {args.engine_phase_y:.1f})",
+        (margin, margin - 2),
+        f"AI fake pixel art -> {args.target_width}x{args.target_height} pinned lattice @ ({args.phase_x:.1f}, {args.phase_y:.1f})",
         fill=(255, 255, 255, 255),
     )
 
     row1_y = margin + row_title_height
-    row2_y = row1_y + panel_height + row_gap + row_title_height
     x = margin
-    for panel in vector_panels:
+    for panel in panels:
         canvas.alpha_composite(panel.image, (x, row1_y))
-        x += panel_width + col_gap
-    x = margin
-    for panel in ai_panels:
-        canvas.alpha_composite(panel.image, (x, row2_y))
         x += panel_width + col_gap
 
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
@@ -476,20 +376,14 @@ def main() -> None:
     _save_summary(
         scratch_dir / "readme-preview-summary.json",
         {
-            "vector_input": str(vector_input),
-            "ai_input": str(ai_input),
-            "vector_target_size": args.vector_target_size,
-            "ai_inferred_width": ai_result.inference.target_width,
-            "ai_inferred_height": ai_result.inference.target_height,
+            "input": str(source_input),
             "guard_cell_bbox": list(args.guard_cell_bbox),
-            "vector_guard_source_bbox": list(vector_guard_bbox),
-            "vector_guard_inset_source_bbox": list(vector_guard_inset_bbox),
             "guard_source_bbox": list(guard_bbox),
-            "ai_guard_inset_source_bbox": list(ai_guard_inset_bbox),
-            "engine_target_width": args.engine_target_width,
-            "engine_target_height": args.engine_target_height,
-            "engine_phase_x": args.engine_phase_x,
-            "engine_phase_y": args.engine_phase_y,
+            "guard_inset_source_bbox": list(guard_inset_bbox),
+            "target_width": args.target_width,
+            "target_height": args.target_height,
+            "phase_x": args.phase_x,
+            "phase_y": args.phase_y,
             "out_sheet": str(out_sheet),
             "out_guard_crop": str(out_guard_crop),
             "scratch_dir": str(scratch_dir),
