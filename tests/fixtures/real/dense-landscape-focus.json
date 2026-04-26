@@ -1,0 +1,10 @@
+{
+  "description": "Focused preview crop for the dense fixed-512 landscape row. Use this when comparing high-density detail retention against Lanczos and when checking the known size-inference miss.",
+  "input": "tests/fixtures/real/dense-landscape.png",
+  "fixed_output": "tests/fixtures/real/dense-landscape-fixed-512.png",
+  "auto_inferred_width": 251,
+  "auto_inferred_height": 251,
+  "target_width": 512,
+  "target_height": 512,
+  "cell_bbox": [160, 200, 280, 320]
+}

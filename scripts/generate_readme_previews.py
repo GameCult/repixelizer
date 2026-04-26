@@ -19,6 +19,21 @@ class RenderedPanel:
     content_box: tuple[int, int, int, int]
 
 
+@dataclass(slots=True)
+class PreviewRow:
+    row_id: str
+    title: str
+    source_rgba: np.ndarray
+    source_subtitle: str
+    lanczos_rgba: np.ndarray
+    lanczos_subtitle: str
+    phase_field_rgba: np.ndarray
+    phase_field_subtitle: str
+    target_width: int
+    target_height: int
+    focus_cell_bbox: tuple[int, int, int, int]
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Regenerate the README comparison sheet and closeups from repo fixtures.")
     parser.add_argument(
@@ -42,12 +57,30 @@ def _parse_args() -> argparse.Namespace:
         help="Directory for intermediate low-res outputs and diagnostics.",
     )
     parser.add_argument(
+        "--dense-input",
+        default="tests/fixtures/real/dense-landscape.png",
+        help="Dense high-resolution pixel-art source used for the second README row.",
+    )
+    parser.add_argument(
+        "--dense-phase-field-output",
+        default="tests/fixtures/real/dense-landscape-fixed-512.png",
+        help="Tracked fixed-lattice phase-field output used for the dense landscape row.",
+    )
+    parser.add_argument(
         "--guard-cell-bbox",
         nargs=4,
         type=int,
         default=(73, 20, 107, 44),
         metavar=("X0", "Y0", "X1", "Y1"),
         help="Sword-guard crop bounds in output-grid cell coordinates for the AI row.",
+    )
+    parser.add_argument(
+        "--dense-focus-cell-bbox",
+        nargs=4,
+        type=int,
+        default=(160, 200, 280, 320),
+        metavar=("X0", "Y0", "X1", "Y1"),
+        help="Focus crop bounds in output-grid cell coordinates for the dense landscape row.",
     )
     parser.add_argument(
         "--target-width",
@@ -72,6 +105,30 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=-0.2,
         help="Pinned lattice phase Y for the canonical badge comparison.",
+    )
+    parser.add_argument(
+        "--dense-target-width",
+        type=int,
+        default=512,
+        help="Pinned target width for the dense landscape comparison.",
+    )
+    parser.add_argument(
+        "--dense-target-height",
+        type=int,
+        default=512,
+        help="Pinned target height for the dense landscape comparison.",
+    )
+    parser.add_argument(
+        "--dense-auto-inferred-width",
+        type=int,
+        default=251,
+        help="Current automatic lattice width guess for the dense landscape case.",
+    )
+    parser.add_argument(
+        "--dense-auto-inferred-height",
+        type=int,
+        default=251,
+        help="Current automatic lattice height guess for the dense landscape case.",
     )
     parser.add_argument("--steps", type=int, default=48, help="Optimizer step budget for both runs.")
     parser.add_argument("--device", default="cpu", choices=("auto", "cpu", "cuda"), help="Torch device for generation.")
@@ -260,12 +317,72 @@ def _save_summary(path: Path, payload: dict[str, object]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _build_row_panels(
+    row: PreviewRow,
+    *,
+    panel_width: int,
+    panel_height: int,
+    inset_width: int = 139,
+    inset_height: int = 103,
+) -> tuple[list[RenderedPanel], tuple[int, int, int, int]]:
+    panels = [
+        _render_panel(
+            "Source",
+            rgba=row.source_rgba,
+            pixelated=False,
+            panel_width=panel_width,
+            panel_height=panel_height,
+            subtitle=row.source_subtitle,
+        ),
+        _render_panel(
+            "Lanczos",
+            rgba=row.lanczos_rgba,
+            pixelated=True,
+            panel_width=panel_width,
+            panel_height=panel_height,
+            subtitle=row.lanczos_subtitle,
+        ),
+        _render_panel(
+            "Phase-field",
+            rgba=row.phase_field_rgba,
+            pixelated=True,
+            panel_width=panel_width,
+            panel_height=panel_height,
+            subtitle=row.phase_field_subtitle,
+        ),
+    ]
+    focus_source_bbox = _cell_bbox_to_source_bbox(
+        row.focus_cell_bbox,
+        source_width=row.source_rgba.shape[1],
+        source_height=row.source_rgba.shape[0],
+        target_width=row.target_width,
+        target_height=row.target_height,
+    )
+    for panel in panels:
+        _draw_source_bbox(
+            panel,
+            focus_source_bbox,
+            source_width=row.source_rgba.shape[1],
+            source_height=row.source_rgba.shape[0],
+        )
+    inset_crops = [
+        _crop_rgba(row.source_rgba, focus_source_bbox),
+        _crop_rgba(row.lanczos_rgba, row.focus_cell_bbox),
+        _crop_rgba(row.phase_field_rgba, row.focus_cell_bbox),
+    ]
+    for panel, crop in zip(panels, inset_crops, strict=True):
+        _add_pip_inset(panel, _build_pip_inset(crop, width=inset_width, height=inset_height), margin_x=4, margin_y=4)
+    return panels, focus_source_bbox
+
+
 def main() -> None:
     args = _parse_args()
     scratch_dir = Path(args.scratch_dir)
     scratch_dir.mkdir(parents=True, exist_ok=True)
 
     source_input = Path(args.input)
+    dense_input = Path(args.dense_input)
+    dense_phase_field_output = Path(args.dense_phase_field_output)
     out_sheet = Path(args.out_sheet)
     out_guard_crop = Path(args.out_guard_crop)
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
@@ -286,41 +403,69 @@ def main() -> None:
 
     source_rgba = load_rgba(source_input)
     lanczos = lanczos_resize_baseline(source_rgba, width=args.target_width, height=args.target_height)
+    dense_source_rgba = load_rgba(dense_input)
+    dense_phase_field_rgba = load_rgba(dense_phase_field_output)
+    dense_lanczos = lanczos_resize_baseline(
+        dense_source_rgba,
+        width=args.dense_target_width,
+        height=args.dense_target_height,
+    )
 
     save_rgba(scratch_dir / "badge-ai-lanczos.png", lanczos)
+    save_rgba(scratch_dir / "dense-landscape-lanczos-512.png", dense_lanczos)
 
     panel_width = 320
     panel_height = 360
     col_gap = 18
     margin = 24
     row_title_height = 22
+    row_gap = 20
 
-    panels = [
-        _render_panel(
-            "Source",
-            rgba=source_rgba,
-            pixelated=False,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle="Cleaned AI fake pixel art",
+    badge_focus_cell_bbox = _shrink_bbox_bottom_right(
+        tuple(args.guard_cell_bbox),
+        scale_x=0.5,
+        scale_y=0.5,
+    )
+    rows = [
+        PreviewRow(
+            row_id="badge",
+            title=f"AI fake pixel art -> {args.target_width}x{args.target_height} pinned lattice @ ({args.phase_x:.1f}, {args.phase_y:.1f})",
+            source_rgba=source_rgba,
+            source_subtitle="Cleaned AI fake pixel art",
+            lanczos_rgba=lanczos,
+            lanczos_subtitle=f"{args.target_width}x{args.target_height} baseline",
+            phase_field_rgba=phase_field_result.output_rgba,
+            phase_field_subtitle=f"{args.target_width}x{args.target_height} pinned lattice",
+            target_width=args.target_width,
+            target_height=args.target_height,
+            focus_cell_bbox=badge_focus_cell_bbox,
         ),
-        _render_panel(
-            "Lanczos",
-            rgba=lanczos,
-            pixelated=True,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle=f"{args.target_width}x{args.target_height} baseline",
-        ),
-        _render_panel(
-            "Phase-field",
-            rgba=phase_field_result.output_rgba,
-            pixelated=True,
-            panel_width=panel_width,
-            panel_height=panel_height,
-            subtitle=f"{args.target_width}x{args.target_height} pinned lattice",
+        PreviewRow(
+            row_id="dense-landscape",
+            title=(
+                "Dense 1254px pixel art -> auto inference "
+                f"{args.dense_auto_inferred_width}x{args.dense_auto_inferred_height}; "
+                f"fixed {args.dense_target_width}x{args.dense_target_height} shown"
+            ),
+            source_rgba=dense_source_rgba,
+            source_subtitle=f"{dense_source_rgba.shape[1]}px source",
+            lanczos_rgba=dense_lanczos,
+            lanczos_subtitle=f"{args.dense_target_width}x{args.dense_target_height} baseline",
+            phase_field_rgba=dense_phase_field_rgba,
+            phase_field_subtitle=f"fixed {args.dense_target_width}x{args.dense_target_height} lattice",
+            target_width=args.dense_target_width,
+            target_height=args.dense_target_height,
+            focus_cell_bbox=tuple(args.dense_focus_cell_bbox),
         ),
     ]
+    built_rows: list[tuple[PreviewRow, list[RenderedPanel], tuple[int, int, int, int]]] = []
+    for row in rows:
+        panels, focus_source_bbox = _build_row_panels(
+            row,
+            panel_width=panel_width,
+            panel_height=panel_height,
+        )
+        built_rows.append((row, panels, focus_source_bbox))
 
     guard_bbox = _cell_bbox_to_source_bbox(
         tuple(args.guard_cell_bbox),
@@ -329,16 +474,6 @@ def main() -> None:
         target_width=args.target_width,
         target_height=args.target_height,
     )
-    guard_cell_inset_bbox = _shrink_bbox_bottom_right(tuple(args.guard_cell_bbox), scale_x=0.5, scale_y=0.5)
-    guard_inset_bbox = _shrink_bbox_bottom_right(guard_bbox, scale_x=0.5, scale_y=0.5)
-    for panel in panels:
-        _draw_source_bbox(
-            panel,
-            guard_inset_bbox,
-            source_width=source_rgba.shape[1],
-            source_height=source_rgba.shape[0],
-        )
-
     guard_strip = _build_guard_strip(
         _crop_rgba(source_rgba, guard_bbox),
         _crop_rgba(lanczos, tuple(args.guard_cell_bbox)),
@@ -346,29 +481,21 @@ def main() -> None:
         title=None,
     )
     guard_strip.save(out_guard_crop)
-    inset_crops = [
-        _crop_rgba(source_rgba, guard_inset_bbox),
-        _crop_rgba(lanczos, guard_cell_inset_bbox),
-        _crop_rgba(phase_field_result.output_rgba, guard_cell_inset_bbox),
-    ]
-    for panel, crop in zip(panels, inset_crops, strict=True):
-        _add_pip_inset(panel, _build_pip_inset(crop, width=139, height=103), margin_x=4, margin_y=4)
 
     width = margin * 2 + panel_width * 3 + col_gap * 2
-    height = margin * 2 + row_title_height + panel_height
+    row_block_height = row_title_height + panel_height
+    height = margin * 2 + row_block_height * len(built_rows) + row_gap * max(0, len(built_rows) - 1)
     canvas = Image.new("RGBA", (width, height), (11, 11, 13, 255))
     draw = ImageDraw.Draw(canvas)
-    draw.text(
-        (margin, margin - 2),
-        f"AI fake pixel art -> {args.target_width}x{args.target_height} pinned lattice @ ({args.phase_x:.1f}, {args.phase_y:.1f})",
-        fill=(255, 255, 255, 255),
-    )
-
-    row1_y = margin + row_title_height
-    x = margin
-    for panel in panels:
-        canvas.alpha_composite(panel.image, (x, row1_y))
-        x += panel_width + col_gap
+    row_y = margin
+    for row, panels, _focus_source_bbox in built_rows:
+        draw.text((margin, row_y - 2), row.title, fill=(255, 255, 255, 255))
+        panel_y = row_y + row_title_height
+        x = margin
+        for panel in panels:
+            canvas.alpha_composite(panel.image, (x, panel_y))
+            x += panel_width + col_gap
+        row_y += row_block_height + row_gap
 
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_sheet)
@@ -376,14 +503,22 @@ def main() -> None:
     _save_summary(
         scratch_dir / "readme-preview-summary.json",
         {
-            "input": str(source_input),
+            "rows": [
+                {
+                    "row_id": row.row_id,
+                    "title": row.title,
+                    "target_width": row.target_width,
+                    "target_height": row.target_height,
+                    "focus_cell_bbox": list(row.focus_cell_bbox),
+                    "focus_source_bbox": list(focus_source_bbox),
+                }
+                for row, _panels, focus_source_bbox in built_rows
+            ],
+            "badge_input": str(source_input),
+            "dense_input": str(dense_input),
+            "dense_phase_field_output": str(dense_phase_field_output),
             "guard_cell_bbox": list(args.guard_cell_bbox),
             "guard_source_bbox": list(guard_bbox),
-            "guard_inset_source_bbox": list(guard_inset_bbox),
-            "target_width": args.target_width,
-            "target_height": args.target_height,
-            "phase_x": args.phase_x,
-            "phase_y": args.phase_y,
             "out_sheet": str(out_sheet),
             "out_guard_crop": str(out_guard_crop),
             "scratch_dir": str(scratch_dir),

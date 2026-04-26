@@ -1,0 +1,22 @@
+{
+  "id": "dense-landscape",
+  "kind": "real-high-density-pixel-landscape",
+  "description": "Dense high-resolution landscape fixture used for README previews and lattice-size inference regressions.",
+  "source_image": "D:\\Downloads\\ig_00e36939ddfb2c0b0169eb80e9f29481919f784bbedd0dbd45.png",
+  "paired_phase_field_output": "tests/fixtures/real/dense-landscape-fixed-512.png",
+  "expected_target_width": 512,
+  "expected_target_height": 512,
+  "auto_inference_snapshot": {
+    "date": "2026-04-26",
+    "target_width": 251,
+    "target_height": 251,
+    "phase_x": 0.0,
+    "phase_y": -0.2
+  },
+  "preview_focus_cell_bbox": [160, 200, 280, 320],
+  "notes": [
+    "Use this when testing dense higher-resolution pixel art that already has a coherent lattice but still fools the current size inference search.",
+    "The tracked phase-field output was produced from a fixed 512x512 lattice and is kept around so README preview generation does not depend on rerunning that exact pass.",
+    "The current automatic lattice guess on the source fixture undershoots badly at 251x251, which makes this a useful regression case for future inference work."
+  ]
+}

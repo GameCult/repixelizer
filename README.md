@@ -39,12 +39,13 @@ If you want to support the official hosted deployment and help us scale the poor
 
 ## Example
 
-This badge sheet is the whole pitch in one image: same ugly fake-pixel source,
-same target grid, same cheap Lanczos baseline, and one `phase-field` result
-that finally commits to the lattice.
+This sheet carries two cases: the ugly fake-pixel badge and a dense
+higher-resolution landscape. The badge row shows the core salvage story. The
+landscape row shows a different failure mode: auto lattice inference still
+undershoots that source badly, so the `phase-field` panel is the tracked fixed
+`512x512` result next to the same cheap Lanczos baseline.
 
-Each panel also carries the same sword-guard inset, so the nasty little taper
-problem has nowhere to hide.
+Each row carries its own inset, so the tiny details have nowhere to hide.
 
 ![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
@@ -192,10 +193,12 @@ Run the focused test suite with:
 ## Regenerating README Assets
 
 The README images are generated from repo-tracked fixtures, not from random
-artifacts left lying around:
+artifacts left lying around. The dense landscape row reuses the tracked fixed
+`512x512` output fixture because auto lattice inference still undershoots that
+case:
 
 ```powershell
-.venv\Scripts\python scripts\generate_readme_previews.py --input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
+.venv\Scripts\python scripts\generate_readme_previews.py --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
 ```
 
 That regenerates the main README sheet, the standalone sword-guard closeup
