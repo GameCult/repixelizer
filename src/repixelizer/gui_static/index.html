@@ -97,8 +97,14 @@
                 <p class="copy-tag">Pencil the stragglers. Wheel zooms to cursor, middle mouse pans, Alt steals color.</p>
               </div>
               <div class="editor-actions">
-                <button id="resetEditorButton" class="button button-small button-secondary" type="button">Reset Output</button>
-                <button id="downloadButton" class="button button-small" type="button">Export PNG</button>
+                <div id="editorCanvasSizeCard" class="info-card editor-canvas-card">
+                  <strong>Canvas</strong>
+                  <span id="editorCanvasSizeValue">n/a</span>
+                </div>
+                <div class="editor-button-group">
+                  <button id="resetEditorButton" class="button button-small button-secondary" type="button">Reset Output</button>
+                  <button id="downloadButton" class="button button-small" type="button">Export PNG</button>
+                </div>
               </div>
             </div>
 
@@ -139,12 +145,6 @@
               <div class="checkerboard editor-surface ui-surface ui-frame" id="editorSurface">
                 <canvas id="editorCanvas"></canvas>
                 <canvas id="editorGridCanvas"></canvas>
-              </div>
-              <div class="editor-meta">
-                <div id="editorMeta" class="info-stack">
-                  <p class="muted">Final output lands here once the solver finishes its little pilgrimage.</p>
-                </div>
-                <div id="summaryPanel" class="summary-panel"></div>
               </div>
             </div>
           </section>

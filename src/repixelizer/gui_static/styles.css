@@ -191,8 +191,6 @@ p {
 .sidebar,
 .workspace,
 .sidebar-section,
-.editor-meta,
-.summary-panel,
 .candidate-list,
 .event-log,
 .info-stack {
@@ -207,7 +205,6 @@ p {
 
 .sidebar,
 .sidebar-section,
-.summary-panel,
 .candidate-list,
 .event-log,
 .info-stack,
@@ -865,6 +862,25 @@ select.field-control optgroup {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  margin-left: auto;
+}
+
+.editor-button-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.editor-canvas-card {
+  min-width: 148px;
+  padding: 10px 12px;
+}
+
+.editor-canvas-card span {
+  color: var(--ui-text-bright);
+  font-variant-numeric: tabular-nums;
 }
 
 .editor-toolbar {
@@ -968,10 +984,7 @@ select.field-control optgroup {
 }
 
 .editor-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 290px;
-  gap: 12px;
-  align-items: start;
+  display: block;
 }
 
 .checkerboard {
@@ -1009,10 +1022,6 @@ select.field-control optgroup {
 
 #editorGridCanvas {
   pointer-events: none;
-}
-
-.summary-panel {
-  align-content: start;
 }
 
 input[type="range"] {
@@ -1092,6 +1101,10 @@ select:focus-visible {
   }
 
   .button {
+    width: 100%;
+  }
+
+  .editor-button-group {
     width: 100%;
   }
 

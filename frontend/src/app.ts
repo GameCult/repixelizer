@@ -140,7 +140,6 @@ type AppState = {
   cleanupImage: ImageAsset | null;
   heatmapImage: ImageAsset | null;
   finalOutputImage: ImageAsset | null;
-  runSummary: JsonRecord | null;
   runtimeConfig: RuntimeConfig | null;
   queueSummary: QueueSummary | null;
   queuePosition: number | null;
@@ -201,8 +200,7 @@ const gridToggle = byId<HTMLInputElement>("gridToggle");
 const editorCanvas = byId<HTMLCanvasElement>("editorCanvas");
 const editorGridCanvas = byId<HTMLCanvasElement>("editorGridCanvas");
 const editorSurface = byId<HTMLDivElement>("editorSurface");
-const editorMeta = byId<HTMLDivElement>("editorMeta");
-const summaryPanel = byId<HTMLDivElement>("summaryPanel");
+const editorCanvasSizeValue = byId<HTMLSpanElement>("editorCanvasSizeValue");
 const resetEditorButton = byId<HTMLButtonElement>("resetEditorButton");
 const downloadButton = byId<HTMLButtonElement>("downloadButton");
 
@@ -277,7 +275,6 @@ const state: AppState = {
   cleanupImage: null,
   heatmapImage: null,
   finalOutputImage: null,
-  runSummary: null,
   runtimeConfig: null,
   queueSummary: null,
   queuePosition: null,
@@ -524,7 +521,6 @@ function resetRunArtifacts(options: { preserveSourceImage?: boolean } = {}): voi
   state.cleanupImage = null;
   state.heatmapImage = null;
   state.finalOutputImage = null;
-  state.runSummary = null;
   state.queuePosition = null;
   state.queueDepth = 0;
   state.waitingCount = 0;
@@ -668,17 +664,6 @@ async function fileToImageAsset(file: File): Promise<ImageAsset> {
     width: image.naturalWidth || 1,
     height: image.naturalHeight || 1,
   };
-}
-
-function readNestedNumber(root: JsonRecord | null, path: string[]): number | null {
-  let current: unknown = root;
-  for (const key of path) {
-    if (!current || typeof current !== "object" || !(key in current)) {
-      return null;
-    }
-    current = (current as JsonRecord)[key];
-  }
-  return typeof current === "number" ? current : null;
 }
 
 function formatNumber(value: number | null, digits = 3): string {
@@ -856,27 +841,6 @@ function renderStatusMetrics(): void {
     items.push(...solverTerms);
   }
   renderStatusMetricItems(items);
-}
-
-function renderSummary(): void {
-  summaryPanel.innerHTML = "";
-  if (!state.runSummary) {
-    summaryPanel.innerHTML = `<p class="muted">Final metrics show up here after the run finishes.</p>`;
-    return;
-  }
-  const entries: Array<[string, number | null]> = [
-    ["Structure score", readNestedNumber(state.runSummary, ["source_structure", "score"])],
-    ["Edge F1", readNestedNumber(state.runSummary, ["source_structure", "edge_f1"])],
-    ["Exact match", readNestedNumber(state.runSummary, ["source_structure", "exact_match_ratio"])],
-    ["Final fidelity", readNestedNumber(state.runSummary, ["source_fidelity", "final_output", "score"])],
-    ["Mean displacement", readNestedNumber(state.runSummary, ["optimizer_displacement", "final_output", "mean_magnitude_px"])],
-  ];
-  for (const [label, value] of entries) {
-    const card = document.createElement("div");
-    card.className = "info-card summary-card";
-    card.innerHTML = `<strong>${label}</strong><span>${formatNumber(value, 3)}</span>`;
-    summaryPanel.appendChild(card);
-  }
 }
 
 function resolveViewerPanels(): Record<ViewerPanelKey, ViewerPanelState> {
@@ -1199,7 +1163,7 @@ function renderEditor(): void {
     editorCanvas.height = 1;
     editorGridCanvas.width = 1;
     editorGridCanvas.height = 1;
-    editorMeta.innerHTML = `<p class="muted">Final output lands here once the solver finishes its little pilgrimage.</p>`;
+    editorCanvasSizeValue.textContent = "n/a";
     return;
   }
   const width = offscreenCanvas.width * state.zoom;
@@ -1233,17 +1197,7 @@ function renderEditor(): void {
       gridContext.stroke();
     }
   }
-
-  editorMeta.innerHTML = `
-    <div class="info-card summary-card">
-      <strong>Canvas</strong>
-      <span>${offscreenCanvas.width} x ${offscreenCanvas.height}</span>
-    </div>
-    <div class="info-card summary-card">
-      <strong>State</strong>
-      <span>${state.editorDirty ? "Edited" : "Matches solver output"}</span>
-    </div>
-  `;
+  editorCanvasSizeValue.textContent = `${offscreenCanvas.width} x ${offscreenCanvas.height}`;
 }
 
 function setZoom(nextZoom: number, anchor: ViewportAnchor | null = null): void {
@@ -1460,9 +1414,6 @@ function applyJobSnapshot(snapshot: Partial<JobStateSnapshot>): void {
   if (typeof snapshot.status === "string") {
     setJobState(snapshot.status);
   }
-  if (snapshot.runSummary && typeof snapshot.runSummary === "object") {
-    state.runSummary = snapshot.runSummary;
-  }
 }
 
 async function sendHeartbeat(): Promise<void> {
@@ -1571,7 +1522,6 @@ async function renderEverything(): Promise<void> {
   renderInference();
   renderStatusMetrics();
   renderLossChart();
-  renderSummary();
   await renderViewer();
 }
 
@@ -1813,7 +1763,6 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
       break;
     case "pipeline_completed":
       state.finalOutputImage = payload.outputImage as ImageAsset;
-      state.runSummary = (payload.runSummary as JsonRecord | null) ?? null;
       stopHeartbeat();
       setJobState("completed");
       setStage("completed", "Run complete", "The output is ready. If the machine still did something stupid, fix it pixel by pixel.");

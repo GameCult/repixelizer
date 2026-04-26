@@ -33,8 +33,7 @@ const gridToggle = byId("gridToggle");
 const editorCanvas = byId("editorCanvas");
 const editorGridCanvas = byId("editorGridCanvas");
 const editorSurface = byId("editorSurface");
-const editorMeta = byId("editorMeta");
-const summaryPanel = byId("summaryPanel");
+const editorCanvasSizeValue = byId("editorCanvasSizeValue");
 const resetEditorButton = byId("resetEditorButton");
 const downloadButton = byId("downloadButton");
 const targetSizeInput = byId("targetSizeInput");
@@ -105,7 +104,6 @@ const state = {
     cleanupImage: null,
     heatmapImage: null,
     finalOutputImage: null,
-    runSummary: null,
     runtimeConfig: null,
     queueSummary: null,
     queuePosition: null,
@@ -336,7 +334,6 @@ function resetRunArtifacts(options = {}) {
     state.cleanupImage = null;
     state.heatmapImage = null;
     state.finalOutputImage = null;
-    state.runSummary = null;
     state.queuePosition = null;
     state.queueDepth = 0;
     state.waitingCount = 0;
@@ -458,16 +455,6 @@ async function fileToImageAsset(file) {
         width: image.naturalWidth || 1,
         height: image.naturalHeight || 1,
     };
-}
-function readNestedNumber(root, path) {
-    let current = root;
-    for (const key of path) {
-        if (!current || typeof current !== "object" || !(key in current)) {
-            return null;
-        }
-        current = current[key];
-    }
-    return typeof current === "number" ? current : null;
 }
 function formatNumber(value, digits = 3) {
     if (value === null || !Number.isFinite(value)) {
@@ -634,26 +621,6 @@ function renderStatusMetrics() {
         items.push(...solverTerms);
     }
     renderStatusMetricItems(items);
-}
-function renderSummary() {
-    summaryPanel.innerHTML = "";
-    if (!state.runSummary) {
-        summaryPanel.innerHTML = `<p class="muted">Final metrics show up here after the run finishes.</p>`;
-        return;
-    }
-    const entries = [
-        ["Structure score", readNestedNumber(state.runSummary, ["source_structure", "score"])],
-        ["Edge F1", readNestedNumber(state.runSummary, ["source_structure", "edge_f1"])],
-        ["Exact match", readNestedNumber(state.runSummary, ["source_structure", "exact_match_ratio"])],
-        ["Final fidelity", readNestedNumber(state.runSummary, ["source_fidelity", "final_output", "score"])],
-        ["Mean displacement", readNestedNumber(state.runSummary, ["optimizer_displacement", "final_output", "mean_magnitude_px"])],
-    ];
-    for (const [label, value] of entries) {
-        const card = document.createElement("div");
-        card.className = "info-card summary-card";
-        card.innerHTML = `<strong>${label}</strong><span>${formatNumber(value, 3)}</span>`;
-        summaryPanel.appendChild(card);
-    }
 }
 function resolveViewerPanels() {
     const frame = getSelectedFrame();
@@ -949,7 +916,7 @@ function renderEditor() {
         editorCanvas.height = 1;
         editorGridCanvas.width = 1;
         editorGridCanvas.height = 1;
-        editorMeta.innerHTML = `<p class="muted">Final output lands here once the solver finishes its little pilgrimage.</p>`;
+        editorCanvasSizeValue.textContent = "n/a";
         return;
     }
     const width = offscreenCanvas.width * state.zoom;
@@ -982,16 +949,7 @@ function renderEditor() {
             gridContext.stroke();
         }
     }
-    editorMeta.innerHTML = `
-    <div class="info-card summary-card">
-      <strong>Canvas</strong>
-      <span>${offscreenCanvas.width} x ${offscreenCanvas.height}</span>
-    </div>
-    <div class="info-card summary-card">
-      <strong>State</strong>
-      <span>${state.editorDirty ? "Edited" : "Matches solver output"}</span>
-    </div>
-  `;
+    editorCanvasSizeValue.textContent = `${offscreenCanvas.width} x ${offscreenCanvas.height}`;
 }
 function setZoom(nextZoom, anchor = null) {
     const clampedZoom = clampZoom(nextZoom);
@@ -1189,9 +1147,6 @@ function applyJobSnapshot(snapshot) {
     if (typeof snapshot.status === "string") {
         setJobState(snapshot.status);
     }
-    if (snapshot.runSummary && typeof snapshot.runSummary === "object") {
-        state.runSummary = snapshot.runSummary;
-    }
 }
 async function sendHeartbeat() {
     if (!state.jobId || !hasActiveJob()) {
@@ -1295,7 +1250,6 @@ async function renderEverything() {
     renderInference();
     renderStatusMetrics();
     renderLossChart();
-    renderSummary();
     await renderViewer();
 }
 async function handleEvent(eventName, payload) {
@@ -1498,7 +1452,6 @@ async function handleEvent(eventName, payload) {
             break;
         case "pipeline_completed":
             state.finalOutputImage = payload.outputImage;
-            state.runSummary = payload.runSummary ?? null;
             stopHeartbeat();
             setJobState("completed");
             setStage("completed", "Run complete", "The output is ready. If the machine still did something stupid, fix it pixel by pixel.");
