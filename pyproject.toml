@@ -16,6 +16,7 @@ dependencies = [
   "fastapi>=0.115.0",
   "numpy>=2.1.0",
   "Pillow>=10.4.0",
+  "PyJWT[crypto]>=2.10.1",
   "python-multipart>=0.0.9",
   "torch>=2.6.0",
   "uvicorn>=0.30.0"

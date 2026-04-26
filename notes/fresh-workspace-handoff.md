@@ -30,7 +30,8 @@ Do not trust this file for the exact live HEAD. Always check git.
 - The live pipeline is `source -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
 - searched lattice inference now trusts autocorrelation only; it keeps a tiny near-best lag plateau and looks for cross-axis consensus before collapsing to one lattice family. the old change-interval / pixel-walk sizing path was cut after it kept steering the badge away from the `126` family, and the projected edge-energy spectral pass was also removed after floor-hugging to 2px / 626-family aliases on the dense landscape fixture
 - hosted demo inference now uses one direct autocorr-consensus size plus the cheap inferred phase, capped by the hosted output limit. it no longer silently pins unspecified jobs to `max_output_dimension`
-- hosted web access now has an explicit seam in `src/repixelizer/access.py`; `src/repixelizer/gui.py` binds request subjects, guards hosted routes, and stamps queued jobs with local owner metadata for future Heimdall wiring
+- hosted web access now has an explicit seam in `src/repixelizer/access.py`; `src/repixelizer/gui.py` binds request subjects, guards hosted routes, and stamps queued jobs with local owner metadata
+- `GC_ACCESS_MODE=heimdall` is now landed in that web layer: Repixelizer creates auth attempts, asks Heimdall to start provider OAuth, accepts the direct backend callback, verifies Heimdall Ed25519 access tokens locally, and adopts an httpOnly local session cookie
 - The low-confidence phase rerank path is a short preview solve, not a second full optimizer.
 - the phase field now has a wider displacement budget, so moderate phase mistakes are allowed to get corrected by the field instead of relying purely on rerank ceremony
 - Cleanup is secondary and usually a no-op; the core result is supposed to come from the solver, not cleanup cosplay.
@@ -39,7 +40,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 - The old tray optimizer is dead and should stay dead unless the entire machine map changes for a real reason.
 - `E:\Projects\Heimdall\docs\architecture.md` is the future shared design for reusable GameCult-hosted access across experiments.
 - `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md` is the Repixelizer-specific binding onto that future shared access layer.
-- current hosted-demo truth lives in `src/repixelizer/gui.py`: queue and limit machinery, hosted direct-autocorr inference defaults, and a hosted-only landing page at `/` while self-host/local runs still redirect root straight to `/app/`.
+- current hosted-demo truth lives in `src/repixelizer/gui.py`: queue and limit machinery, hosted direct-autocorr inference defaults, provider-start / callback / adopt / logout auth routes, and a hosted-only landing page at `/` while self-host/local runs still redirect root straight to `/app/`.
 - product strategy is hosted convenience first: keep the code open, let self-hosters suffer voluntarily, and do not burn time on native desktop packaging unless it clearly beats hosting on revenue, support, or strategy.
 
 ## Critical Doctrine
@@ -58,6 +59,7 @@ The current spine:
 - searched lattice inference currently trusts autocorrelation only, not the rejected pixel-walk or spectral priors
 - hosted demo inference uses the direct autocorr path and keeps phase rerank off
 - hosted route auth belongs in `src/repixelizer/access.py` + `src/repixelizer/gui.py`, not in the solver or pipeline
+- the first Heimdall consumer path is live there: provider buttons on the landing page, direct backend callback handoff, local JWT verification, and cookie adoption
 - low-confidence phase rerank through short preview reconstruction
 - edge analysis feeding one projected displacement-field optimizer with a wider displacement leash
 - nearest-source final sampling from `uv0_px + disp_t`
@@ -76,7 +78,7 @@ The exact current control flow is documented in
 - Do not let `state/evidence.jsonl` turn into an activity feed.
 - Do not restart broad exploratory surgery when the current weak spot is still one bounded tapered-contour blemish.
 - Do not drift into desktop-app fantasies just because the web GUI is nice now. The default commercial path is still hosted access.
-- Do not let future Heimdall work smear auth logic into `src/repixelizer/pipeline.py`, `src/repixelizer/inference.py`, or the solver stack. The seam is already in the hosted web layer; use it.
+- Do not let future Heimdall work smear auth logic into `src/repixelizer/pipeline.py`, `src/repixelizer/inference.py`, or the solver stack. The seam is already in the hosted web layer; keep using it.
 
 ## Verification Guardrails
 
@@ -114,11 +116,15 @@ sideways and starts calling itself architecture.
 
 Do not continue implementation automatically from a rehydrate-only request.
 
-If the user asks to continue, the current next move is to take one bounded
-hypothesis for tapered-contour behavior in `src/repixelizer/phase_field.py`,
-check it against the pinned badge case and
-`tests/fixtures/real/ai-badge-tip-focus.json`, and revert it if the visual
-result or `source_structure` does not clearly improve.
+If the user asks to continue, choose the branch deliberately:
+
+- auth branch: keep working only in `src/repixelizer/access.py` and
+  `src/repixelizer/gui.py` for bounded Heimdall polish such as provider
+  expansion, session UX, or persistence hardening
+- solver branch: take one bounded hypothesis for tapered-contour behavior in
+  `src/repixelizer/phase_field.py`, check it against the pinned badge case and
+  `tests/fixtures/real/ai-badge-tip-focus.json`, and revert it if the visual
+  result or `source_structure` does not clearly improve
 
 ## Immediate Re-entry Instruction
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import io
 import asyncio
+import base64
+import json
 import os
 import threading
 import time
@@ -11,6 +13,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 import pytest
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from starlette.datastructures import UploadFile
 from fastapi import HTTPException
 
@@ -81,6 +86,77 @@ def _png_bytes(*, width: int = 4, height: int = 4) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+def _json_bytes(payload: object) -> bytes:
+    return json.dumps(payload).encode("utf-8")
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _heimdall_signing_material() -> tuple[Ed25519PrivateKey, dict[str, str], str]:
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    key_id = "test-ed25519-1"
+    jwk = {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "x": _b64url(public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)),
+        "use": "sig",
+        "alg": "EdDSA",
+        "kid": key_id,
+    }
+    return private_key, jwk, key_id
+
+
+def _heimdall_access_token(
+    private_key: Ed25519PrivateKey,
+    *,
+    key_id: str,
+    issuer: str = "https://heimdall.gamecult.org",
+    app_slug: str = "repixelizer",
+    account_id: str = "acct-1",
+    session_id: str = "sess-1",
+    access_revision: int = 4,
+    display_name: str = "Meta",
+    capabilities: list[str] | None = None,
+    facts: list[str] | None = None,
+) -> str:
+    now = int(time.time())
+    return jwt.encode(
+        {
+            "iss": issuer,
+            "aud": app_slug,
+            "sub": account_id,
+            "sid": session_id,
+            "jti": "jti-test-1",
+            "iat": now,
+            "nbf": now,
+            "exp": now + 3600,
+            "typ": "heimdall_access",
+            "account_id": account_id,
+            "access_revision": access_revision,
+            "display_name": display_name,
+            "app": {
+                "slug": app_slug,
+                "profile_version": "test-profile-v1",
+            },
+            "facts": facts or ["entitlement.app_access"],
+            "capabilities": capabilities or ["app_access", "queue_submit", "job_read_own", "job_cancel_own"],
+            "identities": [
+                {
+                    "provider": "discord",
+                    "providerUserId": "123456789",
+                    "username": "meta",
+                }
+            ],
+        },
+        private_key,
+        algorithm="EdDSA",
+        headers={"kid": key_id},
+    )
 
 
 def _route_endpoint(app, path: str, method: str):
@@ -344,6 +420,27 @@ def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> Non
     assert 'href="/app/"' in html
 
 
+def test_gui_hosted_root_renders_heimdall_login_buttons(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+
+    app = create_app()
+    status, _headers, body = asyncio.run(_get_response(app, "/"))
+    html = body.decode("utf-8")
+
+    assert status == 200
+    assert "Login with Discord" in html
+    assert "Login with Patreon" in html
+    assert "/api/auth/heimdall/start" in html
+    assert "Hosted access will be gated through Heimdall once the auth pass lands." not in html
+
+
 def test_gui_hosted_app_redirects_to_landing_when_auth_required(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 
@@ -351,6 +448,23 @@ def test_gui_hosted_app_redirects_to_landing_when_auth_required(monkeypatch, tmp
     monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
     monkeypatch.setenv("GC_ACCESS_MODE", "trusted-header")
     monkeypatch.setenv("GC_ACCESS_REQUIRED", "1")
+
+    app = create_app()
+    status, headers, _body = asyncio.run(_get_response(app, "/app/"))
+
+    assert status in {302, 303, 307}
+    assert headers["location"] == "/"
+
+
+def test_gui_heimdall_mode_redirects_to_landing_without_session(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
 
     app = create_app()
     status, headers, _body = asyncio.run(_get_response(app, "/app/"))
@@ -555,6 +669,30 @@ def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: P
     assert payload["auth"]["mode"] == "off"
 
 
+def test_gui_hosted_config_endpoint_exposes_heimdall_auth_surface(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+
+    app = create_app()
+    payload = _response_json(_route_endpoint(app, "/api/config", "GET")())
+
+    assert payload["auth"]["enabled"] is True
+    assert payload["auth"]["mode"] == "heimdall"
+    assert payload["auth"]["loginUrl"] == "/"
+    assert payload["auth"]["logoutUrl"] == "/api/auth/logout"
+    assert payload["auth"]["startEndpoint"] == "/api/auth/heimdall/start"
+    assert payload["auth"]["providers"] == [
+        {"slug": "discord", "label": "Discord"},
+        {"slug": "patreon", "label": "Patreon"},
+    ]
+
+
 def test_gui_auth_session_endpoint_reports_anonymous_subject_by_default(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 
@@ -571,6 +709,136 @@ def test_gui_auth_session_endpoint_reports_anonymous_subject_by_default(monkeypa
     assert payload["subject"]["capabilities"] == sorted(
         ["admin_access", "app_access", "job_cancel_own", "job_read_own", "queue_submit"]
     )
+
+
+def test_gui_heimdall_callback_flow_adopts_local_cookie_session(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    private_key, jwk, key_id = _heimdall_signing_material()
+    start_calls: list[tuple[str, dict[str, object], float]] = []
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout_seconds: float):
+        start_calls.append((url, payload, timeout_seconds))
+        return {
+            "authorizationUrl": "https://discord.com/oauth2/authorize?state=test-state",
+            "stateExpiresAt": "2026-04-27T12:15:00.000Z",
+        }
+
+    def fake_fetch_json(url: str, *, timeout_seconds: float):
+        del timeout_seconds
+        assert url == "https://heimdall.gamecult.org/.well-known/jwks.json"
+        return {"keys": [jwk]}
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+    monkeypatch.setattr("repixelizer.access._post_json", fake_post_json)
+    monkeypatch.setattr("repixelizer.access._fetch_json", fake_fetch_json)
+
+    app = create_app()
+
+    start_status, _start_headers, start_body = asyncio.run(
+        _get_response(
+            app,
+            "/api/auth/heimdall/start",
+            method="POST",
+            headers={"content-type": "application/json"},
+            body=_json_bytes({"provider": "discord"}),
+        )
+    )
+    start_payload = _response_json(type("Response", (), {"body": start_body})())
+    attempt_id = start_payload["attemptId"]
+
+    assert start_status == 201
+    assert start_payload["authorizationUrl"] == "https://discord.com/oauth2/authorize?state=test-state"
+    assert start_calls
+    assert start_calls[0][0] == "https://heimdall.gamecult.org/v1/oauth/discord/start"
+    assert start_calls[0][1]["handoff"]["callbackUrl"] == "https://repixelizer.gamecult.org/api/auth/heimdall/callback"
+
+    pending_status, _pending_headers, pending_body = asyncio.run(_get_response(app, f"/api/auth/attempts/{attempt_id}"))
+    pending_payload = _response_json(type("Response", (), {"body": pending_body})())
+    assert pending_status == 200
+    assert pending_payload["status"] == "pending"
+
+    access_token = _heimdall_access_token(private_key, key_id=key_id)
+    callback_payload = {
+        "source": "heimdall",
+        "kind": "oauth_result",
+        "handoffKind": "backend_callback",
+        "attemptId": attempt_id,
+        "status": "success",
+        "provider": "discord",
+        "appSlug": "repixelizer",
+        "mode": "sign_in",
+        "returnTo": "https://repixelizer.gamecult.org/app/",
+        "account": {
+            "id": "acct-1",
+            "displayName": "Meta",
+        },
+        "session": {
+            "accountId": "acct-1",
+            "sessionId": "sess-1",
+            "appSlug": "repixelizer",
+            "accessRevision": 4,
+            "expiresAt": "2026-04-27T13:00:00.000Z",
+        },
+        "accessToken": access_token,
+        "claimSet": {},
+        "verification": {
+            "issuer": "https://heimdall.gamecult.org",
+            "jwksUri": "https://heimdall.gamecult.org/.well-known/jwks.json",
+            "alg": "EdDSA",
+            "kid": key_id,
+        },
+        "sharedCapabilities": ["app_access", "queue_submit"],
+        "hybridCapabilities": [],
+        "entitlements": {
+            "facts": ["entitlement.app_access"],
+            "snapshots": [],
+        },
+    }
+    callback_status, _callback_headers, _callback_body = asyncio.run(
+        _get_response(
+            app,
+            "/api/auth/heimdall/callback",
+            method="POST",
+            headers={"content-type": "application/json"},
+            body=_json_bytes(callback_payload),
+        )
+    )
+    assert callback_status == 204
+
+    completed_status, _completed_headers, completed_body = asyncio.run(_get_response(app, f"/api/auth/attempts/{attempt_id}"))
+    completed_payload = _response_json(type("Response", (), {"body": completed_body})())
+    assert completed_status == 200
+    assert completed_payload["status"] == "succeeded"
+    assert completed_payload["subject"]["accountId"] == "acct-1"
+
+    adopt_status, adopt_headers, adopt_body = asyncio.run(
+        _get_response(app, f"/api/auth/attempts/{attempt_id}/adopt", method="POST")
+    )
+    adopt_payload = _response_json(type("Response", (), {"body": adopt_body})())
+    assert adopt_status == 200
+    assert adopt_payload["status"] == "authenticated"
+    assert "set-cookie" in adopt_headers
+    assert "gc_access_token=" in adopt_headers["set-cookie"]
+    cookie_header = adopt_headers["set-cookie"].split(";", 1)[0]
+
+    session_status, _session_headers, session_body = asyncio.run(
+        _get_response(app, "/api/auth/session", headers={"cookie": cookie_header})
+    )
+    session_payload = _response_json(type("Response", (), {"body": session_body})())
+    assert session_status == 200
+    assert session_payload["subject"]["authenticated"] is True
+    assert session_payload["subject"]["accountId"] == "acct-1"
+    assert "app_access" in session_payload["subject"]["capabilities"]
+
+    app_status, app_headers, _app_body = asyncio.run(_get_response(app, "/app/", headers={"cookie": cookie_header}))
+    assert app_status == 200
+    assert app_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
 
 def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:

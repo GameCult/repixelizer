@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .access import AccessController, AccessDenied, bind_access_subject
+from .access import AccessController, AccessDenied, AccessOperationError, bind_access_subject
 from .diagnostics import _displacement_preview_rgba
 from .inference import inference_to_json
 from .observe import PipelineCancelled
@@ -26,7 +26,7 @@ from .types import InferenceResult, PaletteResult
 
 def _require_gui_dependencies():
     try:
-        from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+        from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
         from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:  # pragma: no cover - exercised only when GUI deps missing
@@ -38,6 +38,8 @@ def _require_gui_dependencies():
         "File": File,
         "Form": Form,
         "HTTPException": HTTPException,
+        "Request": Request,
+        "Response": Response,
         "UploadFile": UploadFile,
         "HTMLResponse": HTMLResponse,
         "JSONResponse": JSONResponse,
@@ -877,27 +879,62 @@ def _versioned_gui_index(static_dir: Path) -> str:
     return html
 
 
-def _landing_page_html(config: HostedDemoConfig, auth: dict[str, Any] | None = None) -> str:
+def _json_html(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":")).replace("<", "\\u003c")
+
+
+def _landing_page_html(
+    config: HostedDemoConfig,
+    auth: dict[str, Any] | None = None,
+    subject: dict[str, Any] | None = None,
+) -> str:
     demo_limits = (
         f"{config.max_output_dimension}px output cap, "
         f"{config.default_steps} default solver steps, "
         f"{config.queue_capacity} waiting slots"
     )
-    auth_enabled = bool(auth and auth.get("enabled"))
-    login_url = None if auth is None else auth.get("loginUrl")
-    primary_href = login_url or "/app/"
-    primary_label = "Sign in to the demo" if auth_enabled else "Open the demo"
+    auth_payload = auth or {}
+    subject_payload = subject or {
+        "authenticated": False,
+        "accountId": None,
+        "sessionId": None,
+        "accessRevision": None,
+        "displayName": None,
+        "capabilities": [],
+        "authMode": "off",
+    }
+    auth_enabled = bool(auth_payload.get("enabled"))
+    authenticated = bool(subject_payload.get("authenticated"))
+    primary_href = "/app/" if authenticated or not auth_enabled else "#auth"
+    primary_label = "Continue to the demo" if authenticated else ("Sign in to the demo" if auth_enabled else "Open the demo")
+    providers = auth_payload.get("providers") if isinstance(auth_payload.get("providers"), list) else []
+    provider_button_html = ""
+    if auth_enabled and not authenticated:
+        fragments = []
+        for provider in providers:
+            if not isinstance(provider, dict):
+                continue
+            slug = provider.get("slug")
+            label = provider.get("label")
+            if not isinstance(slug, str) or not isinstance(label, str):
+                continue
+            fragments.append(
+                f'<button class="button secondary" type="button" data-provider="{slug}">Login with {label}</button>'
+            )
+        provider_button_html = "".join(fragments)
     hero_note = (
-        "Hosted access will be gated through Heimdall once the auth pass lands."
+        "Heimdall handles the provider dance, Repixelizer keeps the local verdict, and the browser mostly gets to stop couriering secrets."
         if auth_enabled
         else "It is not a miracle worker, and it is definitely not here to pretend it invented hand-authored pixel art from nothing."
     )
     auth_notice = ""
-    if auth_enabled and not login_url:
+    if auth_enabled and not auth_payload.get("providers"):
         auth_notice = (
-            '<p class="footer">Auth is enabled here, but no Heimdall login URL has been wired yet. '
-            'That means the front door is ready and the key is still missing.</p>'
+            '<p class="footer" id="authNotice">Auth is enabled here, but no providers are configured yet. '
+            "The front door exists, but somebody still owes it an actual key.</p>"
         )
+    elif auth_enabled:
+        auth_notice = '<p class="footer" id="authNotice">Choose a provider. The main page stays put while Heimdall and the backend sort out the paperwork in another tab.</p>'
     return f"""<!doctype html>
 <html lang="en">
   <head>
@@ -1022,10 +1059,22 @@ def _landing_page_html(config: HostedDemoConfig, auth: dict[str, Any] | None = N
         color: #1b1202;
         box-shadow: inset 0 -2px 0 rgba(0,0,0,0.24);
       }}
+      button.button {{
+        cursor: pointer;
+      }}
+      .button[disabled] {{
+        opacity: 0.55;
+        cursor: wait;
+      }}
       .button.secondary {{
         background: linear-gradient(180deg, rgba(15, 40, 64, 0.96), rgba(7, 19, 32, 0.98));
         color: var(--text-bright);
         border-color: var(--border);
+      }}
+      .button.ghost {{
+        background: transparent;
+        color: var(--text-muted);
+        border-color: rgba(255, 216, 74, 0.2);
       }}
       .stats, .grid {{
         display: grid;
@@ -1093,6 +1142,13 @@ def _landing_page_html(config: HostedDemoConfig, auth: dict[str, Any] | None = N
         margin-top: 18px;
         color: var(--text-muted);
       }}
+      .status-line {{
+        margin-top: 16px;
+        min-height: 1.2em;
+      }}
+      .auth-provider-row {{
+        margin-top: 14px;
+      }}
       @media (max-width: 900px) {{
         .hero-grid, .grid, .stats {{
           grid-template-columns: 1fr;
@@ -1121,10 +1177,15 @@ def _landing_page_html(config: HostedDemoConfig, auth: dict[str, Any] | None = N
             <p class="lede">
               Repixelizer takes AI-slop pixel cosplay, infers the lattice it should have had, then drags it back onto an actual coherent mosaic.
             </p>
-            <div class="cta-row">
-              <a class="button" href="{primary_href}">{primary_label}</a>
+            <div class="cta-row" id="primaryActions">
+              <a class="button" href="{primary_href}" id="primaryAction">{primary_label}</a>
+              <button class="button secondary" id="authSignOut" type="button" {"hidden" if not authenticated else ""}>Sign out</button>
               <a class="button secondary" href="https://github.com/GameCult/repixelizer">View the repo</a>
             </div>
+            <div class="cta-row auth-provider-row" id="authProviders">{provider_button_html}</div>
+            <p class="status-line footer" id="authStateLine">
+              {"Already authenticated as " + str(subject_payload.get("displayName") or subject_payload.get("accountId") or "a local creature") + "." if authenticated else ""}
+            </p>
             <div class="stats">
               <div class="stat">
                 <strong>One engine</strong>
@@ -1167,6 +1228,144 @@ def _landing_page_html(config: HostedDemoConfig, auth: dict[str, Any] | None = N
         {auth_notice}
       </section>
     </main>
+    <script>
+      const authConfig = {_json_html(auth_payload)};
+      const sessionSubject = {_json_html(subject_payload)};
+      const providerRow = document.getElementById("authProviders");
+      const primaryAction = document.getElementById("primaryAction");
+      const authStateLine = document.getElementById("authStateLine");
+      const authNotice = document.getElementById("authNotice");
+      const signOutButton = document.getElementById("authSignOut");
+      const defaultPrimaryLabel = {json.dumps(primary_label)};
+      let activeAttemptId = null;
+
+      function setNotice(text) {{
+        if (authNotice) {{
+          authNotice.textContent = text;
+        }}
+        if (authStateLine) {{
+          authStateLine.textContent = text;
+        }}
+      }}
+
+      function setBusy(providerSlug, busy) {{
+        if (!providerRow) {{
+          return;
+        }}
+        for (const node of providerRow.querySelectorAll("button[data-provider]")) {{
+          node.disabled = busy;
+        }}
+        if (primaryAction && primaryAction instanceof HTMLElement) {{
+          primaryAction.textContent = busy ? `Waiting on ${{providerSlug}}...` : defaultPrimaryLabel;
+        }}
+      }}
+
+      async function pollAttempt(attemptId, providerLabel) {{
+        for (;;) {{
+          const response = await fetch(`/api/auth/attempts/${{attemptId}}`, {{
+            method: "GET",
+            cache: "no-store",
+            credentials: "same-origin",
+          }});
+          const payload = await response.json().catch(() => ({{ status: "failed", errorDescription: "Auth polling failed." }}));
+          if (!response.ok) {{
+            setNotice(payload.errorDescription || payload.detail || "Auth polling failed.");
+            setBusy(providerLabel, false);
+            return;
+          }}
+          if (payload.status === "pending") {{
+            await new Promise((resolve) => window.setTimeout(resolve, 900));
+            continue;
+          }}
+          if (payload.status === "succeeded") {{
+            const adopt = await fetch(`/api/auth/attempts/${{attemptId}}/adopt`, {{
+              method: "POST",
+              credentials: "same-origin",
+            }});
+            const adopted = await adopt.json().catch(() => ({{ status: "failed", detail: "Session adoption failed." }}));
+            if (!adopt.ok) {{
+              setNotice(adopted.detail || "Session adoption failed.");
+              setBusy(providerLabel, false);
+              return;
+            }}
+            window.location.href = adopted.returnTo || "/app/";
+            return;
+          }}
+          setNotice(payload.errorDescription || "Sign-in failed.");
+          setBusy(providerLabel, false);
+          return;
+        }}
+      }}
+
+      async function startAuth(provider) {{
+        if (!authConfig.enabled || !authConfig.startEndpoint) {{
+          return;
+        }}
+        setBusy(provider.label, true);
+        setNotice(`Opening ${{provider.label}}. If the browser throws a fit, that is still somehow considered normal web behavior.`);
+        try {{
+          const response = await fetch(authConfig.startEndpoint, {{
+            method: "POST",
+            headers: {{
+              "content-type": "application/json",
+            }},
+            credentials: "same-origin",
+            body: JSON.stringify({{ provider: provider.slug }}),
+          }});
+          const payload = await response.json().catch(() => ({{ detail: "Auth start failed." }}));
+          if (!response.ok) {{
+            setNotice(payload.detail || "Auth start failed.");
+            setBusy(provider.label, false);
+            return;
+          }}
+          activeAttemptId = payload.attemptId;
+          const opened = window.open(payload.authorizationUrl, "_blank");
+          if (!opened) {{
+            setNotice(`Popup blocked. Opening ${{provider.label}} in this tab because the browser demanded drama.`);
+            window.location.href = payload.authorizationUrl;
+            return;
+          }}
+          void pollAttempt(payload.attemptId, provider.label);
+        }} catch (error) {{
+          setNotice(error instanceof Error ? error.message : "Auth start failed.");
+          setBusy(provider.label, false);
+        }}
+      }}
+
+      if (authConfig.enabled && Array.isArray(authConfig.providers) && providerRow && !sessionSubject.authenticated) {{
+        for (const provider of authConfig.providers) {{
+          const button = providerRow.querySelector(`button[data-provider="${{provider.slug}}"]`);
+          if (button instanceof HTMLButtonElement) {{
+            button.addEventListener("click", () => {{
+              void startAuth(provider);
+            }});
+          }}
+        }}
+      }}
+
+      if (primaryAction && authConfig.enabled && !sessionSubject.authenticated) {{
+        primaryAction.addEventListener("click", (event) => {{
+          event.preventDefault();
+          const firstProvider = Array.isArray(authConfig.providers) ? authConfig.providers[0] : null;
+          if (firstProvider) {{
+            void startAuth(firstProvider);
+          }}
+        }});
+      }}
+
+      if (signOutButton) {{
+        signOutButton.addEventListener("click", async () => {{
+          try {{
+            await fetch(authConfig.logoutUrl || "/api/auth/logout", {{
+              method: "POST",
+              credentials: "same-origin",
+            }});
+          }} finally {{
+            window.location.href = "/";
+          }}
+        }});
+      }}
+    </script>
   </body>
 </html>
 """
@@ -1178,6 +1377,8 @@ def create_app():
     File = deps["File"]
     Form = deps["Form"]
     HTTPException = deps["HTTPException"]
+    Request = deps["Request"]
+    Response = deps["Response"]
     UploadFile = deps["UploadFile"]
     HTMLResponse = deps["HTMLResponse"]
     JSONResponse = deps["JSONResponse"]
@@ -1229,7 +1430,7 @@ def create_app():
             return subject
 
         try:
-            if path in {"/", "/api/health", "/api/config", "/api/auth/session"}:
+            if path in {"/", "/api/health", "/api/config", "/api/auth/session"} or path.startswith("/api/auth/"):
                 subject = access_controller.peek_request_subject(request)
             elif path == "/api/queue":
                 if access_controller.runtime.protect_queue:
@@ -1274,6 +1475,57 @@ def create_app():
                 "subject": subject.to_public_json(),
             }
         )
+
+    @app.post("/api/auth/heimdall/start")
+    async def start_heimdall_auth(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        provider = payload.get("provider") if isinstance(payload, dict) else None
+        if not isinstance(provider, str) or not provider.strip():
+            return JSONResponse({"detail": "Auth start requires a provider slug."}, status_code=400)
+        try:
+            started = access_controller.start_auth_attempt(provider)
+        except AccessOperationError as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return JSONResponse(started, status_code=201)
+
+    @app.get("/api/auth/attempts/{attempt_id}")
+    def get_auth_attempt(attempt_id: str):
+        try:
+            payload = access_controller.get_auth_attempt_status(attempt_id)
+        except AccessOperationError as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return JSONResponse(payload)
+
+    @app.post("/api/auth/attempts/{attempt_id}/adopt")
+    def adopt_auth_attempt(attempt_id: str):
+        try:
+            adopted = access_controller.adopt_auth_attempt(attempt_id)
+        except AccessOperationError as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        response = JSONResponse(adopted.to_public_json())
+        access_controller.attach_session_cookie(response, adopted)
+        return response
+
+    @app.post("/api/auth/logout")
+    def logout_auth():
+        response = JSONResponse({"status": "signed_out"})
+        access_controller.clear_session_cookie(response)
+        return response
+
+    @app.post("/api/auth/heimdall/callback")
+    async def heimdall_callback(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"detail": "Heimdall callback body was not valid JSON."}, status_code=400)
+        try:
+            access_controller.receive_backend_handoff(payload)
+        except AccessOperationError as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return Response(status_code=204)
 
     @app.get("/api/queue")
     def get_queue():
@@ -1429,7 +1681,13 @@ def create_app():
         @app.get("/")
         def root():
             if config.hosted_demo:
-                return HTMLResponse(_landing_page_html(config, access_controller.public_payload()))
+                return HTMLResponse(
+                    _landing_page_html(
+                        config,
+                        access_controller.public_payload(),
+                        access_controller.current_subject().to_public_json(),
+                    )
+                )
             return RedirectResponse(url="/app/")
     else:  # pragma: no cover - only relevant before frontend assets exist
         @app.get("/")

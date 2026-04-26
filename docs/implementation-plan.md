@@ -31,6 +31,7 @@ The hosted web shell now also has an auth seam:
 
 - `src/repixelizer/access.py` owns the app-local access boundary and local ownership checks
 - `src/repixelizer/gui.py` owns hosted route policy, landing-page behavior, and queue/job stamping
+- `GC_ACCESS_MODE=heimdall` now lands the first real shared-auth consumer path there: provider start, backend callback receipt, local JWT verification, and httpOnly session adoption
 - self-host and local runs stay permissive by default unless `GC_ACCESS_*` turns the seam on
 
 ## What is working
@@ -132,9 +133,16 @@ Rules:
 Current stance:
 
 - Heimdall integration belongs in the hosted web layer, not in the reconstruction pipeline
-- queued jobs now have local owner metadata so future auth can resolve job access from local session/account instead of provider ids
-- the repo is only "auth-ready", not "auth-landed"
-- `GC_ACCESS_MODE=trusted-header` exists as a thin local seam for future integration and route-policy tests; it is not the final Heimdall story
+- queued jobs now resolve ownership from local session/account metadata instead of provider ids
+- `GC_ACCESS_MODE=heimdall` is now the real hosted path: Repixelizer creates auth attempts, asks Heimdall to start provider OAuth, accepts direct backend callbacks, verifies Heimdall Ed25519 access tokens locally, and adopts local cookie sessions without dragging provider tokens through browser URLs
+- `GC_ACCESS_MODE=trusted-header` still exists as the cheap ingress seam for local route-policy tests and reverse-proxy experiments
+- future auth work still belongs in `src/repixelizer/access.py` and `src/repixelizer/gui.py`, not in `src/repixelizer/pipeline.py`, `src/repixelizer/inference.py`, or the solver stack
+
+Immediate auth follow-ups, if the user wants them:
+
+- add more providers or policy bindings without changing the solver
+- surface session/logout state inside `/app/` if hosted UX needs it
+- decide whether auth attempts or adopted sessions need persistence beyond this single-process hosted runtime
 
 ## Guardrails
 
