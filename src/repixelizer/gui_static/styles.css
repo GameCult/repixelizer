@@ -873,9 +873,17 @@ select.field-control optgroup {
   justify-content: flex-end;
 }
 
+.editor-toolbar-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .editor-canvas-card {
+  width: clamp(148px, 16vw, 196px);
   min-width: 148px;
+  max-width: 196px;
   padding: 10px 12px;
+  margin-left: auto;
 }
 
 .editor-canvas-card span {
@@ -1106,6 +1114,10 @@ select:focus-visible {
 
   .editor-button-group {
     width: 100%;
+  }
+
+  .editor-toolbar-spacer {
+    display: none;
   }
 
   .status-metrics {
