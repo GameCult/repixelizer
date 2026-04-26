@@ -558,7 +558,12 @@ function renderStatusMetrics() {
     }
     else if (state.stageKey === "analysis" || state.stageKey === "selection") {
         if (state.inference) {
-            items.push({ label: "Mode", value: state.inferenceMode === "fixed" ? "pinned" : state.inferenceMode ?? "search" });
+            const modeLabel = state.inferenceMode === "fixed"
+                ? "pinned"
+                : state.inferenceMode === "autocorr"
+                    ? "autocorr direct"
+                    : state.inferenceMode ?? "search";
+            items.push({ label: "Mode", value: modeLabel });
             items.push({ label: "Grid", value: `${state.inference.target_width} x ${state.inference.target_height}` });
             items.push({ label: "Phase", value: `${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}` });
             items.push({ label: "Confidence", value: formatNumber(state.inference.confidence, 3) });

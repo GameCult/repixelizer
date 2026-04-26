@@ -15,6 +15,7 @@ from repixelizer.inference import (
     _hint_target_sizes_from_autocorr,
     _resolve_candidate_dims_from_autocorr,
     _top_candidates_by_size,
+    infer_autocorr_lattice,
     infer_fixed_lattice,
     infer_lattice,
 )
@@ -133,6 +134,14 @@ def test_badge_autocorr_consensus_stays_in_canonical_family() -> None:
     assert result.target_width in {125, 126}
     assert result.top_candidates
     assert result.top_candidates[0].target_width in {125, 126}
+
+
+def test_direct_badge_autocorr_consensus_stays_in_canonical_family() -> None:
+    rgba = load_rgba(Path("tests/fixtures/real/ai-badge-cleaned.png"))
+    result = infer_autocorr_lattice(rgba, device="cpu")
+    assert result.target_width in {125, 126}
+    assert result.top_candidates
+    assert all(candidate.target_width == result.target_width for candidate in result.top_candidates)
 
 
 def test_top_candidates_are_diversified_by_size() -> None:

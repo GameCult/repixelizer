@@ -470,6 +470,46 @@ def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: P
     assert payload["ui"]["showQueuePanel"] is True
 
 
+def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:
+    from repixelizer.gui import HostedDemoConfig, _normalize_job_options
+
+    config = HostedDemoConfig(
+        hosted_demo=True,
+        show_queue_panel=True,
+        max_upload_bytes=1_048_576,
+        max_input_dimension=2048,
+        max_output_dimension=256,
+        default_steps=32,
+        max_steps=48,
+        queue_capacity=10,
+        heartbeat_interval_seconds=10,
+        stale_after_seconds=30,
+        phase_field_preview_stride=4,
+        spool_dir=Path("spool"),
+    )
+
+    options = _normalize_job_options(
+        config,
+        source_width=1254,
+        source_height=1254,
+        target_size=None,
+        target_width=None,
+        target_height=None,
+        phase_x=None,
+        phase_y=None,
+        steps=None,
+        seed=7,
+        device="auto",
+        strip_background=False,
+        skip_phase_rerank=False,
+    )
+
+    assert options["target_size"] is None
+    assert options["lattice_inference_mode"] == "autocorr"
+    assert options["max_inferred_target_size"] == 256
+    assert options["skip_phase_rerank"] is True
+
+
 def test_gui_queue_panel_defaults_off_for_local_runs_and_can_be_forced(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 
@@ -552,6 +592,51 @@ def test_gui_queue_rejects_eleventh_waiting_job(monkeypatch, tmp_path: Path) -> 
     assert all(response.status_code == 200 for response in accepted)
     assert rejected is not None
     assert "Queue is full" in getattr(rejected, "detail", str(rejected))
+
+
+def test_gui_hosted_jobs_dispatch_direct_autocorr_pipeline(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    release = threading.Event()
+    calls: list[dict[str, object]] = []
+
+    def fake_run_pipeline_rgba(*args, **kwargs):
+        calls.append(kwargs)
+        release.wait(timeout=2.0)
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setattr("repixelizer.gui.run_pipeline_rgba", fake_run_pipeline_rgba)
+
+    upload = _png_bytes()
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+    created = asyncio.run(
+        create_job(
+            image=UploadFile(filename="tiny.png", file=io.BytesIO(upload)),
+            target_size=None,
+            target_width=None,
+            target_height=None,
+            phase_x=None,
+            phase_y=None,
+            steps=None,
+            seed=7,
+            device="auto",
+            strip_background=False,
+            skip_phase_rerank=False,
+        )
+    )
+    deadline = time.time() + 2.0
+    while not calls and time.time() < deadline:
+        time.sleep(0.05)
+    release.set()
+
+    assert created.status_code == 200
+    assert calls
+    assert calls[0]["lattice_inference_mode"] == "autocorr"
+    assert calls[0]["max_inferred_target_size"] == 256
+    assert calls[0]["enable_phase_rerank"] is False
+    assert calls[0]["target_size"] is None
 
 
 def test_gui_canceling_queued_job_cleans_spool_file(monkeypatch, tmp_path: Path) -> None:

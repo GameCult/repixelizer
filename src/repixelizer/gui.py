@@ -518,15 +518,11 @@ def _normalize_job_options(
     normalized_steps = min(requested_steps, config.max_steps)
     normalized_device = "cpu" if config.hosted_demo else (device.strip() if device.strip() else "auto")
     normalized_strip_background = False if config.hosted_demo else bool(strip_background)
-    effective_target_size = normalized_target_size
-    if fixed_dims is None:
-        effective_target_size = (
-            config.max_output_dimension
-            if effective_target_size is None
-            else min(effective_target_size, config.max_output_dimension)
-        )
+    inference_mode = "autocorr" if config.hosted_demo and fixed_dims is None else "search"
+    max_inferred_target_size = config.max_output_dimension if config.hosted_demo and fixed_dims is None else None
+    normalized_skip_phase_rerank = True if config.hosted_demo else bool(skip_phase_rerank)
     return {
-        "target_size": effective_target_size,
+        "target_size": normalized_target_size,
         "target_width": normalized_target_width,
         "target_height": normalized_target_height,
         "phase_x": phase_x,
@@ -535,7 +531,9 @@ def _normalize_job_options(
         "seed": int(seed),
         "device": normalized_device,
         "strip_background": normalized_strip_background,
-        "skip_phase_rerank": bool(skip_phase_rerank),
+        "skip_phase_rerank": normalized_skip_phase_rerank,
+        "lattice_inference_mode": inference_mode,
+        "max_inferred_target_size": max_inferred_target_size,
     }
 
 
@@ -601,6 +599,8 @@ def _execute_job(job: GuiJob) -> None:
         device=job.options["device"],
         strip_background=job.options["strip_background"],
         enable_phase_rerank=not job.options["skip_phase_rerank"],
+        lattice_inference_mode=job.options["lattice_inference_mode"],
+        max_inferred_target_size=job.options["max_inferred_target_size"],
         observer=job.observe,
     )
     job.mark_completed()

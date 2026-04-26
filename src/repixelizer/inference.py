@@ -71,6 +71,10 @@ def _candidate_dims(
     return dims
 
 
+def _target_dims_from_major_size(width: int, height: int, target_size: int) -> tuple[int, int]:
+    return _candidate_dims(width, height, int(target_size))[0]
+
+
 def _autocorr_size_window(
     hinted_sizes: list[int],
     *,
@@ -115,6 +119,31 @@ def _resolve_candidate_dims_from_autocorr(
     size_index = 0 if width >= height else 1
     narrowed = [dim for dim in dims if abs(dim[size_index] - center) <= radius]
     return narrowed or dims
+
+
+def _direct_autocorr_target_size(
+    width: int,
+    height: int,
+    *,
+    hinted_sizes: list[int],
+    shared_prior: float,
+    prior_reliability: float,
+    max_target_size: int | None = None,
+) -> int:
+    size_window = _autocorr_size_window(
+        hinted_sizes,
+        prior_reliability=prior_reliability,
+    )
+    major = max(width, height)
+    if size_window is not None:
+        target_size = int(size_window[0])
+    elif hinted_sizes:
+        target_size = int(round(float(np.median(np.asarray(hinted_sizes, dtype=np.float32)))))
+    else:
+        target_size = max(1, int(round(major / max(1e-6, shared_prior))))
+    if max_target_size is not None:
+        target_size = min(target_size, max(1, int(max_target_size)))
+    return max(1, target_size)
 
 
 def _estimate_cell_size_details(profile: np.ndarray) -> AutocorrEstimate:
@@ -609,6 +638,80 @@ def infer_lattice(
         phase_y=best.phase_y,
         confidence=confidence,
         top_candidates=top_candidates,
+    )
+
+
+def infer_autocorr_lattice(
+    rgba: np.ndarray,
+    *,
+    max_target_size: int | None = None,
+    device: str = "auto",
+    observer: PipelineObserver | None = None,
+) -> InferenceResult:
+    torch, _ = _require_torch()
+    resolved_device = _resolve_device(torch, device)
+    height, width = rgba.shape[:2]
+    autocorr_x_estimate, autocorr_y_estimate = _estimate_lattice_autocorr_details(rgba)
+    prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
+    hinted_sizes = _hint_target_sizes_from_autocorr(
+        width,
+        height,
+        autocorr_x_estimate=autocorr_x_estimate,
+        autocorr_y_estimate=autocorr_y_estimate,
+        shared_prior=prior_cell_x,
+    )
+    target_size = _direct_autocorr_target_size(
+        width,
+        height,
+        hinted_sizes=hinted_sizes,
+        shared_prior=prior_cell_x,
+        prior_reliability=prior_reliability,
+        max_target_size=max_target_size,
+    )
+    target_width, target_height = _target_dims_from_major_size(width, height, target_size)
+    phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
+    phase_sample_count = int(phase_values.size * phase_values.size)
+
+    emit_observer(
+        observer,
+        "lattice_search_started",
+        candidate_count=1,
+        phase_sample_count=phase_sample_count,
+        device=resolved_device,
+    )
+    check_observer_cancelled(observer)
+    candidates = _score_phase_group(
+        rgba,
+        target_width=target_width,
+        target_height=target_height,
+        prior_cell_x=prior_cell_x,
+        prior_cell_y=prior_cell_y,
+        prior_reliability=prior_reliability,
+        phase_x_values=phase_values,
+        phase_y_values=phase_values,
+        device=resolved_device,
+    )
+    candidates.sort(key=lambda item: item.score, reverse=True)
+    emit_observer(
+        observer,
+        "lattice_search_progress",
+        completed_candidates=1,
+        total_candidates=1,
+        target_width=int(target_width),
+        target_height=int(target_height),
+        phase_sample_count=phase_sample_count,
+        best_score=None if not candidates else float(candidates[0].score),
+    )
+    best = candidates[0]
+    second = candidates[1] if len(candidates) > 1 else best
+    confidence = max(0.0, best.score - second.score)
+    return InferenceResult(
+        target_width=best.target_width,
+        target_height=best.target_height,
+        phase_x=best.phase_x,
+        phase_y=best.phase_y,
+        confidence=confidence,
+        top_candidates=candidates[:8],
     )
 
 

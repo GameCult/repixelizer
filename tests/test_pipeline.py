@@ -470,6 +470,70 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
     assert result.inference.phase_y == -0.2
 
 
+def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -> None:
+    source = np.zeros((6, 6, 4), dtype=np.float32)
+    source[..., 3] = 1.0
+    input_path = tmp_path / "input.png"
+    output_path = tmp_path / "output.png"
+
+    from repixelizer.io import save_rgba
+
+    save_rgba(input_path, source)
+
+    inference = InferenceResult(
+        target_width=3,
+        target_height=3,
+        phase_x=0.2,
+        phase_y=-0.2,
+        confidence=1.0,
+        top_candidates=[
+            InferenceCandidate(target_width=3, target_height=3, phase_x=0.2, phase_y=-0.2, score=0.9, breakdown={})
+        ],
+    )
+
+    class DummyAnalysis:
+        edge_map = np.zeros((6, 6), dtype=np.float32)
+
+    def fail_infer(*args, **kwargs):
+        raise AssertionError("searched lattice inference should not run in autocorr mode")
+
+    def fake_infer_autocorr(*args, **kwargs):
+        assert kwargs["max_target_size"] == 5
+        return inference
+
+    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+        rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
+        rgba[..., 3] = 1.0
+        return SolverArtifacts(
+            target_rgba=rgba,
+            uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
+            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            initial_rgba=rgba.copy(),
+            loss_history=[],
+        )
+
+    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", fail_infer)
+    monkeypatch.setattr("repixelizer.pipeline.infer_autocorr_lattice", fake_infer_autocorr)
+    monkeypatch.setattr("repixelizer.pipeline.analyze_phase_field_source", lambda *args, **kwargs: DummyAnalysis())
+    monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
+
+    result = run_pipeline(
+        input_path,
+        output_path,
+        enable_phase_rerank=False,
+        lattice_inference_mode="autocorr",
+        max_inferred_target_size=5,
+        steps=0,
+        device="cpu",
+    )
+
+    assert output_path.exists()
+    assert result.inference.target_width == 3
+    assert result.inference.target_height == 3
+    assert result.inference.phase_x == 0.2
+    assert result.inference.phase_y == -0.2
+
+
 def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
     candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})

@@ -65,6 +65,7 @@ accepted_design:
   - `src/repixelizer/pipeline.py` owns orchestration and phase rerank selection.
   - `src/repixelizer/analysis.py` provides the normalized edge scout used for loss and cleanup guidance.
   - `src/repixelizer/phase_field.py` owns the one honest optimization variable: `disp_t`.
+  - Hosted demo jobs now use a direct autocorr lattice path: one consensus size, one cheap phase probe, capped by the hosted output limit, with phase rerank disabled.
   - The optimizer starts from fixed lattice centers, uses a wider displacement budget than the earlier tighter leash, optimizes displacement with projected Adam, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.
@@ -74,6 +75,7 @@ accepted_design:
 
 landed_baseline:
   - Lattice inference with fixed or searched target dimensions and optional low-confidence phase rerank.
+  - Hosted demo inference uses a direct autocorr size pick plus cheap phase probe instead of multi-size search, and it no longer silently pins unspecified jobs to `max_output_dimension`.
   - Edge analysis plus one displacement-field optimizer with projected constraints.
   - Compare mode, diagnostics writing, tuning, and GUI observer plumbing all working on the phase-field path.
   - `source_structure` reporting alongside `source_fidelity`.
@@ -90,5 +92,5 @@ rejected_paths:
     reason: the projected edge-energy spectral pass floor-hugged to 2px / 626-family aliases on the dense landscape fixture and did not justify its complexity
 
 current_status:
-  summary: The repo has one live reconstruction engine, `phase-field`, wired through the main pipeline with lattice inference, edge analysis, projected displacement optimization, cleanup, optional palette fitting, diagnostics, compare mode, tuning, and GUI observer events. The searched lattice path now trusts autocorrelation only; it keeps a tiny near-best lag plateau and uses cross-axis consensus before collapsing to one lattice family. The spectral prior experiment was removed after it floor-hugged to 2px / 626-family aliases on the dense landscape fixture, and the old change-interval / pixel-walk sizing path was cut after it kept pruning the badge away from the `126` family. The solver now has a wider displacement budget so moderate phase error can be recovered by the field instead of requiring as much rerank ceremony. `source_structure` now rides alongside `source_fidelity` because lattice-only scoring was lying about visible quality. The tracked weakness is still the widened dark contour near the badge sword tip on tapered shapes.
+  summary: The repo has one live reconstruction engine, `phase-field`, wired through the main pipeline with lattice inference, edge analysis, projected displacement optimization, cleanup, optional palette fitting, diagnostics, compare mode, tuning, and GUI observer events. The searched lattice path now trusts autocorrelation only; it keeps a tiny near-best lag plateau and uses cross-axis consensus before collapsing to one lattice family. The hosted demo path now skips multi-size lattice search and phase rerank entirely, taking one direct autocorr-consensus size plus the cheap inferred phase and respecting the hosted output cap instead of silently pinning unspecified jobs to that cap. The spectral prior experiment was removed after it floor-hugged to 2px / 626-family aliases on the dense landscape fixture, and the old change-interval / pixel-walk sizing path was cut after it kept pruning the badge away from the `126` family. The solver now has a wider displacement budget so moderate phase error can be recovered by the field instead of requiring as much rerank ceremony. `source_structure` now rides alongside `source_fidelity` because lattice-only scoring was lying about visible quality. The tracked weakness is still the widened dark contour near the badge sword tip on tapered shapes.
   next_action: After rehydrate, if the user wants continued solver work, take one bounded hypothesis aimed at along-stroke versus across-stroke behavior near tapered contours in `src/repixelizer/phase_field.py`, validate it against the pinned badge case and `tests/fixtures/real/ai-badge-tip-focus.json`, and revert immediately if the visual result or `source_structure` does not clearly improve.

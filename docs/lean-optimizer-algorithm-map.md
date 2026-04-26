@@ -88,15 +88,15 @@ That means the solver is not maintaining alternate per-cell candidate sets or se
 The pipeline first decides whether the lattice is:
 
 - fixed explicitly by the caller, using `infer_fixed_lattice(...)`, or
+- inferred directly from autocorr consensus with one cheap phase probe, using `infer_autocorr_lattice(...)`, or
 - searched automatically by `infer_lattice(...)`
 
-`infer_lattice(...)` itself is already a small machine:
+The two automatic paths split like this:
 
-- it estimates rough cell spacing from source edge-profile autocorrelation
-- it keeps a tiny near-best lag plateau long enough to find cross-axis consensus instead of collapsing instantly to one lag
-- it builds candidate output sizes
-- it scores a small phase grid for each size
-- it keeps the best candidate plus top alternates
+- both paths estimate rough cell spacing from source edge-profile autocorrelation
+- both paths keep a tiny near-best lag plateau long enough to find cross-axis consensus instead of collapsing instantly to one lag
+- `infer_autocorr_lattice(...)` takes one consensus size, scores one small phase grid, and stops there
+- `infer_lattice(...)` still builds a small candidate size family, scores a small phase grid for each size, and keeps the best candidate plus top alternates
 
 After that, phase rerank may still happen, but only for `phase-field`, only when confidence is low, and only when rerank is enabled. The rerank probe is a short preview solve. It calls `_run_reconstruction(...)` with a small bounded step count, capped by both the requested solver steps and `phase_rerank_preview_steps`.
 
@@ -108,7 +108,7 @@ That part matters. The pipeline is effectively asking:
 
 This is the survey crew laying down the ruler and arguing about where the graph paper should go.
 
-If the user pinned the lattice, the argument is over. If not, the crew drags the ruler around, checks a bunch of possible alignments, and picks the one that seems most plausible before the real workers show up.
+If the user pinned the lattice, the argument is over. If the hosted path is active, the crew makes one fast autocorr-backed call and moves on. If not, the crew drags the ruler around, checks a small pile of plausible alignments, and picks the one that seems most plausible before the real workers show up.
 
 ## Stage 1: The edge scout builds a danger map
 

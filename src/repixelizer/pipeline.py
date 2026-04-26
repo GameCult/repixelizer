@@ -18,7 +18,7 @@ from .diagnostics import (
     write_lattice_overlay,
 )
 from .discrete import cleanup_pixels
-from .inference import infer_fixed_lattice, infer_lattice, inference_to_json
+from .inference import infer_autocorr_lattice, infer_fixed_lattice, infer_lattice, inference_to_json
 from .io import load_rgba, nearest_resize, save_rgba
 from .metrics import (
     foreground_edge_concentration,
@@ -51,6 +51,8 @@ def run_pipeline(
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
     enable_phase_rerank: bool = True,
+    lattice_inference_mode: str = "search",
+    max_inferred_target_size: int | None = None,
     observer: PipelineObserver | None = None,
 ) -> RunResult:
     source = load_rgba(input_path)
@@ -71,6 +73,8 @@ def run_pipeline(
         solver_params=solver_params,
         strip_background=strip_background,
         enable_phase_rerank=enable_phase_rerank,
+        lattice_inference_mode=lattice_inference_mode,
+        max_inferred_target_size=max_inferred_target_size,
         observer=observer,
     )
 
@@ -93,6 +97,8 @@ def run_pipeline_rgba(
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
     enable_phase_rerank: bool = True,
+    lattice_inference_mode: str = "search",
+    max_inferred_target_size: int | None = None,
     observer: PipelineObserver | None = None,
 ) -> RunResult:
     started = time.perf_counter()
@@ -122,15 +128,32 @@ def run_pipeline_rgba(
     )
     if fixed_dims is None:
         check_observer_cancelled(observer)
+        if lattice_inference_mode == "autocorr":
+            inference_label = "Autocorr lattice"
+            inference_detail = "Taking one autocorr consensus size, probing phase once, and skipping size search."
+        elif lattice_inference_mode == "search":
+            inference_label = "Lattice search"
+            inference_detail = "Searching for the output size and phase that best fit the input."
+        else:
+            raise ValueError(f"Unknown lattice_inference_mode '{lattice_inference_mode}'.")
         emit_observer(
             observer,
             "stage_started",
             stage="inference",
-            label="Lattice search",
-            detail="Searching for the output size and phase that best fit the input.",
+            label=inference_label,
+            detail=inference_detail,
         )
-        inference = infer_lattice(source, target_size=target_size, device=device, observer=observer)
-        inference_mode = "searched"
+        if lattice_inference_mode == "autocorr":
+            inference = infer_autocorr_lattice(
+                source,
+                max_target_size=max_inferred_target_size,
+                device=device,
+                observer=observer,
+            )
+            inference_mode = "autocorr"
+        else:
+            inference = infer_lattice(source, target_size=target_size, device=device, observer=observer)
+            inference_mode = "searched"
     else:
         check_observer_cancelled(observer)
         emit_observer(
@@ -273,6 +296,8 @@ def run_pipeline_rgba(
             "device": device,
             "strip_background": strip_background,
             "enable_phase_rerank": enable_phase_rerank,
+            "lattice_inference_mode": lattice_inference_mode,
+            "max_inferred_target_size": max_inferred_target_size,
             "inference_mode": inference_mode,
             "solver_params": solver_params.to_dict(),
         }

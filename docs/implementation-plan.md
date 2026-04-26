@@ -21,6 +21,12 @@ The live pipeline is:
 
 `source image -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`
 
+Inference now splits three ways:
+
+- fixed lattice when the caller pins size and/or phase explicitly
+- searched lattice for the full local workflow
+- direct autocorr lattice for the hosted demo path: one consensus size, one cheap phase probe, no size search, no phase rerank
+
 ## What is working
 
 - lattice size and phase inference are still shared and still CUDA-capable
@@ -95,6 +101,7 @@ Current stance:
 
 - keep the shipped searched path grounded in autocorrelation only
 - let autocorr keep a small near-best lag plateau and use cross-axis consensus before collapsing to one lattice family
+- the hosted demo path now skips multi-size search entirely and uses one autocorr-consensus size plus the cheap inferred phase, capped by the hosted output limit
 - do not trust the old pixel-walk / change-interval spacing path; it was cut after it kept pruning the badge away from the `126` family
 - do not keep the projected edge-energy spectral pass; it floor-hugged to `2px` / `626`-family nonsense on the dense landscape fixture and did not earn its keep
 - treat phase rerank as optional scaffolding, not sacred machinery
