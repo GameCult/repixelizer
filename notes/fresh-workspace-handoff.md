@@ -33,6 +33,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 - The current tracked weakness is the widened dark contour near the badge sword tip on tapered shapes.
 - `source_structure` exists because lattice-only `source_fidelity` could call visibly better outputs worse.
 - The old tray optimizer is dead and should stay dead unless the entire machine map changes for a real reason.
+- `docs/hosted-auth-architecture.md` is a future design note for a not-yet-landed hosted auth system; current hosted-demo truth is still just the queue and limit machinery in `src/repixelizer/gui.py` plus the frontend runtime-config plumbing.
 
 ## Critical Doctrine
 
@@ -89,6 +90,7 @@ Rules now in force:
 - this handoff is a compact re-entry packet.
 - `docs/implementation-plan.md` is the forward plan.
 - `docs/lean-optimizer-algorithm-map.md` is the source-grounded control-flow map.
+- `docs/hosted-auth-architecture.md` is future auth design, not live implementation truth.
 
 Do not let any one note become all of those things. That is how the tower grows
 sideways and starts calling itself architecture.

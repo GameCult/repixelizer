@@ -1,3 +1,4 @@
 {"ts":"2026-04-26T00:00:00Z","type":"design","status":"accepted","note":"Repixelizer now has one live reconstruction engine: phase-field in src/repixelizer/phase_field.py. The old tray-based optimizer is gone."}
 {"ts":"2026-04-26T00:00:00Z","type":"metric","status":"accepted","note":"source_structure is tracked alongside source_fidelity because lattice-only scoring could rank visibly better outputs as worse."}
 {"ts":"2026-04-26T00:00:00Z","type":"regression","status":"rejected","note":"The d9fa411 phase-field tuning pass was a real regression on the pinned badge case; reverting it restores the known-good badge result exactly."}
+{"ts": "2026-04-26T03:57:11+00:00", "type": "docs", "status": "ok", "note": "Audit pass clarified note boundaries: the algorithm map remains the live control-flow truth, the implementation plan remains the forward hypothesis ledger, and hosted-auth-architecture is explicitly future design rather than landed auth machinery."}

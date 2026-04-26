@@ -566,3 +566,28 @@ These are the categories of complexity that would change the nature of the solve
 - repeated structural score families that appear in more than one stage
 
 The whole point of this machine is that it stays one field, one loss, one final sample.
+
+## Audit Result
+
+This map is compatible with the current Epiphany workflow as long as it keeps
+doing one job: describing the live machine the repo actually runs.
+
+Right now it passes that test:
+
+- it names the current pipeline instead of a future fantasy machine
+- it anchors every stage to real source files
+- it keeps the prose explanation attached to the control flow instead of
+  replacing it
+- it identifies the current seams and the forbidden complexity that would turn
+  the solver back into a Jenga tower
+
+The important boundary is simple:
+
+- live control-flow truth belongs here
+- active hypotheses and next cuts belong in `docs/implementation-plan.md`
+- compact re-entry instructions belong in `notes/fresh-workspace-handoff.md`
+- durable project truth belongs in `state/map.yaml`
+
+If a future pass adds directional edge awareness, anisotropic behavior, or
+another real control-flow change, update this map after the code lands. If the
+change is still a hypothesis, keep it out of this file.

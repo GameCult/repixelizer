@@ -1,5 +1,21 @@
 # Repixelizer Hosted Auth Architecture
 
+## What this file is
+
+This file is a future architecture note for hosted-demo authentication and
+entitlement work.
+
+It is not a map of code that already exists in the repo. Current live hosted
+demo behavior is still just:
+
+- hosted-demo runtime limits and UI flags in `src/repixelizer/gui.py`
+- the local single-process queue in `src/repixelizer/gui.py`
+- frontend consumption of `hostedDemo` runtime config in `frontend/src/app.ts`
+
+If future auth work lands and this note drifts away from the code, trust the
+code first and either update this document or cut the stale parts instead of
+pretending the architecture already exists.
+
 ## Summary
 
 The hosted Repixelizer demo should support both:
@@ -405,3 +421,21 @@ Keep these sacred:
 - linking identities must never merge two existing local users implicitly
 
 If we violate those rules, the auth system will become a damp little pit of edge cases almost immediately.
+
+## Audit Result
+
+This design is still compatible with the current Epiphany workflow after one
+important correction: it must be treated as future architecture, not current
+truth.
+
+That boundary is now explicit. The note can keep its job if it stays focused on:
+
+- the proposed local-user plus linked-identity model
+- the `discord_allowed || patreon_allowed` entitlement rule
+- the implementation phases and invariants for future auth work
+
+It should not quietly become:
+
+- a handoff note
+- a claim that auth is already landed
+- a duplicate of the live queue behavior already described by the code

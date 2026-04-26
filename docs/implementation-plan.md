@@ -1,5 +1,16 @@
 # Repixelizer Implementation Plan
 
+## What this file is
+
+This file is the forward plan and active hypothesis ledger for Repixelizer.
+
+It is not the authoritative stage-by-stage control-flow map. That lives in
+`docs/lean-optimizer-algorithm-map.md`.
+
+If these two notes disagree about what the code does right now, trust the
+algorithm map and the source, then fix this plan instead of hand-waving about
+intent.
+
 ## Current machine
 
 Repixelizer now has one live reconstruction engine:
