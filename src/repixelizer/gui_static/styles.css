@@ -288,8 +288,6 @@ p {
 .brand,
 .brand-lockup,
 .copy-stack,
-.header-side,
-.header-link-row,
 .header-instructions {
   display: grid;
   gap: 10px;
@@ -334,21 +332,9 @@ p {
 
 .app-shell-header {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 1.35fr) auto minmax(280px, 0.9fr);
   gap: 16px;
-  align-items: start;
-}
-
-.header-side {
-  align-content: start;
-  min-width: 0;
-}
-
-.header-link-row {
-  display: flex;
-  justify-content: flex-end;
-  align-items: flex-start;
-  min-height: 88px;
+  align-items: center;
 }
 
 .header-github-link {
@@ -362,6 +348,8 @@ p {
   text-decoration: none;
   line-height: 0;
   flex: 0 0 auto;
+  justify-self: center;
+  align-self: center;
 }
 
 .header-github-link svg {
@@ -388,6 +376,7 @@ p {
 
 .header-instructions {
   align-content: start;
+  min-width: 0;
   padding: 12px 14px;
   border: 3px solid rgba(8, 36, 62, 0.88);
   background:
@@ -1061,9 +1050,8 @@ select:focus-visible {
     align-items: flex-start;
   }
 
-  .header-link-row {
-    justify-content: flex-start;
-    min-height: 0;
+  .header-github-link {
+    justify-self: start;
   }
 
   .brand-lockup {
