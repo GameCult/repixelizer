@@ -82,7 +82,7 @@ def test_pipeline_preserves_transparency_for_sprite(tmp_path: Path) -> None:
     from repixelizer.io import save_rgba
 
     save_rgba(input_path, fake)
-    result = run_pipeline(input_path, output_path, steps=20)
+    result = run_pipeline(input_path, output_path, target_size=24, steps=20)
     alpha = result.output_rgba[..., 3]
     assert alpha.min() < 0.05
     assert alpha.max() > 0.9

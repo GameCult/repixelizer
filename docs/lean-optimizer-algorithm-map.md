@@ -92,7 +92,7 @@ The pipeline first decides whether the lattice is:
 
 `infer_lattice(...)` itself is already a small machine:
 
-- it estimates rough cell spacing from source change intervals and autocorrelation
+- it estimates rough cell spacing from source edge-profile autocorrelation
 - it builds candidate output sizes
 - it scores a small phase grid for each size
 - it keeps the best candidate plus top alternates

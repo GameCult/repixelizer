@@ -28,7 +28,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 
 - `phase-field` is the only live reconstruction engine.
 - The live pipeline is `source -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
-- searched lattice inference is back to change-interval evidence plus autocorrelation; the projected edge-energy spectral pass was tried, floor-hugged to 2px / 626-family aliases on the dense landscape fixture, and was removed
+- searched lattice inference now trusts autocorrelation only; the old change-interval / pixel-walk sizing path was cut after it kept steering the badge away from the `126` family, and the projected edge-energy spectral pass was also removed after floor-hugging to 2px / 626-family aliases on the dense landscape fixture
 - The low-confidence phase rerank path is a short preview solve, not a second full optimizer.
 - the phase field now has a wider displacement budget, so moderate phase mistakes are allowed to get corrected by the field instead of relying purely on rerank ceremony
 - Cleanup is secondary and usually a no-op; the core result is supposed to come from the solver, not cleanup cosplay.
@@ -53,7 +53,7 @@ Do not trust this file for the exact live HEAD. Always check git.
 The current spine:
 
 - lattice inference with fixed-size and searched-size paths
-- searched lattice inference currently trusts change-interval evidence plus autocorrelation, not the rejected spectral prior
+- searched lattice inference currently trusts autocorrelation only, not the rejected pixel-walk or spectral priors
 - low-confidence phase rerank through short preview reconstruction
 - edge analysis feeding one projected displacement-field optimizer with a wider displacement leash
 - nearest-source final sampling from `uv0_px + disp_t`

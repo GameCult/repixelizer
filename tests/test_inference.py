@@ -6,14 +6,12 @@ import numpy as np
 import pytest
 
 from repixelizer.inference import (
-    SpacingEstimate,
-    _estimate_lattice_spacing_details,
+    _estimate_lattice_autocorr_details,
     _estimate_lattice_prior_details,
-    _axis_prior_from_estimates,
     _candidate_dims,
     _combine_axis_priors,
-    _hint_target_sizes_from_spacing,
-    _resolve_candidate_dims_from_spacing,
+    _hint_target_sizes_from_autocorr,
+    _resolve_candidate_dims_from_autocorr,
     _top_candidates_by_size,
     infer_fixed_lattice,
     infer_lattice,
@@ -24,60 +22,26 @@ from repixelizer.synthetic import fake_pixelize, make_emblem
 from repixelizer.types import InferenceCandidate
 
 
-def _make_spacing_estimate(
-    *,
-    best_cell: int,
-    confidence: float,
-    peaks: dict[int, float],
-    start: int = 2,
-    stop: int = 24,
-) -> SpacingEstimate:
-    candidate_cells = tuple(float(cell) for cell in range(start, stop + 1))
-    candidate_scores: list[float] = []
-    for cell in range(start, stop + 1):
-        score = 0.16
-        for peak_cell, peak_score in peaks.items():
-            distance = abs(cell - peak_cell)
-            if distance == 0:
-                score = max(score, peak_score)
-            elif distance == 1:
-                score = max(score, peak_score - 0.14)
-        candidate_scores.append(float(score))
-    return SpacingEstimate(
-        spacing=float(best_cell),
-        confidence=confidence,
-        best_cell=float(best_cell),
-        best_score=float(peaks[best_cell]),
-        candidate_cells=candidate_cells,
-        candidate_scores=tuple(candidate_scores),
-    )
-
-
-def test_axis_prior_stays_close_to_spacing_when_autocorr_hits_large_multiple() -> None:
-    prior, reliability = _axis_prior_from_estimates(8.0, 0.75, 32.0)
-    assert prior < 10.0
-    assert reliability > 0.6
-
-
 def test_combined_axis_prior_prefers_consistent_shared_cell_size() -> None:
     shared_prior, reliability = _combine_axis_priors([(9.0, 0.7), (11.2, 0.2)])
     assert 8.5 < shared_prior < 10.5
     assert 0.2 < reliability < 0.6
 
 
-def test_spacing_hints_can_add_dense_candidates_around_true_size() -> None:
-    hinted_sizes = _hint_target_sizes_from_spacing(
+def test_autocorr_hints_can_add_dense_candidates_around_true_size() -> None:
+    hinted_sizes = _hint_target_sizes_from_autocorr(
         1024,
         1024,
-        (8.05, 0.74),
-        (4.0, 0.08),
+        autocorr_x=8.0,
+        autocorr_y=8.0,
+        shared_prior=8.0,
     )
     dims = _candidate_dims(1024, 1024, None, hinted_sizes=hinted_sizes)
     sizes = {width for width, _ in dims}
     assert 128 in sizes
 
 
-def test_spacing_hints_can_break_major_axis_cap_for_dense_candidates() -> None:
+def test_autocorr_hints_can_break_major_axis_cap_for_dense_candidates() -> None:
     dims = _candidate_dims(1254, 1254, None, hinted_sizes=[418])
     sizes = {width for width, _ in dims}
     assert 418 in sizes
@@ -86,90 +50,53 @@ def test_spacing_hints_can_break_major_axis_cap_for_dense_candidates() -> None:
     assert 512 not in sizes
 
 
-def test_strong_spacing_signal_can_collapse_candidate_search_to_single_size() -> None:
-    dims = _resolve_candidate_dims_from_spacing(
+def test_consistent_autocorr_signal_can_collapse_candidate_search_to_single_size() -> None:
+    dims = _resolve_candidate_dims_from_autocorr(
         1024,
         1024,
         None,
         hinted_sizes=[128],
-        spacing_x=(8.0, 0.82),
-        spacing_y=(8.02, 0.78),
-        prior_reliability=0.74,
+        prior_reliability=0.85,
     )
     sizes = {width for width, _ in dims}
     assert sizes == {128}
 
 
-def test_weak_spacing_signal_without_spectrum_keeps_broad_candidate_search() -> None:
-    dims = _resolve_candidate_dims_from_spacing(
+def test_divergent_autocorr_signal_keeps_candidate_search_wide_enough_for_badge() -> None:
+    dims = _resolve_candidate_dims_from_autocorr(
         1024,
         1024,
         None,
-        hinted_sizes=[128],
-        spacing_x=(8.0, 0.18),
-        spacing_y=(8.1, 0.12),
-        prior_reliability=0.24,
+        hinted_sizes=[114, 120, 125],
+        prior_reliability=0.9,
     )
     sizes = {width for width, _ in dims}
-    assert 128 in sizes
-    assert len(sizes) > 10
+    assert 126 in sizes
+    assert any(abs(size - 114) <= 1 for size in sizes)
+    assert any(abs(size - 125) <= 1 for size in sizes)
 
 
-def test_weak_spacing_signal_uses_spectrum_modes_to_keep_candidate_search_compact() -> None:
-    spectrum = _make_spacing_estimate(
-        best_cell=8,
-        confidence=0.18,
-        peaks={4: 0.78, 8: 0.74, 16: 0.71},
-    )
-    dims = _resolve_candidate_dims_from_spacing(
-        1024,
-        1024,
-        None,
-        hinted_sizes=[128],
-        spacing_x=(8.0, 0.18),
-        spacing_y=(8.1, 0.12),
-        prior_reliability=0.24,
-        spacing_x_estimate=spectrum,
-        spacing_y_estimate=spectrum,
-    )
-    sizes = {width for width, _ in dims}
-    assert sizes
-    assert len(sizes) <= 12
-    assert any(abs(size - 128) <= 1 for size in sizes)
-    assert all(any(abs(size - target) <= 2 for target in (64, 128, 256)) for size in sizes)
-
-
-def test_dense_landscape_candidate_search_keeps_high_guided_sizes() -> None:
+def test_dense_landscape_candidate_search_keeps_autocorr_size() -> None:
     rgba = load_rgba(Path("tests/fixtures/real/dense-landscape.png"))
-    spacing_x_estimate, spacing_y_estimate = _estimate_lattice_spacing_details(rgba)
-    spacing_x = (spacing_x_estimate.spacing, spacing_x_estimate.confidence)
-    spacing_y = (spacing_y_estimate.spacing, spacing_y_estimate.confidence)
-    hinted_sizes = _hint_target_sizes_from_spacing(
+    autocorr_x, autocorr_y = _estimate_lattice_autocorr_details(rgba)
+    prior_x, _prior_y, prior_reliability = _estimate_lattice_prior_details(rgba)
+    hinted_sizes = _hint_target_sizes_from_autocorr(
         rgba.shape[1],
         rgba.shape[0],
-        spacing_x,
-        spacing_y,
+        autocorr_x=autocorr_x,
+        autocorr_y=autocorr_y,
+        shared_prior=prior_x,
     )
-    _prior_x, _prior_y, prior_reliability = _estimate_lattice_prior_details(
-        rgba,
-        spacing_x=spacing_x,
-        spacing_y=spacing_y,
-    )
-    dims = _resolve_candidate_dims_from_spacing(
+    dims = _resolve_candidate_dims_from_autocorr(
         rgba.shape[1],
         rgba.shape[0],
         None,
         hinted_sizes=hinted_sizes,
-        spacing_x=spacing_x,
-        spacing_y=spacing_y,
         prior_reliability=prior_reliability,
-        spacing_x_estimate=spacing_x_estimate,
-        spacing_y_estimate=spacing_y_estimate,
     )
     sizes = {width for width, _ in dims}
     assert any(size > 256 for size in sizes)
     assert any(abs(size - 418) <= 1 for size in sizes)
-    assert any(abs(size - 251) <= 1 for size in sizes)
 
 
 def test_top_candidates_are_diversified_by_size() -> None:
@@ -258,16 +185,16 @@ def test_infer_lattice_honors_cooperative_cancellation(monkeypatch) -> None:
             return True
 
     monkeypatch.setattr(inference_module, "_require_torch", lambda: (_FakeTorch(), object()))
+    monkeypatch.setattr(inference_module, "_estimate_lattice_autocorr_details", lambda rgba: (4.0, 4.0))
     monkeypatch.setattr(
         inference_module,
-        "_estimate_lattice_spacing_details",
-        lambda rgba: (inference_module.SpacingEstimate(None, 0.0, None, 0.0, (), ()),) * 2,
+        "_hint_target_sizes_from_autocorr",
+        lambda width, height, *, autocorr_x, autocorr_y, shared_prior: [],
     )
-    monkeypatch.setattr(inference_module, "_hint_target_sizes_from_spacing", lambda width, height, spacing_x, spacing_y: [])
-    monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba, **kwargs: (4.0, 4.0, 0.5))
+    monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba: (4.0, 4.0, 0.5))
     monkeypatch.setattr(
         inference_module,
-        "_resolve_candidate_dims_from_spacing",
+        "_resolve_candidate_dims_from_autocorr",
         lambda *args, **kwargs: [(10, 8), (12, 10)],
     )
     monkeypatch.setattr(

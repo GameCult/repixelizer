@@ -93,7 +93,8 @@ Tracked fixture:
 
 Current stance:
 
-- keep the shipped searched path grounded in change-interval evidence plus autocorrelation
+- keep the shipped searched path grounded in autocorrelation only
+- do not trust the old pixel-walk / change-interval spacing path; it was cut after it kept pruning the badge away from the `126` family
 - do not keep the projected edge-energy spectral pass; it floor-hugged to `2px` / `626`-family nonsense on the dense landscape fixture and did not earn its keep
 - treat phase rerank as optional scaffolding, not sacred machinery
 
