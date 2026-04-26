@@ -1006,6 +1006,8 @@ select.field-control optgroup {
 
 .editor-surface {
   position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
   min-height: 420px;
   overflow: auto;
   padding: 16px;
