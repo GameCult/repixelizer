@@ -394,7 +394,7 @@ async function drawAsset(canvas, asset) {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
 }
-async function drawAssetInspection(canvas, asset, focus) {
+async function drawAssetInspection(canvas, asset, focus, referenceWidth) {
     if (!asset) {
         await drawAsset(canvas, asset);
         return;
@@ -422,10 +422,11 @@ async function drawAssetInspection(canvas, asset, focus) {
     const imageWidth = image.naturalWidth || asset.width;
     const imageHeight = image.naturalHeight || asset.height;
     const zoomMultiplier = Math.max(1, state.viewerInspectZoom || 1);
-    const viewportWidth = Math.max(1, Math.min(Math.floor(displayWidth / zoomMultiplier), imageWidth));
-    const viewportHeight = Math.max(1, Math.min(Math.floor(displayHeight / zoomMultiplier), imageHeight));
-    const destWidth = Math.min(displayWidth, viewportWidth * zoomMultiplier);
-    const destHeight = Math.min(displayHeight, viewportHeight * zoomMultiplier);
+    const inspectPixelScale = zoomMultiplier * Math.max(1, referenceWidth / Math.max(1, imageWidth));
+    const viewportWidth = Math.max(1, Math.min(Math.floor(displayWidth / inspectPixelScale), imageWidth));
+    const viewportHeight = Math.max(1, Math.min(Math.floor(displayHeight / inspectPixelScale), imageHeight));
+    const destWidth = Math.min(displayWidth, viewportWidth * inspectPixelScale);
+    const destHeight = Math.min(displayHeight, viewportHeight * inspectPixelScale);
     const focusX = Math.max(0, Math.min(1, focus.xRatio));
     const focusY = Math.max(0, Math.min(1, focus.yRatio));
     const centerX = imageWidth <= displayWidth ? imageWidth * 0.5 : focusX * imageWidth;
@@ -675,16 +676,25 @@ function scheduleViewerRender() {
         void renderViewer();
     });
 }
+function getInspectReferenceWidth(panels) {
+    const candidateWidths = [
+        state.sourceImage?.width ?? 0,
+        panels.left.asset?.width ?? 0,
+        panels.right.asset?.width ?? 0,
+    ].filter((value) => value > 0);
+    return candidateWidths.length > 0 ? Math.max(...candidateWidths) : 1;
+}
 async function renderViewer() {
     currentViewerPanels = resolveViewerPanels();
     leftVizLabel.textContent = currentViewerPanels.left.label;
     rightVizLabel.textContent = currentViewerPanels.right.label;
+    const inspectReferenceWidth = getInspectReferenceWidth(currentViewerPanels);
     await Promise.all([
         viewerInspect
-            ? drawAssetInspection(leftCanvas, currentViewerPanels.left.asset, viewerInspect)
+            ? drawAssetInspection(leftCanvas, currentViewerPanels.left.asset, viewerInspect, inspectReferenceWidth)
             : drawAsset(leftCanvas, currentViewerPanels.left.asset),
         viewerInspect
-            ? drawAssetInspection(rightCanvas, currentViewerPanels.right.asset, viewerInspect)
+            ? drawAssetInspection(rightCanvas, currentViewerPanels.right.asset, viewerInspect, inspectReferenceWidth)
             : drawAsset(rightCanvas, currentViewerPanels.right.asset),
     ]);
 }
