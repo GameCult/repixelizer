@@ -32,10 +32,11 @@ bind its own policy and runtime seams onto it.
 
 ## Design goals
 
-- one local account/session model across hosted experiments
+- one reusable local account/session model across hosted experiments
 - provider login and linking owned by one shared access layer
 - per-app capability policies instead of hard-coded one-off gate checks
 - host runtimes consume signed local session claims, not raw provider tokens
+- keep app-domain data separate unless there is a deliberate reason to share it
 - reusable enough as a shared package first, with room to graduate into a
   shared service later if that pain actually materializes
 
@@ -87,6 +88,37 @@ The important split:
   whatever weird machine it is
 
 Do not smear provider logic directly through every host runtime.
+
+## Backbone reuse is not data merging
+
+Using the same auth backbone does **not** mean all hosted experiments should
+pour their user data into one communal bucket.
+
+The reusable thing is:
+
+- provider OAuth plumbing
+- signed local session mechanics
+- linked-identity primitives
+- entitlement refresh
+- capability evaluation
+
+The non-reusable-by-default thing is:
+
+- app-domain user data
+- creator data
+- audience data
+- queue/job payloads
+- inventories, scenes, outputs, or other product state
+
+Recommended default:
+
+- shared auth/access **code**
+- separate app databases or at least separate app-owned schemas/tables for
+  domain data
+- if a shared access store exists at all, keep it limited to auth/control-plane
+  truth such as identities, grants, entitlement snapshots, and audit events
+
+Do not let "same auth backbone" quietly mutate into "same user-data swamp."
 
 ## Reusable data model
 
@@ -254,6 +286,7 @@ Recommended first cut.
 - each hosted experiment embeds it
 - each app keeps its own runtime and route integration
 - sessions may still be app-local
+- each app keeps its own domain-data store
 
 Why this is the right first cut:
 
@@ -276,6 +309,11 @@ Only do this when multiple independently deployed apps genuinely need:
 - enough auth churn that duplicated embedded deployments become the bigger pain
 
 Do not build this first because it sounds important.
+
+Even in this mode, the dedicated service should own auth/control-plane data, not
+absorb every app's audience or product data. If it starts trying to become the
+warehouse for StreamPixels viewer profiles, Repixelizer jobs, and whatever comes
+next, we have built a larger and more expensive mistake.
 
 ## Configuration split
 
@@ -317,6 +355,34 @@ provider env names:
 4. Leave app-specific route gating and runtime ownership fields in the host app.
 5. Only consider a dedicated shared access service after a second hosted
    experiment proves the need.
+
+## StreamPixels boundary example
+
+StreamPixels is the obvious case where reuse must not become data mixing.
+
+What StreamPixels can likely reuse:
+
+- signed local session mechanics
+- linked-identity and OAuth-state patterns
+- creator/operator capability evaluation
+- provider adapter structure
+- grant/invite primitives where they fit
+
+What StreamPixels should keep separate:
+
+- viewer audience profiles
+- creator memberships tied to streamer spaces
+- creator connector credentials
+- overlay/runtime state
+- audience-facing app data in general
+
+In plain terms:
+
+- the same backbone can authenticate and authorize the control plane
+- StreamPixels audience data should remain StreamPixels data
+
+If a future shared access store exists, it should not become the canonical home
+for streamer-audience identity and product data. That stays with StreamPixels.
 
 ## Audit Result
 
