@@ -64,25 +64,25 @@ def _parse_args() -> argparse.Namespace:
         "--engine-target-width",
         type=int,
         default=126,
-        help="Pinned target width for the engine-vs-engine badge comparison.",
+        help="Pinned target width for the canonical badge comparison.",
     )
     parser.add_argument(
         "--engine-target-height",
         type=int,
         default=126,
-        help="Pinned target height for the engine-vs-engine badge comparison.",
+        help="Pinned target height for the canonical badge comparison.",
     )
     parser.add_argument(
         "--engine-phase-x",
         type=float,
         default=0.0,
-        help="Pinned lattice phase X for the engine-vs-engine badge comparison.",
+        help="Pinned lattice phase X for the canonical badge comparison.",
     )
     parser.add_argument(
         "--engine-phase-y",
         type=float,
         default=-0.2,
-        help="Pinned lattice phase Y for the engine-vs-engine badge comparison.",
+        help="Pinned lattice phase Y for the canonical badge comparison.",
     )
     parser.add_argument("--steps", type=int, default=48, help="Optimizer step budget for both runs.")
     parser.add_argument("--device", default="cpu", choices=("auto", "cpu", "cuda"), help="Torch device for generation.")

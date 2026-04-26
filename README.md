@@ -33,9 +33,14 @@ If you want to support the official hosted deployment and help us scale the poor
 
 ## Example
 
-This closeup from the badge fixture is the whole pitch in miniature: same ugly source patch, same target grid, one output that finally quits bluffing.
+This badge sheet is the whole pitch in one image: same source mess, same
+target grid, same cheap Lanczos baseline, and one canonical `phase-field`
+result that finally commits to the lattice.
 
-![Repixelizer badge closeup](docs/readme-assets/guard-right-crop-source-final.png)
+Each panel also carries the same sword-guard inset, so the nasty little taper
+problem has nowhere to hide.
+
+![Repixelizer example comparison](docs/readme-assets/badge-example-sheet.png)
 
 ## Current Status
 
@@ -53,13 +58,13 @@ What exists now:
 What changed recently:
 
 - the old tray-based optimizer is gone
-- `phase-field` is now the default optimizer path
+- `phase-field` is now the canonical and only reconstruction path
 - `source_structure` is reported alongside `source_fidelity`, because the old metric was happily calling better-looking images worse
 - the tracked sword-tip blemish on the AI badge has its own focused fixture in `tests/fixtures/real/ai-badge-tip-focus.json`
 
 Current read on the engine:
 
-- `phase-field` is the release path. It currently produces the best-looking badge result in the repo, especially on internal linework, even though it still widens the tracked sword-tip stroke a bit too much.
+- `phase-field` is the machine. It currently produces the best-looking badge result in the repo, especially on internal linework, even though it still widens the tracked sword-tip stroke a bit too much.
 
 Current weak spots:
 
@@ -163,6 +168,19 @@ Run the focused test suite with:
 ```powershell
 .venv\Scripts\python -m pytest -q
 ```
+
+## Regenerating README Assets
+
+The README images are generated from repo-tracked fixtures, not from random
+artifacts left lying around:
+
+```powershell
+.venv\Scripts\python scripts\generate_readme_previews.py --vector-input tests\fixtures\real\ai-badge-vector.png --ai-input tests\fixtures\real\ai-badge-cleaned.png --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
+```
+
+That regenerates the main README sheet, the standalone sword-guard closeup
+strip, and scratch outputs under `artifacts/readme-build/` so you can inspect
+the actual low-res results used to build the docs sample.
 
 ## Diagnostic Closeups
 

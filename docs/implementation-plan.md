@@ -15,7 +15,7 @@ intent.
 
 Repixelizer now has one live reconstruction engine:
 
-- `phase-field`: the default optimizer in `src/repixelizer/phase_field.py`
+- `phase-field`: the canonical reconstruction engine in `src/repixelizer/phase_field.py`
 
 The live pipeline is:
 
@@ -24,7 +24,7 @@ The live pipeline is:
 ## What is working
 
 - lattice size and phase inference are still shared and still CUDA-capable
-- `phase-field` is now the main optimizer path and produces the best-looking badge result in the repo so far
+- `phase-field` is the only canonical reconstruction path and produces the best-looking badge result in the repo so far
 - compare mode, benchmark mode, diagnostics writing, and tuning all still work after the optimizer cutover
 - the repo now reports both:
   - `source_fidelity`: agreement with the inferred lattice portrait

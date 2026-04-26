@@ -52,20 +52,23 @@ Repixelizer treats this as lattice inference plus reconstruction rather than a r
 
 ## Product behavior
 
-### Default mode
+### Canonical mode
 
-The default workflow should be fully automatic:
+The canonical workflow should be fully automatic:
 
 1. load the source image
 2. infer lattice size and phase
 3. analyze source structure
-4. optimize a displacement field over the inferred lattice
+4. run the `phase-field` reconstruction over the inferred lattice
 5. project that result to a real pixel grid
 6. clean up obvious discrete-grid artifacts
 7. optionally quantize to a palette
 8. write output and diagnostics
 
 No manual masks or user-authored region hints are assumed in v1.
+
+This is the only canonical reconstruction pipeline in the repo. Comparison mode
+adds baselines, not alternate reconstruction engines.
 
 ### CLI shape
 
@@ -158,7 +161,7 @@ The project must ship comparison baselines:
 - resize plus error diffusion
 
 `compare` mode should run:
-- the optimized solver
+- the same `phase-field` pipeline
 - both baselines
 - metric collection
 - a visual contact sheet
