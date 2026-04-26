@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
 from repixelizer.inference import (
     SpacingEstimate,
+    _estimate_lattice_spacing_details,
+    _estimate_lattice_prior_details,
     _axis_prior_from_estimates,
     _candidate_dims,
     _combine_axis_priors,
@@ -14,9 +18,10 @@ from repixelizer.inference import (
     infer_fixed_lattice,
     infer_lattice,
 )
+from repixelizer.io import load_rgba
 from repixelizer.observe import PipelineCancelled
-from repixelizer.types import InferenceCandidate
 from repixelizer.synthetic import fake_pixelize, make_emblem
+from repixelizer.types import InferenceCandidate
 
 
 def _make_spacing_estimate(
@@ -72,6 +77,15 @@ def test_spacing_hints_can_add_dense_candidates_around_true_size() -> None:
     assert 128 in sizes
 
 
+def test_spacing_hints_can_break_major_axis_cap_for_dense_candidates() -> None:
+    dims = _candidate_dims(1254, 1254, None, hinted_sizes=[418])
+    sizes = {width for width, _ in dims}
+    assert 418 in sizes
+    assert 416 in sizes
+    assert 420 in sizes
+    assert 512 not in sizes
+
+
 def test_strong_spacing_signal_can_collapse_candidate_search_to_single_size() -> None:
     dims = _resolve_candidate_dims_from_spacing(
         1024,
@@ -123,6 +137,39 @@ def test_weak_spacing_signal_uses_spectrum_modes_to_keep_candidate_search_compac
     assert len(sizes) <= 12
     assert any(abs(size - 128) <= 1 for size in sizes)
     assert all(any(abs(size - target) <= 2 for target in (64, 128, 256)) for size in sizes)
+
+
+def test_dense_landscape_candidate_search_keeps_high_guided_sizes() -> None:
+    rgba = load_rgba(Path("tests/fixtures/real/dense-landscape.png"))
+    spacing_x_estimate, spacing_y_estimate = _estimate_lattice_spacing_details(rgba)
+    spacing_x = (spacing_x_estimate.spacing, spacing_x_estimate.confidence)
+    spacing_y = (spacing_y_estimate.spacing, spacing_y_estimate.confidence)
+    hinted_sizes = _hint_target_sizes_from_spacing(
+        rgba.shape[1],
+        rgba.shape[0],
+        spacing_x,
+        spacing_y,
+    )
+    _prior_x, _prior_y, prior_reliability = _estimate_lattice_prior_details(
+        rgba,
+        spacing_x=spacing_x,
+        spacing_y=spacing_y,
+    )
+    dims = _resolve_candidate_dims_from_spacing(
+        rgba.shape[1],
+        rgba.shape[0],
+        None,
+        hinted_sizes=hinted_sizes,
+        spacing_x=spacing_x,
+        spacing_y=spacing_y,
+        prior_reliability=prior_reliability,
+        spacing_x_estimate=spacing_x_estimate,
+        spacing_y_estimate=spacing_y_estimate,
+    )
+    sizes = {width for width, _ in dims}
+    assert any(size > 256 for size in sizes)
+    assert any(abs(size - 418) <= 1 for size in sizes)
+    assert any(abs(size - 251) <= 1 for size in sizes)
 
 
 def test_top_candidates_are_diversified_by_size() -> None:

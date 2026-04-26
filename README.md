@@ -42,7 +42,7 @@ If you want to support the official hosted deployment and help us scale the poor
 This sheet carries two cases: the ugly fake-pixel badge and a dense
 higher-resolution landscape. The badge row shows the core salvage story. The
 landscape row shows a different failure mode: auto lattice inference still
-undershoots that source badly, so the `phase-field` panel is the tracked fixed
+undershoots that source, so the `phase-field` panel is the tracked fixed
 `512x512` result next to the same cheap Lanczos baseline.
 
 Each row carries its own inset, so the tiny details have nowhere to hide.

@@ -63,14 +63,14 @@ def _candidate_dims(
         return [(max(1, round(width * target_size / height)), target_size)]
     max_dim = max(width, height)
     min_size = max(12, int(round(max_dim / 48)))
-    max_size = min(256, max(24, int(round(max_dim / 2.5))))
-    step = 2 if max_size <= 96 else 4
-    size_values = set(range(min_size, max_size + 1, step))
+    capped_max_size = min(256, max(24, int(round(max_dim / 2.5))))
+    step = 2 if capped_max_size <= 96 else 4
+    size_values = set(range(min_size, capped_max_size + 1, step))
     if hinted_sizes:
         for hinted_size in hinted_sizes:
             for delta in range(-2, 3):
                 candidate = int(hinted_size) + delta
-                if min_size <= candidate <= max_size:
+                if min_size <= candidate <= max_dim:
                     size_values.add(candidate)
     dims: list[tuple[int, int]] = []
     for size in sorted(size_values):

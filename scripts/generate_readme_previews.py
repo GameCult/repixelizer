@@ -121,13 +121,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dense-auto-inferred-width",
         type=int,
-        default=251,
+        default=418,
         help="Current automatic lattice width guess for the dense landscape case.",
     )
     parser.add_argument(
         "--dense-auto-inferred-height",
         type=int,
-        default=251,
+        default=418,
         help="Current automatic lattice height guess for the dense landscape case.",
     )
     parser.add_argument("--steps", type=int, default=48, help="Optimizer step budget for both runs.")

@@ -8,15 +8,15 @@
   "expected_target_height": 512,
   "auto_inference_snapshot": {
     "date": "2026-04-26",
-    "target_width": 251,
-    "target_height": 251,
-    "phase_x": 0.0,
+    "target_width": 418,
+    "target_height": 418,
+    "phase_x": 0.2,
     "phase_y": -0.2
   },
   "preview_focus_cell_bbox": [44, 396, 124, 476],
   "notes": [
     "Use this when testing dense higher-resolution pixel art that already has a coherent lattice but still fools the current size inference search.",
     "The tracked phase-field output was produced from a fixed 512x512 lattice and is kept around so README preview generation does not depend on rerunning that exact pass.",
-    "The current automatic lattice guess on the source fixture undershoots badly at 251x251, which makes this a useful regression case for future inference work."
+    "The current automatic lattice guess on the source fixture still undershoots at 418x418, which keeps this useful as a regression case for high-density lattice inference."
   ]
 }
