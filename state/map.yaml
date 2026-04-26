@@ -1,0 +1,90 @@
+project:
+  name: Repixelizer
+  status: active
+  phase: phase_field_stabilization
+  premise: >
+    Recover fake pixel art by inferring a real lattice and moving one
+    displacement field under one coherent objective instead of piling up
+    decorative solver machinery.
+
+objective:
+  primary: >
+    Produce true grid-aligned output that preserves silhouette and internal
+    structure better than resize baselines on icons, emblems, logos, and simple
+    sprites.
+  current: >
+    Keep the phase-field pipeline lean and coherent while improving the tracked
+    sword-tip contour failure near tapered shapes without reviving optimizer
+    sprawl.
+
+constraints:
+  - Prefer one field, one compact objective, and nearest-source final sampling.
+  - Use visible structure and focused fixtures, not just lattice proxy metrics.
+  - Keep compare mode, diagnostics, tuning, and GUI observer surfaces working.
+  - Avoid reviving trays, portrait layers, or multi-stage solver religions.
+
+invariants:
+  - The map is canonical and slow-changing.
+  - Scratch is temporary and disposable.
+  - Evidence is durable and distilled; routine activity logs belong in git history, diagnostics, benchmark artifacts, or commit messages.
+  - The live pipeline is `source -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
+  - `phase-field` is the only live reconstruction engine.
+  - The final image is emitted by nearest-source sampling from `uv0_px + disp_t`, not by bilinear output sampling.
+  - If a change cannot be explained cleanly against `docs/lean-optimizer-algorithm-map.md`, it should not land.
+  - Failed benchmark or regression fixes should be reverted before the next hypothesis.
+  - Persistent state cruft is the same failure class as code cruft.
+
+data_flow:
+  observe:
+    - task request
+    - repository state
+    - focused fixtures and diagnostics
+    - algorithm map and implementation plan
+  process:
+    - rehydrate from canonical state
+    - choose one bounded hypothesis
+    - modify only the surface that deserves to exist
+    - verify visually and numerically
+    - distill belief-changing evidence
+    - commit or backtrack
+  cut:
+    - revert failed code hypotheses immediately
+    - reject proxy-only wins when the image got worse
+    - trim duplicate or stale persistent notes instead of preserving them as fake continuity
+
+active_subgoals:
+  - Fix the tracked sword-tip contour widening without sacrificing the current internal linework win.
+  - Improve along-stroke versus across-stroke behavior near tapered contours in a way that still fits the one-field optimizer model.
+  - Keep inference, compare mode, diagnostics, tuning, and GUI observer events working after solver changes.
+  - Preserve `source_structure` as a real objective signal instead of over-trusting lattice-only fidelity.
+
+accepted_design:
+  - `phase-field` in `src/repixelizer/phase_field.py` is the only live reconstruction engine.
+  - The working pipeline is `source image -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
+  - `src/repixelizer/pipeline.py` owns orchestration and phase rerank selection.
+  - `src/repixelizer/analysis.py` provides the normalized edge scout used for loss and cleanup guidance.
+  - `src/repixelizer/phase_field.py` owns the one honest optimization variable: `disp_t`.
+  - The optimizer starts from fixed lattice centers, optimizes displacement with projected Adam, then rounds to real source pixels for final output.
+  - Cleanup is local and secondary; it does not define the core reconstruction model.
+  - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.
+  - The tracked badge fixture and sword-tip focus are the current reality check for solver changes.
+  - The algorithm map and forward plan must stay separate from scratch and evidence so the notes do not congeal into one giant lying blob.
+
+landed_baseline:
+  - Lattice inference with fixed or searched target dimensions and optional low-confidence phase rerank.
+  - Edge analysis plus one displacement-field optimizer with projected constraints.
+  - Compare mode, diagnostics writing, tuning, and GUI observer plumbing all working on the phase-field path.
+  - `source_structure` reporting alongside `source_fidelity`.
+  - Focus fixture `tests/fixtures/real/ai-badge-tip-focus.json` for the tracked tapered-contour blemish.
+
+rejected_paths:
+  - name: tray_optimizer_sprawl
+    reason: the old tray-based optimizer added machinery without preserving the current lean model
+  - name: metric_worship
+    reason: lattice-only fidelity can call visibly better outputs worse
+  - name: multi_stage_solver_religion
+    reason: stacked stages and compensators hide confusion instead of fixing the one-field model
+
+current_status:
+  summary: The repo has one live reconstruction engine, `phase-field`, wired through the main pipeline with lattice inference, edge analysis, projected displacement optimization, cleanup, optional palette fitting, diagnostics, compare mode, tuning, and GUI observer events. `source_structure` now rides alongside `source_fidelity` because lattice-only scoring was lying about visible quality. The tracked weakness is still the widened dark contour near the badge sword tip on tapered shapes.
+  next_action: After rehydrate, if the user wants continued solver work, take one bounded hypothesis aimed at along-stroke versus across-stroke behavior near tapered contours in `src/repixelizer/phase_field.py`, validate it against the pinned badge case and `tests/fixtures/real/ai-badge-tip-focus.json`, and revert immediately if the visual result or `source_structure` does not clearly improve.

@@ -1,0 +1,17 @@
+{
+  "branches": [
+    {
+      "id": "main",
+      "hypothesis": "A lean phase-field solver plus structure-aware evaluation can repixelize fake pixel art better than resize baselines without reviving optimizer sprawl.",
+      "status": "active",
+      "artifacts": [
+        "state/map.yaml",
+        "state/scratch.md",
+        "state/evidence.jsonl",
+        "docs/implementation-plan.md",
+        "docs/lean-optimizer-algorithm-map.md"
+      ],
+      "notes": "Active mainline. Current solver work should stay anchored to the pinned badge case and the sword-tip focus fixture."
+    }
+  ]
+}
