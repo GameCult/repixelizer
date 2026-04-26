@@ -334,7 +334,7 @@ p {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) auto minmax(280px, 0.9fr);
   gap: 16px;
-  align-items: center;
+  align-items: start;
 }
 
 .header-github-link {
@@ -349,7 +349,7 @@ p {
   line-height: 0;
   flex: 0 0 auto;
   justify-self: center;
-  align-self: center;
+  align-self: start;
 }
 
 .header-github-link svg {
