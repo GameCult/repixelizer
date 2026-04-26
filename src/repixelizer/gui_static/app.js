@@ -429,8 +429,8 @@ async function drawAssetInspection(canvas, asset, focus, referenceWidth) {
     const destHeight = Math.min(displayHeight, viewportHeight * inspectPixelScale);
     const focusX = Math.max(0, Math.min(1, focus.xRatio));
     const focusY = Math.max(0, Math.min(1, focus.yRatio));
-    const centerX = imageWidth <= displayWidth ? imageWidth * 0.5 : focusX * imageWidth;
-    const centerY = imageHeight <= displayHeight ? imageHeight * 0.5 : focusY * imageHeight;
+    const centerX = imageWidth <= viewportWidth ? imageWidth * 0.5 : focusX * imageWidth;
+    const centerY = imageHeight <= viewportHeight ? imageHeight * 0.5 : focusY * imageHeight;
     const sourceX = Math.max(0, Math.min(imageWidth - viewportWidth, Math.round(centerX - viewportWidth * 0.5)));
     const sourceY = Math.max(0, Math.min(imageHeight - viewportHeight, Math.round(centerY - viewportHeight * 0.5)));
     const destX = Math.floor((displayWidth - destWidth) * 0.5);
