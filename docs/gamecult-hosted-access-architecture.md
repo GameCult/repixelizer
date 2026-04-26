@@ -4,11 +4,11 @@ This shared design moved.
 
 Canonical location:
 
-- `E:\Projects\gamecult-access\docs\architecture.md`
+- `E:\Projects\Heimdall\docs\architecture.md`
 
 Repixelizer-specific binding:
 
-- `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md`
+- `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md`
 
 This local file remains only as a redirect stub so old notes and links do not
 pretend the shared access plan still lives inside Repixelizer.

@@ -21,10 +21,10 @@ diagnostics good enough to catch when we are lying to ourselves.
 - Treat `docs/implementation-plan.md` as the forward plan.
 - Treat `docs/lean-optimizer-algorithm-map.md` as the source-grounded live
   algorithm map.
-- Treat `E:\Projects\gamecult-access\docs\architecture.md` as the canonical
+- Treat `E:\Projects\Heimdall\docs\architecture.md` as the canonical
   future shared access architecture for GameCult-hosted experiments, not as
   proof that auth machinery already exists here already.
-- Treat `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md` as the
+- Treat `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md` as the
   canonical Repixelizer-specific binding onto that future shared access
   architecture.
 - Treat local `docs/gamecult-hosted-access-architecture.md` and
@@ -41,8 +41,8 @@ diagnostics good enough to catch when we are lying to ourselves.
 - Project root: `E:\Projects\repixelizer`
 - Implementation plan: `E:\Projects\repixelizer\docs\implementation-plan.md`
 - Algorithm map: `E:\Projects\repixelizer\docs\lean-optimizer-algorithm-map.md`
-- Shared hosted access architecture: `E:\Projects\gamecult-access\docs\architecture.md`
-- Repixelizer hosted access profile: `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md`
+- Shared hosted access architecture: `E:\Projects\Heimdall\docs\architecture.md`
+- Repixelizer hosted access profile: `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md`
 - Handoff summary: `E:\Projects\repixelizer\notes\fresh-workspace-handoff.md`
 - State CLI: `E:\Projects\repixelizer\tools\repixelizer_state.py`
 - Pre-compaction helper: `E:\Projects\repixelizer\tools\repixelizer_prepare_compaction.py`

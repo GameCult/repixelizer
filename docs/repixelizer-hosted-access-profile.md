@@ -4,11 +4,11 @@ This app-binding note moved.
 
 Canonical location:
 
-- `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md`
+- `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md`
 
 Shared architecture note:
 
-- `E:\Projects\gamecult-access\docs\architecture.md`
+- `E:\Projects\Heimdall\docs\architecture.md`
 
 This local file remains only as a redirect stub so Repixelizer does not keep a
 second copy of the same future auth plan fermenting in a corner.
