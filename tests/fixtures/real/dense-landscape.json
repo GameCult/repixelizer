@@ -13,7 +13,7 @@
     "phase_x": 0.0,
     "phase_y": -0.2
   },
-  "preview_focus_cell_bbox": [160, 200, 280, 320],
+  "preview_focus_cell_bbox": [44, 396, 124, 476],
   "notes": [
     "Use this when testing dense higher-resolution pixel art that already has a coherent lattice but still fools the current size inference search.",
     "The tracked phase-field output was produced from a fixed 512x512 lattice and is kept around so README preview generation does not depend on rerunning that exact pass.",

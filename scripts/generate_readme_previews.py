@@ -78,7 +78,7 @@ def _parse_args() -> argparse.Namespace:
         "--dense-focus-cell-bbox",
         nargs=4,
         type=int,
-        default=(160, 200, 280, 320),
+        default=(44, 396, 124, 476),
         metavar=("X0", "Y0", "X1", "Y1"),
         help="Focus crop bounds in output-grid cell coordinates for the dense landscape row.",
     )
