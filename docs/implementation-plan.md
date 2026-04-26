@@ -89,7 +89,22 @@ Tracked fixture:
 
 - `tests/fixtures/real/ai-badge-tip-focus.json`
 
-### 2. Keep phase-field honest
+### 2. Keep lattice inference honest
+
+Current stance:
+
+- keep the shipped searched path grounded in change-interval evidence plus autocorrelation
+- do not keep the projected edge-energy spectral pass; it floor-hugged to `2px` / `626`-family nonsense on the dense landscape fixture and did not earn its keep
+- treat phase rerank as optional scaffolding, not sacred machinery
+
+Future options worth exploring, if autocorr stops carrying its weight:
+
+- distance-transform / medial-radius blob sizing on softened interiors
+- small scale-space blob-size detection (`LoG` / `DoG`)
+- blur-aware correction of observed blob width before converting to lattice size
+- tiny learned size-and-phase prior trained on synthetic fake-pixel-art fixtures
+
+### 3. Keep phase-field honest
 
 Rules:
 

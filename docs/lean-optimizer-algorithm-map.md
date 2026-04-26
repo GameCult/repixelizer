@@ -338,7 +338,7 @@ Code:
 
 Meaning:
 
-The field pays a small tax for wandering too far. Motion has to earn its keep.
+The field pays a small tax for wandering too far. Motion has to earn its keep, but the leash is long enough to recover from moderate phase error instead of dying half a cell short of the right blob.
 
 ### Metaphor
 

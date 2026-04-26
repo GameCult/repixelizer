@@ -65,7 +65,7 @@ accepted_design:
   - `src/repixelizer/pipeline.py` owns orchestration and phase rerank selection.
   - `src/repixelizer/analysis.py` provides the normalized edge scout used for loss and cleanup guidance.
   - `src/repixelizer/phase_field.py` owns the one honest optimization variable: `disp_t`.
-  - The optimizer starts from fixed lattice centers, optimizes displacement with projected Adam, then rounds to real source pixels for final output.
+  - The optimizer starts from fixed lattice centers, uses a wider displacement budget than the earlier tighter leash, optimizes displacement with projected Adam, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.
   - The tracked badge fixture and sword-tip focus are the current reality check for solver changes.
@@ -86,7 +86,9 @@ rejected_paths:
     reason: lattice-only fidelity can call visibly better outputs worse
   - name: multi_stage_solver_religion
     reason: stacked stages and compensators hide confusion instead of fixing the one-field model
+  - name: projected_edge_spectrum_prior
+    reason: the projected edge-energy spectral pass floor-hugged to 2px / 626-family aliases on the dense landscape fixture and did not justify its complexity
 
 current_status:
-  summary: The repo has one live reconstruction engine, `phase-field`, wired through the main pipeline with lattice inference, edge analysis, projected displacement optimization, cleanup, optional palette fitting, diagnostics, compare mode, tuning, and GUI observer events. `source_structure` now rides alongside `source_fidelity` because lattice-only scoring was lying about visible quality. The tracked weakness is still the widened dark contour near the badge sword tip on tapered shapes.
+  summary: The repo has one live reconstruction engine, `phase-field`, wired through the main pipeline with lattice inference, edge analysis, projected displacement optimization, cleanup, optional palette fitting, diagnostics, compare mode, tuning, and GUI observer events. The spectral lattice prior experiment was removed after it floor-hugged to 2px / 626-family aliases on the dense landscape fixture, so the shipped searched path is back to change-interval evidence plus autocorrelation. The solver now has a wider displacement budget so moderate phase error can be recovered by the field instead of requiring as much rerank ceremony. `source_structure` now rides alongside `source_fidelity` because lattice-only scoring was lying about visible quality. The tracked weakness is still the widened dark contour near the badge sword tip on tapered shapes.
   next_action: After rehydrate, if the user wants continued solver work, take one bounded hypothesis aimed at along-stroke versus across-stroke behavior near tapered contours in `src/repixelizer/phase_field.py`, validate it against the pinned badge case and `tests/fixtures/real/ai-badge-tip-focus.json`, and revert immediately if the visual result or `source_structure` does not clearly improve.

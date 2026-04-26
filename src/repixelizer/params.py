@@ -14,7 +14,7 @@ class SolverHyperParams:
     phase_field_min_spacing_ratio: float = 0.18
     phase_field_magnitude_weight: float = 0.08
     phase_field_learning_rate: float = 0.10
-    phase_field_max_displacement_ratio: float = 0.48
+    phase_field_max_displacement_ratio: float = 0.95
     phase_rerank_preview_steps: int = 8
     source_edge_detail_threshold: float = 0.25
     alpha_opaque_threshold: float = 0.95
