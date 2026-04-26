@@ -33,8 +33,8 @@ Do not trust this file for the exact live HEAD. Always check git.
 - The current tracked weakness is the widened dark contour near the badge sword tip on tapered shapes.
 - `source_structure` exists because lattice-only `source_fidelity` could call visibly better outputs worse.
 - The old tray optimizer is dead and should stay dead unless the entire machine map changes for a real reason.
-- `docs/gamecult-hosted-access-architecture.md` is the future shared design for reusable GameCult-hosted access across experiments.
-- `docs/repixelizer-hosted-access-profile.md` is the Repixelizer-specific binding onto that future shared access layer.
+- `E:\Projects\gamecult-access\docs\architecture.md` is the future shared design for reusable GameCult-hosted access across experiments.
+- `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md` is the Repixelizer-specific binding onto that future shared access layer.
 - current hosted-demo truth is still just the queue and limit machinery in `src/repixelizer/gui.py` plus the frontend runtime-config plumbing.
 
 ## Critical Doctrine
@@ -92,8 +92,10 @@ Rules now in force:
 - this handoff is a compact re-entry packet.
 - `docs/implementation-plan.md` is the forward plan.
 - `docs/lean-optimizer-algorithm-map.md` is the source-grounded control-flow map.
-- `docs/gamecult-hosted-access-architecture.md` is future shared auth/access design, not live implementation truth.
-- `docs/repixelizer-hosted-access-profile.md` is the app-specific future binding, also not live implementation truth.
+- `E:\Projects\gamecult-access\docs\architecture.md` is future shared auth/access design, not live implementation truth.
+- `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md` is the app-specific future binding, also not live implementation truth.
+- local `docs/gamecult-hosted-access-architecture.md` and
+  `docs/repixelizer-hosted-access-profile.md` are redirect stubs.
 
 Do not let any one note become all of those things. That is how the tower grows
 sideways and starts calling itself architecture.

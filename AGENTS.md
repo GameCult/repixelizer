@@ -21,11 +21,15 @@ diagnostics good enough to catch when we are lying to ourselves.
 - Treat `docs/implementation-plan.md` as the forward plan.
 - Treat `docs/lean-optimizer-algorithm-map.md` as the source-grounded live
   algorithm map.
-- Treat `docs/gamecult-hosted-access-architecture.md` as the future shared
-  access architecture for GameCult-hosted experiments, not as proof that auth
-  machinery already exists here already.
-- Treat `docs/repixelizer-hosted-access-profile.md` as the Repixelizer-specific
-  binding onto that future shared access architecture.
+- Treat `E:\Projects\gamecult-access\docs\architecture.md` as the canonical
+  future shared access architecture for GameCult-hosted experiments, not as
+  proof that auth machinery already exists here already.
+- Treat `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md` as the
+  canonical Repixelizer-specific binding onto that future shared access
+  architecture.
+- Treat local `docs/gamecult-hosted-access-architecture.md` and
+  `docs/repixelizer-hosted-access-profile.md` as redirect stubs, not the real
+  design notes.
 - Update `state/map.yaml` when project understanding changes.
 - Add evidence after meaningful research, implementation, verification, or
   rejected paths, but keep it distilled. Routine "I just did this" proof belongs
@@ -37,8 +41,8 @@ diagnostics good enough to catch when we are lying to ourselves.
 - Project root: `E:\Projects\repixelizer`
 - Implementation plan: `E:\Projects\repixelizer\docs\implementation-plan.md`
 - Algorithm map: `E:\Projects\repixelizer\docs\lean-optimizer-algorithm-map.md`
-- Shared hosted access architecture: `E:\Projects\repixelizer\docs\gamecult-hosted-access-architecture.md`
-- Repixelizer hosted access profile: `E:\Projects\repixelizer\docs\repixelizer-hosted-access-profile.md`
+- Shared hosted access architecture: `E:\Projects\gamecult-access\docs\architecture.md`
+- Repixelizer hosted access profile: `E:\Projects\gamecult-access\docs\app-profiles\repixelizer.md`
 - Handoff summary: `E:\Projects\repixelizer\notes\fresh-workspace-handoff.md`
 - State CLI: `E:\Projects\repixelizer\tools\repixelizer_state.py`
 - Pre-compaction helper: `E:\Projects\repixelizer\tools\repixelizer_prepare_compaction.py`
