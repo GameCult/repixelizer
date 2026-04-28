@@ -132,3 +132,17 @@ After compaction, first rehydrate and reorient from the listed files and git
 state. Do not continue implementation merely because the state names a next
 move. Wait for the user's next instruction unless they explicitly say to
 continue.
+
+## Active Manual Tuning State
+
+Manual tuning is in progress; see `state/scratch.md` for the full score ledger. Do not jump straight to editing `config/solver_params.json`.
+
+Current evidence:
+- Full validation, 38 cases x soft/crisp/ai, seed 23, steps 48: baseline score `0.7702`; `radius=0.60, blend=0.07` score `0.5790`, mean `0.2814`, worst `1.2734`, improved `97/114` rows.
+- Regression guard on known bad rows says tighter radius may be safer: `radius=0.50, blend=0.07` scored `0.4075` with worst `0.6949` on the guard set, beating `radius=0.60, blend=0.07` at `0.6278` / worst `1.3589`.
+
+Immediate re-entry for tuning:
+- full-validate `radius=0.50, blend=0.07`
+- full-validate `radius=0.55, blend=0.05`
+- compare against the existing full-validation `radius=0.60, blend=0.07` results in `artifacts/tuning-validation-01`
+- only then update `config/solver_params.json`
