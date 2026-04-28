@@ -59,7 +59,7 @@ diagnostics`
 
 In plainer language:
 
-1. infer the target lattice size and phase
+1. infer the target lattice size
 2. build one edge scout map over the source
 3. nail down fixed lattice centers
 4. run the `phase-field` solve by optimizing one `(dx, dy)` shove vector per
@@ -110,7 +110,7 @@ Run the optimizer from the CLI:
 ```powershell
 repixelize input.png --out output.png
 repixelize input.png --out output.png --diagnostics-dir diagnostics --device auto
-repixelize input.png --out output.png --target-width 126 --target-height 126 --phase-x 0.0 --phase-y -0.2 --device cuda
+repixelize input.png --out output.png --target-width 126 --target-height 126 --device cuda
 ```
 
 Run the optimizer plus baselines:
@@ -175,7 +175,7 @@ That keeps benchmark assets, attribution exports, and tuning runs from polluting
 
 Core modules:
 
-- `inference.py`: target size and phase inference
+- `inference.py`: target size inference
 - `phase_field.py`: default displacement-field optimizer
 - `metrics.py`: fidelity, adjacency, and motif metrics
 - `benchmark.py`: corpus benchmark runner

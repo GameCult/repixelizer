@@ -39,8 +39,6 @@ const downloadButton = byId("downloadButton");
 const targetSizeInput = byId("targetSizeInput");
 const targetWidthInput = byId("targetWidthInput");
 const targetHeightInput = byId("targetHeightInput");
-const phaseXInput = byId("phaseXInput");
-const phaseYInput = byId("phaseYInput");
 const stepsInput = byId("stepsInput");
 const seedInput = byId("seedInput");
 const runControlsCopy = byId("runControlsCopy");
@@ -70,11 +68,11 @@ const eventTypes = [
     "lattice_search_started",
     "lattice_search_progress",
     "inference_candidates_ready",
-    "phase_rerank_started",
-    "phase_rerank_candidate_started",
-    "phase_rerank_candidate_step",
-    "phase_rerank_candidate_completed",
-    "phase_selection_completed",
+    "candidate_rerank_started",
+    "candidate_rerank_candidate_started",
+    "candidate_rerank_candidate_step",
+    "candidate_rerank_candidate_completed",
+    "candidate_selection_completed",
     "analysis_completed",
     "phase_field_prepared",
     "phase_field_initial",
@@ -98,7 +96,7 @@ const state = {
     inference: null,
     inferenceMode: null,
     latticeSearch: null,
-    phaseRerank: null,
+    candidateRerank: null,
     phaseFieldPrep: null,
     frames: [],
     cleanupImage: null,
@@ -328,7 +326,7 @@ function resetRunArtifacts(options = {}) {
     state.inference = null;
     state.inferenceMode = null;
     state.latticeSearch = null;
-    state.phaseRerank = null;
+    state.candidateRerank = null;
     state.phaseFieldPrep = null;
     state.frames = [];
     state.cleanupImage = null;
@@ -469,12 +467,6 @@ function formatGridValue(width, height, fallback = "pending") {
     }
     return `${width} x ${height}`;
 }
-function formatPhaseValue(phaseX, phaseY, fallback = "pending") {
-    if (phaseX === null || phaseX === undefined || phaseY === null || phaseY === undefined) {
-        return fallback;
-    }
-    return `${formatNumber(phaseX, 2)}, ${formatNumber(phaseY, 2)}`;
-}
 function renderStatusMetricItems(items) {
     statusMetrics.innerHTML = "";
     statusMetrics.style.setProperty("--status-metric-count", String(Math.max(items.length, 1)));
@@ -504,10 +496,6 @@ function renderInference() {
       <span>${state.inference.target_width} x ${state.inference.target_height}</span>
     </div>
     <div class="info-card summary-card">
-      <strong>Phase</strong>
-      <span>${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}</span>
-    </div>
-    <div class="info-card summary-card">
       <strong>Confidence</strong>
       <span>${formatNumber(state.inference.confidence, 3)}</span>
     </div>
@@ -517,10 +505,9 @@ function renderInference() {
     for (const candidate of topCandidates) {
         const node = document.createElement("div");
         node.className = "info-card candidate-card";
-        const rerank = candidate.breakdown["phase_rerank_rank"];
+        const rerank = candidate.breakdown["candidate_rerank_rank"];
         node.innerHTML = `
       <strong>${candidate.target_width} x ${candidate.target_height}</strong>
-      <span>phase ${formatNumber(candidate.phase_x, 2)}, ${formatNumber(candidate.phase_y, 2)}</span><br />
       <span>score ${formatNumber(candidate.score, 3)}${typeof rerank === "number" ? ` • rerank #${Math.round(rerank)}` : ""}</span>
     `;
         candidateList.appendChild(node);
@@ -547,7 +534,6 @@ function renderStatusMetrics() {
     else if (state.stageKey === "inference") {
         if (state.latticeSearch) {
             items.push({ label: "Sizes", value: `${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}` });
-            items.push({ label: "Phases", value: String(state.latticeSearch.phaseSampleCount) });
             items.push({
                 label: "Grid",
                 value: formatGridValue(state.latticeSearch.currentTargetWidth, state.latticeSearch.currentTargetHeight),
@@ -565,49 +551,44 @@ function renderStatusMetrics() {
                     : state.inferenceMode ?? "search";
             items.push({ label: "Mode", value: modeLabel });
             items.push({ label: "Grid", value: `${state.inference.target_width} x ${state.inference.target_height}` });
-            items.push({ label: "Phase", value: `${formatNumber(state.inference.phase_x, 2)}, ${formatNumber(state.inference.phase_y, 2)}` });
             items.push({ label: "Confidence", value: formatNumber(state.inference.confidence, 3) });
         }
     }
     else if (state.stageKey === "rerank") {
-        if (state.phaseRerank) {
+        if (state.candidateRerank) {
             items.push({
                 label: "Done",
-                value: `${state.phaseRerank.completedCandidates} / ${state.phaseRerank.candidateCount}`,
+                value: `${state.candidateRerank.completedCandidates} / ${state.candidateRerank.candidateCount}`,
             });
             items.push({
                 label: "Candidate",
-                value: state.phaseRerank.currentCandidateIndex > 0
-                    ? `${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}`
-                    : `0 / ${state.phaseRerank.candidateCount}`,
+                value: state.candidateRerank.currentCandidateIndex > 0
+                    ? `${state.candidateRerank.currentCandidateIndex} / ${state.candidateRerank.candidateCount}`
+                    : `0 / ${state.candidateRerank.candidateCount}`,
             });
             items.push({
                 label: "Preview",
-                value: state.phaseRerank.currentTotalSteps > 0
-                    ? `${state.phaseRerank.currentStep} / ${state.phaseRerank.currentTotalSteps}`
-                    : state.phaseRerank.previewSteps > 0
-                        ? `0 / ${state.phaseRerank.previewSteps}`
+                value: state.candidateRerank.currentTotalSteps > 0
+                    ? `${state.candidateRerank.currentStep} / ${state.candidateRerank.currentTotalSteps}`
+                    : state.candidateRerank.previewSteps > 0
+                        ? `0 / ${state.candidateRerank.previewSteps}`
                         : "skipped",
             });
             items.push({
                 label: "Grid",
-                value: formatGridValue(state.phaseRerank.currentTargetWidth, state.phaseRerank.currentTargetHeight),
+                value: formatGridValue(state.candidateRerank.currentTargetWidth, state.candidateRerank.currentTargetHeight),
             });
-            items.push({
-                label: "Phase",
-                value: formatPhaseValue(state.phaseRerank.currentPhaseX, state.phaseRerank.currentPhaseY),
-            });
-            items.push({ label: "Loss", value: formatNumber(state.phaseRerank.currentLoss, 4) });
-            items.push({ label: "Confidence", value: formatNumber(state.phaseRerank.confidence, 3) });
+            items.push({ label: "Loss", value: formatNumber(state.candidateRerank.currentLoss, 4) });
+            items.push({ label: "Confidence", value: formatNumber(state.candidateRerank.confidence, 3) });
         }
     }
     else if (state.stageKey === "solver") {
         const solverTerms = [
-            { label: "Coherence", value: formatNumber(frame?.terms.local_coherence ?? null, 4) },
-            { label: "Edge", value: formatNumber(frame?.terms.local_edge ?? null, 4) },
-            { label: "Smoothness", value: formatNumber(frame?.terms.smoothness ?? null, 4) },
-            { label: "Collapse", value: formatNumber(frame?.terms.collapse ?? null, 4) },
-            { label: "Magnitude", value: formatNumber(frame?.terms.magnitude ?? null, 4) },
+            { label: "Signal", value: formatNumber(frame?.terms.local_signal ?? frame?.solverMetrics.local_signal ?? null, 4) },
+            { label: "Grid align", value: formatNumber(frame?.terms.grid_alignment ?? frame?.solverMetrics.grid_alignment ?? null, 4) },
+            { label: "Smoothness", value: formatNumber(frame?.terms.smoothness ?? frame?.solverMetrics.smoothness ?? null, 4) },
+            { label: "Collapse", value: formatNumber(frame?.terms.collapse ?? frame?.solverMetrics.collapse ?? null, 4) },
+            { label: "Magnitude", value: formatNumber(frame?.terms.magnitude ?? frame?.solverMetrics.magnitude ?? null, 4) },
         ];
         items.push({
             label: "Grid",
@@ -647,10 +628,18 @@ function resolveViewerPanels() {
             leftLabel = "Guidance";
         }
         if (frame) {
-            leftAsset = frame.samplingOverlayImage;
-            rightAsset = frame.outputImage;
-            leftLabel = "Sampling Overlay";
-            rightLabel = "Current Output";
+            if (state.stageKey === "solver" && state.guidanceImage) {
+                leftAsset = state.guidanceImage;
+                rightAsset = frame.samplingOverlayImage;
+                leftLabel = "Signal";
+                rightLabel = "Sampling Overlay";
+            }
+            else {
+                leftAsset = frame.samplingOverlayImage;
+                rightAsset = frame.outputImage;
+                leftLabel = "Sampling Overlay";
+                rightLabel = "Current Output";
+            }
         }
         else if (state.cleanupImage) {
             if (state.heatmapImage) {
@@ -805,12 +794,14 @@ function renderLossChart() {
     const domainMax = getLossDomainMax();
     const samples = buildLossSamples();
     const observedMaxLoss = samples.length === 0 ? null : Math.max(...samples.map((sample) => sample.loss));
-    if (observedMaxLoss !== null) {
-        state.lossAxisMax = Math.max(state.lossAxisMax ?? 0, observedMaxLoss);
+    const observedMinLoss = samples.length === 0 ? null : Math.min(...samples.map((sample) => sample.loss));
+    if (observedMaxLoss !== null && observedMinLoss !== null) {
+        const observedAbsLoss = Math.max(Math.abs(observedMaxLoss), Math.abs(observedMinLoss));
+        state.lossAxisMax = Math.max(state.lossAxisMax ?? 0, observedAbsLoss);
     }
-    const axisMaxLoss = Math.max(0.001, state.lossAxisMax ?? observedMaxLoss ?? 1);
-    const maxLoss = axisMaxLoss * 1.05;
-    const minLoss = 0;
+    const axisAbsLoss = Math.max(0.001, state.lossAxisMax ?? Math.max(Math.abs(observedMaxLoss ?? 1), Math.abs(observedMinLoss ?? 0)));
+    const maxLoss = axisAbsLoss * 1.05;
+    const minLoss = -axisAbsLoss * 1.05;
     const chartLeft = 88;
     const chartRight = width - 18;
     const chartTop = 16;
@@ -1245,13 +1236,11 @@ function buildFormData() {
         ["target_size", parseOptionalInteger(targetSizeInput)?.toString() ?? null],
         ["target_width", parseOptionalInteger(targetWidthInput)?.toString() ?? null],
         ["target_height", parseOptionalInteger(targetHeightInput)?.toString() ?? null],
-        ["phase_x", parseOptionalFloat(phaseXInput)?.toString() ?? null],
-        ["phase_y", parseOptionalFloat(phaseYInput)?.toString() ?? null],
         ["steps", String(normalizedSteps)],
         ["seed", String(parseOptionalInteger(seedInput) ?? 7)],
         ["device", runtimeConfig?.hostedDemo ? "cpu" : deviceInput.value],
         ["strip_background", runtimeConfig?.hostedDemo ? "false" : stripBackgroundInput.checked ? "true" : "false"],
-        ["skip_phase_rerank", skipRerankInput.checked ? "true" : "false"],
+        ["skip_candidate_rerank", skipRerankInput.checked ? "true" : "false"],
     ];
     for (const [key, value] of values) {
         if (value !== null) {
@@ -1317,13 +1306,12 @@ async function handleEvent(eventName, payload) {
             state.latticeSearch = {
                 candidateCount: Number(payload.candidateCount ?? 0),
                 completedCandidates: 0,
-                phaseSampleCount: Number(payload.phaseSampleCount ?? 0),
                 device: typeof payload.device === "string" ? payload.device : null,
                 currentTargetWidth: null,
                 currentTargetHeight: null,
                 bestScore: null,
             };
-            setStage("inference", "Lattice search", `Testing ${state.latticeSearch.candidateCount} size candidates with ${state.latticeSearch.phaseSampleCount} phase samples each.`);
+            setStage("inference", "Lattice search", `Testing ${state.latticeSearch.candidateCount} candidate sizes from canonical cell centers.`);
             addLog("Search", `Started lattice search across ${String(payload.candidateCount)} size candidates.`);
             break;
         case "lattice_search_progress":
@@ -1331,7 +1319,6 @@ async function handleEvent(eventName, payload) {
                 state.latticeSearch = {
                     candidateCount: Number(payload.totalCandidates ?? 0),
                     completedCandidates: 0,
-                    phaseSampleCount: Number(payload.phaseSampleCount ?? 0),
                     device: null,
                     currentTargetWidth: null,
                     currentTargetHeight: null,
@@ -1340,20 +1327,19 @@ async function handleEvent(eventName, payload) {
             }
             state.latticeSearch.completedCandidates = Number(payload.completedCandidates ?? state.latticeSearch.completedCandidates);
             state.latticeSearch.candidateCount = Number(payload.totalCandidates ?? state.latticeSearch.candidateCount);
-            state.latticeSearch.phaseSampleCount = Number(payload.phaseSampleCount ?? state.latticeSearch.phaseSampleCount);
             state.latticeSearch.currentTargetWidth = Number(payload.targetWidth ?? 0);
             state.latticeSearch.currentTargetHeight = Number(payload.targetHeight ?? 0);
             state.latticeSearch.bestScore =
                 payload.bestScore === null || payload.bestScore === undefined ? state.latticeSearch.bestScore : Number(payload.bestScore);
-            setStage("inference", "Lattice search", `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} over ${state.latticeSearch.phaseSampleCount} phase samples.`);
+            setStage("inference", "Lattice search", `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} from canonical cell centers.`);
             break;
         case "inference_candidates_ready":
             state.inference = payload.inference;
             state.inferenceMode = typeof payload.inferenceMode === "string" ? payload.inferenceMode : state.inferenceMode;
-            addLog("Inference", "Scored candidate grids and phase offsets.");
+            addLog("Inference", "Scored candidate grid sizes.");
             break;
-        case "phase_rerank_started":
-            state.phaseRerank = {
+        case "candidate_rerank_started":
+            state.candidateRerank = {
                 previewSteps: Number(payload.previewSteps ?? 0),
                 candidateCount: Number(payload.candidateCount ?? 0),
                 confidence: Number(payload.confidence ?? 0),
@@ -1361,63 +1347,55 @@ async function handleEvent(eventName, payload) {
                 currentCandidateIndex: 0,
                 currentTargetWidth: null,
                 currentTargetHeight: null,
-                currentPhaseX: null,
-                currentPhaseY: null,
                 currentStep: 0,
                 currentTotalSteps: 0,
                 currentLoss: null,
             };
-            setStage("rerank", "Phase rerank", `Previewing ${state.phaseRerank.candidateCount} low-confidence candidates over ${state.phaseRerank.previewSteps} short solver steps.`);
+            setStage("rerank", "Candidate rerank", `Previewing ${state.candidateRerank.candidateCount} low-confidence candidates over ${state.candidateRerank.previewSteps} short solver steps.`);
             addLog("Rerank", `Running ${String(payload.previewSteps)} preview steps across ${String(payload.candidateCount)} low-confidence candidates.`);
             break;
-        case "phase_rerank_candidate_started":
-            if (state.phaseRerank) {
-                state.phaseRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.phaseRerank.currentCandidateIndex);
-                state.phaseRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
-                state.phaseRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
-                state.phaseRerank.currentPhaseX = Number(payload.phaseX ?? 0);
-                state.phaseRerank.currentPhaseY = Number(payload.phaseY ?? 0);
-                state.phaseRerank.currentStep = 0;
-                state.phaseRerank.currentTotalSteps = Number(payload.previewSteps ?? state.phaseRerank.previewSteps);
-                state.phaseRerank.currentLoss = null;
-                setStage("rerank", "Phase rerank", `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}: previewing ${state.phaseRerank.currentTargetWidth} x ${state.phaseRerank.currentTargetHeight} at phase ${formatNumber(state.phaseRerank.currentPhaseX, 2)}, ${formatNumber(state.phaseRerank.currentPhaseY, 2)}.`);
+        case "candidate_rerank_candidate_started":
+            if (state.candidateRerank) {
+                state.candidateRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.candidateRerank.currentCandidateIndex);
+                state.candidateRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
+                state.candidateRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
+                state.candidateRerank.currentStep = 0;
+                state.candidateRerank.currentTotalSteps = Number(payload.previewSteps ?? state.candidateRerank.previewSteps);
+                state.candidateRerank.currentLoss = null;
+                setStage("rerank", "Candidate rerank", `Candidate ${state.candidateRerank.currentCandidateIndex} / ${state.candidateRerank.candidateCount}: previewing ${state.candidateRerank.currentTargetWidth} x ${state.candidateRerank.currentTargetHeight}.`);
             }
             break;
-        case "phase_rerank_candidate_step":
-            if (state.phaseRerank) {
-                state.phaseRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.phaseRerank.currentCandidateIndex);
-                state.phaseRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
-                state.phaseRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
-                state.phaseRerank.currentPhaseX = Number(payload.phaseX ?? 0);
-                state.phaseRerank.currentPhaseY = Number(payload.phaseY ?? 0);
-                state.phaseRerank.currentStep = Number(payload.step ?? 0);
-                state.phaseRerank.currentTotalSteps = Number(payload.totalSteps ?? 0);
-                state.phaseRerank.currentLoss =
+        case "candidate_rerank_candidate_step":
+            if (state.candidateRerank) {
+                state.candidateRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.candidateRerank.currentCandidateIndex);
+                state.candidateRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
+                state.candidateRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
+                state.candidateRerank.currentStep = Number(payload.step ?? 0);
+                state.candidateRerank.currentTotalSteps = Number(payload.totalSteps ?? 0);
+                state.candidateRerank.currentLoss =
                     payload.loss === null || payload.loss === undefined ? null : Number(payload.loss);
-                setStage("rerank", "Phase rerank", state.phaseRerank.currentTotalSteps <= 0
-                    ? `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}: preview solve skipped.`
-                    : `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount}, preview step ${state.phaseRerank.currentStep} / ${state.phaseRerank.currentTotalSteps} on ${state.phaseRerank.currentTargetWidth} x ${state.phaseRerank.currentTargetHeight}.`);
+                setStage("rerank", "Candidate rerank", state.candidateRerank.currentTotalSteps <= 0
+                    ? `Candidate ${state.candidateRerank.currentCandidateIndex} / ${state.candidateRerank.candidateCount}: preview solve skipped.`
+                    : `Candidate ${state.candidateRerank.currentCandidateIndex} / ${state.candidateRerank.candidateCount}, preview step ${state.candidateRerank.currentStep} / ${state.candidateRerank.currentTotalSteps} on ${state.candidateRerank.currentTargetWidth} x ${state.candidateRerank.currentTargetHeight}.`);
             }
             break;
-        case "phase_rerank_candidate_completed":
-            if (state.phaseRerank) {
-                state.phaseRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.phaseRerank.currentCandidateIndex);
-                state.phaseRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
-                state.phaseRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
-                state.phaseRerank.currentPhaseX = Number(payload.phaseX ?? 0);
-                state.phaseRerank.currentPhaseY = Number(payload.phaseY ?? 0);
-                state.phaseRerank.completedCandidates = Number(payload.completedCandidates ?? state.phaseRerank.completedCandidates);
-                state.phaseRerank.currentStep = Number(payload.totalSteps ?? state.phaseRerank.currentStep);
-                state.phaseRerank.currentTotalSteps = Number(payload.totalSteps ?? state.phaseRerank.currentTotalSteps);
-                state.phaseRerank.currentLoss =
-                    payload.finalLoss === null || payload.finalLoss === undefined ? state.phaseRerank.currentLoss : Number(payload.finalLoss);
-                setStage("rerank", "Phase rerank", `Candidate ${state.phaseRerank.currentCandidateIndex} / ${state.phaseRerank.candidateCount} scored. ${state.phaseRerank.completedCandidates} of ${state.phaseRerank.candidateCount} previews finished.`);
+        case "candidate_rerank_candidate_completed":
+            if (state.candidateRerank) {
+                state.candidateRerank.currentCandidateIndex = Number(payload.candidateIndex ?? state.candidateRerank.currentCandidateIndex);
+                state.candidateRerank.currentTargetWidth = Number(payload.targetWidth ?? 0);
+                state.candidateRerank.currentTargetHeight = Number(payload.targetHeight ?? 0);
+                state.candidateRerank.completedCandidates = Number(payload.completedCandidates ?? state.candidateRerank.completedCandidates);
+                state.candidateRerank.currentStep = Number(payload.totalSteps ?? state.candidateRerank.currentStep);
+                state.candidateRerank.currentTotalSteps = Number(payload.totalSteps ?? state.candidateRerank.currentTotalSteps);
+                state.candidateRerank.currentLoss =
+                    payload.finalLoss === null || payload.finalLoss === undefined ? state.candidateRerank.currentLoss : Number(payload.finalLoss);
+                setStage("rerank", "Candidate rerank", `Candidate ${state.candidateRerank.currentCandidateIndex} / ${state.candidateRerank.candidateCount} scored. ${state.candidateRerank.completedCandidates} of ${state.candidateRerank.candidateCount} previews finished.`);
             }
             break;
-        case "phase_selection_completed":
+        case "candidate_selection_completed":
             state.inference = payload.inference;
             state.inferenceMode = typeof payload.inferenceMode === "string" ? payload.inferenceMode : state.inferenceMode;
-            addLog("Selection", "Committed to a ruler and phase.");
+            addLog("Selection", "Committed to a lattice size.");
             break;
         case "analysis_completed":
             addLog("Scout", "Built the edge map that tells the solver where the floorboards creak.");

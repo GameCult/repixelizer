@@ -31,8 +31,8 @@ def make_sprite(width: int = 24, height: int = 24) -> np.ndarray:
 def fake_pixelize(
     rgba: np.ndarray,
     upscale: int = 14,
-    phase_x: float = 0.22,
-    phase_y: float = 0.31,
+    offset_x: float = 0.22,
+    offset_y: float = 0.31,
     blur_radius: float = 0.7,
     warp_strength: float = 0.0,
     warp_detail: int = 4,
@@ -47,8 +47,8 @@ def fake_pixelize(
     target_rgba = np.asarray(target, dtype=np.float32) / 255.0
     height_px, width_px = target_rgba.shape[:2]
     grid_x, grid_y = np.meshgrid(np.arange(width_px, dtype=np.float32), np.arange(height_px, dtype=np.float32))
-    sample_x = grid_x - phase_x * float(upscale)
-    sample_y = grid_y - phase_y * float(upscale)
+    sample_x = grid_x - offset_x * float(upscale)
+    sample_y = grid_y - offset_y * float(upscale)
     if warp_strength > 0.0:
         rng = np.random.default_rng(seed)
         strength_px = float(upscale) * warp_strength

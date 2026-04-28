@@ -84,6 +84,8 @@ def _autocorr_size_window(
         return None
     center = int(round(float(np.median(np.asarray(hinted_sizes, dtype=np.float32)))))
     spread = max(abs(int(size) - center) for size in hinted_sizes)
+    if spread > max(8, center // 2) and prior_reliability < 0.55:
+        return None
     center_support = hinted_sizes.count(center)
     support_ratio = center_support / max(1, len(hinted_sizes))
     nearest_other = min((abs(int(size) - center) for size in hinted_sizes if int(size) != center), default=0)
@@ -114,6 +116,14 @@ def _resolve_candidate_dims_from_autocorr(
         prior_reliability=prior_reliability,
     )
     if size_window is None:
+        if target_size is None and hinted_sizes:
+            hinted_dims = _candidate_dims_from_autocorr_hints(
+                width,
+                height,
+                hinted_sizes=hinted_sizes,
+            )
+            if hinted_dims:
+                return hinted_dims
         return dims
     center, radius = size_window
     size_index = 0 if width >= height else 1
@@ -121,29 +131,32 @@ def _resolve_candidate_dims_from_autocorr(
     return narrowed or dims
 
 
-def _direct_autocorr_target_size(
+def _candidate_dims_from_autocorr_hints(
     width: int,
     height: int,
     *,
     hinted_sizes: list[int],
-    shared_prior: float,
-    prior_reliability: float,
     max_target_size: int | None = None,
-) -> int:
-    size_window = _autocorr_size_window(
-        hinted_sizes,
-        prior_reliability=prior_reliability,
-    )
-    major = max(width, height)
-    if size_window is not None:
-        target_size = int(size_window[0])
-    elif hinted_sizes:
-        target_size = int(round(float(np.median(np.asarray(hinted_sizes, dtype=np.float32)))))
-    else:
-        target_size = max(1, int(round(major / max(1e-6, shared_prior))))
-    if max_target_size is not None:
-        target_size = min(target_size, max(1, int(max_target_size)))
-    return max(1, target_size)
+) -> list[tuple[int, int]]:
+    capped_max_size = max(1, int(max_target_size)) if max_target_size is not None else None
+    major_sizes: list[int] = []
+    for hinted_size in hinted_sizes:
+        major_size = max(1, int(round(float(hinted_size))))
+        if capped_max_size is not None and major_size > capped_max_size:
+            continue
+        major_sizes.append(major_size)
+    if not major_sizes and capped_max_size is not None:
+        major_sizes.append(capped_max_size)
+
+    dims: list[tuple[int, int]] = []
+    seen: set[tuple[int, int]] = set()
+    for major_size in sorted(set(major_sizes)):
+        dim = _target_dims_from_major_size(width, height, major_size)
+        if dim in seen:
+            continue
+        dims.append(dim)
+        seen.add(dim)
+    return dims
 
 
 def _estimate_cell_size_details(profile: np.ndarray) -> AutocorrEstimate:
@@ -364,8 +377,6 @@ def _rerank_size_candidates_with_source_evidence(
             rgba,
             target_width=candidate.target_width,
             target_height=candidate.target_height,
-            phase_x=candidate.phase_x,
-            phase_y=candidate.phase_y,
         )
         for candidate in candidates
     ]
@@ -387,8 +398,6 @@ def _rerank_size_candidates_with_source_evidence(
             InferenceCandidate(
                 target_width=candidate.target_width,
                 target_height=candidate.target_height,
-                phase_x=candidate.phase_x,
-                phase_y=candidate.phase_y,
                 score=combined_score,
                 breakdown=breakdown,
             )
@@ -396,24 +405,21 @@ def _rerank_size_candidates_with_source_evidence(
     reranked.sort(key=lambda item: item.score, reverse=True)
     return reranked
 
-def _build_phase_grid(
+def _build_sample_grid(
     torch,
     *,
     width: int,
     height: int,
     target_width: int,
     target_height: int,
-    phase_xs,
-    phase_ys,
     device: str,
 ):
-    batch = phase_xs.shape[0]
     cell_x = width / target_width
     cell_y = height / target_height
     base_x = (torch.arange(target_width, device=device, dtype=torch.float32) + 0.5) * cell_x - 0.5
     base_y = (torch.arange(target_height, device=device, dtype=torch.float32) + 0.5) * cell_y - 0.5
-    xs = base_x[None, None, :].expand(batch, target_height, target_width) + phase_xs[:, None, None] * cell_x
-    ys = base_y[None, :, None].expand(batch, target_height, target_width) + phase_ys[:, None, None] * cell_y
+    xs = base_x[None, None, :].expand(1, target_height, target_width)
+    ys = base_y[None, :, None].expand(1, target_height, target_width)
     xs = xs.clamp(0.0, max(0.0, width - 1))
     ys = ys.clamp(0.0, max(0.0, height - 1))
     grid_x = (xs / max(1.0, width - 1)) * 2.0 - 1.0
@@ -491,7 +497,7 @@ def _coherence_breakdown_torch(torch, F, rgba_batch):
     }
 
 
-def _score_phase_group(
+def _score_size_candidate(
     rgba: np.ndarray,
     *,
     target_width: int,
@@ -499,30 +505,21 @@ def _score_phase_group(
     prior_cell_x: float,
     prior_cell_y: float,
     prior_reliability: float,
-    phase_x_values: np.ndarray,
-    phase_y_values: np.ndarray,
     device: str,
 ):
     torch, F = _require_torch()
     height, width = rgba.shape[:2]
     premult_rgba = premultiply(rgba)
     source_t = torch.from_numpy(premult_rgba.transpose(2, 0, 1)[None, ...]).to(device=device, dtype=torch.float32)
-    phase_xs, phase_ys = np.meshgrid(phase_x_values, phase_y_values, indexing="xy")
-    phase_x_t = torch.from_numpy(phase_xs.reshape(-1).astype(np.float32)).to(device=device)
-    phase_y_t = torch.from_numpy(phase_ys.reshape(-1).astype(np.float32)).to(device=device)
-    batch = phase_x_t.shape[0]
-    grid = _build_phase_grid(
+    grid = _build_sample_grid(
         torch,
         width=width,
         height=height,
         target_width=target_width,
         target_height=target_height,
-        phase_xs=phase_x_t,
-        phase_ys=phase_y_t,
         device=device,
     )
-    source_batch = source_t.expand(batch, -1, -1, -1)
-    sampled = F.grid_sample(source_batch, grid, align_corners=True, mode="bilinear", padding_mode="border")
+    sampled = F.grid_sample(source_t, grid, align_corners=True, mode="bilinear", padding_mode="border")
     rgba_sample = _unpremultiply_batch(torch, sampled)
     breakdown = _coherence_breakdown_torch(torch, F, rgba_sample)
     cell_x = width / target_width
@@ -535,28 +532,24 @@ def _score_phase_group(
     score_np = score.detach().cpu().numpy()
 
     candidates: list[InferenceCandidate] = []
-    for index, phase_x in enumerate(phase_x_t.detach().cpu().numpy()):
-        phase_y = float(phase_y_t[index].detach().cpu().item())
-        candidate_breakdown = {
-            "cluster_continuity": float(breakdown["cluster_continuity"][index].detach().cpu().item()),
-            "alpha_crispness": float(breakdown["alpha_crispness"][index].detach().cpu().item()),
-            "outline_straightness": float(breakdown["outline_straightness"][index].detach().cpu().item()),
-            "isolated_penalty": float(breakdown["isolated_penalty"][index].detach().cpu().item()),
-            "color_chatter": float(breakdown["color_chatter"][index].detach().cpu().item()),
-            "coherence_score": float(breakdown["coherence_score"][index].detach().cpu().item()),
-            "size_prior": size_prior,
-            "size_prior_weight": size_prior_weight,
-        }
-        candidates.append(
-            InferenceCandidate(
-                target_width=target_width,
-                target_height=target_height,
-                phase_x=float(phase_x),
-                phase_y=phase_y,
-                score=float(score_np[index]),
-                breakdown=candidate_breakdown,
-            )
+    candidate_breakdown = {
+        "cluster_continuity": float(breakdown["cluster_continuity"][0].detach().cpu().item()),
+        "alpha_crispness": float(breakdown["alpha_crispness"][0].detach().cpu().item()),
+        "outline_straightness": float(breakdown["outline_straightness"][0].detach().cpu().item()),
+        "isolated_penalty": float(breakdown["isolated_penalty"][0].detach().cpu().item()),
+        "color_chatter": float(breakdown["color_chatter"][0].detach().cpu().item()),
+        "coherence_score": float(breakdown["coherence_score"][0].detach().cpu().item()),
+        "size_prior": size_prior,
+        "size_prior_weight": size_prior_weight,
+    }
+    candidates.append(
+        InferenceCandidate(
+            target_width=target_width,
+            target_height=target_height,
+            score=float(score_np[0]),
+            breakdown=candidate_breakdown,
         )
+    )
     return candidates
 
 
@@ -580,7 +573,6 @@ def infer_lattice(
         autocorr_y_estimate=autocorr_y_estimate,
         shared_prior=prior_cell_x,
     )
-    phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
     candidate_dims = _resolve_candidate_dims_from_autocorr(
         width,
         height,
@@ -588,28 +580,24 @@ def infer_lattice(
         hinted_sizes=hinted_sizes,
         prior_reliability=prior_reliability,
     )
-    phase_sample_count = int(phase_values.size * phase_values.size)
 
     emit_observer(
         observer,
         "lattice_search_started",
         candidate_count=len(candidate_dims),
-        phase_sample_count=phase_sample_count,
         device=resolved_device,
     )
 
     candidates: list[InferenceCandidate] = []
     for candidate_index, (target_width, target_height) in enumerate(candidate_dims, start=1):
         check_observer_cancelled(observer)
-        scored_group = _score_phase_group(
+        scored_group = _score_size_candidate(
             rgba,
             target_width=target_width,
             target_height=target_height,
             prior_cell_x=prior_cell_x,
             prior_cell_y=prior_cell_y,
             prior_reliability=prior_reliability,
-            phase_x_values=phase_values,
-            phase_y_values=phase_values,
             device=resolved_device,
         )
         candidates.extend(scored_group)
@@ -620,7 +608,6 @@ def infer_lattice(
             total_candidates=len(candidate_dims),
             target_width=int(target_width),
             target_height=int(target_height),
-            phase_sample_count=phase_sample_count,
             best_score=None if not scored_group else float(max(candidate.score for candidate in scored_group)),
         )
 
@@ -634,8 +621,6 @@ def infer_lattice(
     return InferenceResult(
         target_width=best.target_width,
         target_height=best.target_height,
-        phase_x=best.phase_x,
-        phase_y=best.phase_y,
         confidence=confidence,
         top_candidates=top_candidates,
     )
@@ -660,58 +645,54 @@ def infer_autocorr_lattice(
         autocorr_y_estimate=autocorr_y_estimate,
         shared_prior=prior_cell_x,
     )
-    target_size = _direct_autocorr_target_size(
+    candidate_dims = _candidate_dims_from_autocorr_hints(
         width,
         height,
         hinted_sizes=hinted_sizes,
-        shared_prior=prior_cell_x,
-        prior_reliability=prior_reliability,
         max_target_size=max_target_size,
     )
-    target_width, target_height = _target_dims_from_major_size(width, height, target_size)
-    phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
-    phase_sample_count = int(phase_values.size * phase_values.size)
 
     emit_observer(
         observer,
         "lattice_search_started",
-        candidate_count=1,
-        phase_sample_count=phase_sample_count,
+        candidate_count=len(candidate_dims),
         device=resolved_device,
     )
-    check_observer_cancelled(observer)
-    candidates = _score_phase_group(
-        rgba,
-        target_width=target_width,
-        target_height=target_height,
-        prior_cell_x=prior_cell_x,
-        prior_cell_y=prior_cell_y,
-        prior_reliability=prior_reliability,
-        phase_x_values=phase_values,
-        phase_y_values=phase_values,
-        device=resolved_device,
-    )
+
+    candidates: list[InferenceCandidate] = []
+    for candidate_index, (target_width, target_height) in enumerate(candidate_dims, start=1):
+        check_observer_cancelled(observer)
+        scored_group = _score_size_candidate(
+            rgba,
+            target_width=target_width,
+            target_height=target_height,
+            prior_cell_x=prior_cell_x,
+            prior_cell_y=prior_cell_y,
+            prior_reliability=prior_reliability,
+            device=resolved_device,
+        )
+        candidates.extend(scored_group)
+        emit_observer(
+            observer,
+            "lattice_search_progress",
+            completed_candidates=candidate_index,
+            total_candidates=len(candidate_dims),
+            target_width=int(target_width),
+            target_height=int(target_height),
+            best_score=None if not scored_group else float(max(candidate.score for candidate in scored_group)),
+        )
+
     candidates.sort(key=lambda item: item.score, reverse=True)
-    emit_observer(
-        observer,
-        "lattice_search_progress",
-        completed_candidates=1,
-        total_candidates=1,
-        target_width=int(target_width),
-        target_height=int(target_height),
-        phase_sample_count=phase_sample_count,
-        best_score=None if not candidates else float(candidates[0].score),
-    )
-    best = candidates[0]
-    second = candidates[1] if len(candidates) > 1 else best
+    size_candidates = _top_candidates_by_size(candidates, limit=len(candidates))
+    reranked_candidates = _rerank_size_candidates_with_source_evidence(rgba, size_candidates)
+    best = reranked_candidates[0]
+    second = reranked_candidates[1] if len(reranked_candidates) > 1 else best
     confidence = max(0.0, best.score - second.score)
     return InferenceResult(
         target_width=best.target_width,
         target_height=best.target_height,
-        phase_x=best.phase_x,
-        phase_y=best.phase_y,
         confidence=confidence,
-        top_candidates=candidates[:8],
+        top_candidates=reranked_candidates[:8],
     )
 
 
@@ -720,26 +701,19 @@ def infer_fixed_lattice(
     *,
     target_width: int,
     target_height: int,
-    phase_x: float | None = None,
-    phase_y: float | None = None,
     device: str = "auto",
 ) -> InferenceResult:
     torch, _ = _require_torch()
     resolved_device = _resolve_device(torch, device)
     prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(rgba)
-    phase_values = np.linspace(-0.4, 0.4, num=5, dtype=np.float32)
-    phase_x_values = np.asarray([phase_x], dtype=np.float32) if phase_x is not None else phase_values
-    phase_y_values = np.asarray([phase_y], dtype=np.float32) if phase_y is not None else phase_values
 
-    candidates = _score_phase_group(
+    candidates = _score_size_candidate(
         rgba,
         target_width=max(1, int(target_width)),
         target_height=max(1, int(target_height)),
         prior_cell_x=prior_cell_x,
         prior_cell_y=prior_cell_y,
         prior_reliability=prior_reliability,
-        phase_x_values=phase_x_values,
-        phase_y_values=phase_y_values,
         device=resolved_device,
     )
     candidates.sort(key=lambda item: item.score, reverse=True)
@@ -750,8 +724,6 @@ def infer_fixed_lattice(
     return InferenceResult(
         target_width=best.target_width,
         target_height=best.target_height,
-        phase_x=best.phase_x,
-        phase_y=best.phase_y,
         confidence=confidence,
         top_candidates=top_candidates,
     )
@@ -761,15 +733,11 @@ def inference_to_json(result: InferenceResult) -> dict[str, object]:
     return {
         "target_width": result.target_width,
         "target_height": result.target_height,
-        "phase_x": result.phase_x,
-        "phase_y": result.phase_y,
         "confidence": result.confidence,
         "top_candidates": [
             {
                 "target_width": candidate.target_width,
                 "target_height": candidate.target_height,
-                "phase_x": candidate.phase_x,
-                "phase_y": candidate.phase_y,
                 "score": candidate.score,
                 "breakdown": candidate.breakdown,
             }

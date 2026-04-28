@@ -141,21 +141,21 @@ def test_direct_badge_autocorr_consensus_stays_in_canonical_family() -> None:
     result = infer_autocorr_lattice(rgba, device="cpu")
     assert result.target_width in {125, 126}
     assert result.top_candidates
-    assert all(candidate.target_width == result.target_width for candidate in result.top_candidates)
+    assert result.top_candidates[0].target_width == result.target_width
 
 
 def test_top_candidates_are_diversified_by_size() -> None:
     candidates = [
-        InferenceCandidate(target_width=113, target_height=113, phase_x=0.0, phase_y=0.0, score=0.90, breakdown={}),
-        InferenceCandidate(target_width=113, target_height=113, phase_x=0.2, phase_y=0.0, score=0.89, breakdown={}),
-        InferenceCandidate(target_width=117, target_height=117, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={}),
-        InferenceCandidate(target_width=128, target_height=128, phase_x=0.0, phase_y=0.0, score=0.87, breakdown={}),
+        InferenceCandidate(target_width=113, target_height=113, score=0.90, breakdown={}),
+        InferenceCandidate(target_width=113, target_height=113, score=0.89, breakdown={}),
+        InferenceCandidate(target_width=117, target_height=117, score=0.88, breakdown={}),
+        InferenceCandidate(target_width=128, target_height=128, score=0.87, breakdown={}),
     ]
     selected = _top_candidates_by_size(candidates, limit=8)
-    assert [(candidate.target_width, candidate.phase_x) for candidate in selected] == [
-        (113, 0.0),
-        (117, 0.0),
-        (128, 0.0),
+    assert [(candidate.target_width, candidate.target_height) for candidate in selected] == [
+        (113, 113),
+        (117, 117),
+        (128, 128),
     ]
 
 
@@ -164,8 +164,6 @@ def test_infer_lattice_recovers_emblem_scale() -> None:
     fake = fake_pixelize(
         source,
         upscale=12,
-        phase_x=0.2,
-        phase_y=0.35,
         blur_radius=0.75,
         warp_strength=0.28,
         warp_detail=6,
@@ -177,27 +175,23 @@ def test_infer_lattice_recovers_emblem_scale() -> None:
     assert result.confidence >= 0.0
 
 
-def test_infer_fixed_lattice_honors_exact_size_and_phase() -> None:
+def test_infer_fixed_lattice_uses_canonical_cell_centers_for_pinned_size() -> None:
     source = make_emblem(16, 16)
-    fake = fake_pixelize(source, upscale=10, phase_x=0.2, phase_y=-0.2, blur_radius=0.4, seed=9)
+    fake = fake_pixelize(source, upscale=10, blur_radius=0.4, seed=9)
     result = infer_fixed_lattice(
         fake,
         target_width=16,
         target_height=16,
-        phase_x=0.2,
-        phase_y=-0.2,
         device="cpu",
     )
     assert result.target_width == 16
     assert result.target_height == 16
-    assert abs(result.phase_x - 0.2) <= 1e-6
-    assert abs(result.phase_y + 0.2) <= 1e-6
     assert len(result.top_candidates) == 1
 
 
-def test_infer_fixed_lattice_searches_phase_within_pinned_size() -> None:
+def test_infer_fixed_lattice_uses_canonical_cell_centers_within_pinned_size() -> None:
     source = make_emblem(16, 16)
-    fake = fake_pixelize(source, upscale=8, phase_x=0.2, phase_y=0.25, blur_radius=0.45, seed=3)
+    fake = fake_pixelize(source, upscale=8, blur_radius=0.45, seed=3)
     result = infer_fixed_lattice(
         fake,
         target_width=16,
@@ -206,7 +200,7 @@ def test_infer_fixed_lattice_searches_phase_within_pinned_size() -> None:
     )
     assert result.target_width == 16
     assert result.target_height == 16
-    assert len(result.top_candidates) > 1
+    assert len(result.top_candidates) == 1
     assert all(candidate.target_width == 16 for candidate in result.top_candidates)
     assert all(candidate.target_height == 16 for candidate in result.top_candidates)
 
@@ -245,13 +239,11 @@ def test_infer_lattice_honors_cooperative_cancellation(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         inference_module,
-        "_score_phase_group",
+        "_score_size_candidate",
         lambda *args, **kwargs: [
             inference_module.InferenceCandidate(
                 target_width=10,
                 target_height=8,
-                phase_x=0.0,
-                phase_y=0.0,
                 score=0.5,
                 breakdown={},
             )

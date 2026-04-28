@@ -40,7 +40,7 @@
             <div class="header-instructions">
               <p class="eyebrow">How To Use It</p>
               <p class="instruction-line">1. Drop an input on the right or choose a file.</p>
-              <p class="instruction-line">2. Leave size and phase blank to let the machine search, or pin them if you already know the lattice.</p>
+              <p class="instruction-line">2. Leave size blank to let the machine search, or pin width and height if you already know the lattice.</p>
               <p class="instruction-line">3. Run it, watch the status panel for the active stage, then patch the output by hand if the machine gets cute.</p>
             </div>
           </header>
@@ -237,34 +237,6 @@
               </label>
               <label class="field">
                 <span class="field-heading">
-                  <span class="field-label">Phase X</span>
-                  <span
-                    class="help-tip"
-                    tabindex="0"
-                    role="note"
-                    title="Pin the horizontal lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
-                    aria-label="Pin the horizontal lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
-                    >?</span
-                  >
-                </span>
-                <input id="phaseXInput" class="field-control" name="phaseX" type="number" step="0.05" placeholder="search" />
-              </label>
-              <label class="field">
-                <span class="field-heading">
-                  <span class="field-label">Phase Y</span>
-                  <span
-                    class="help-tip"
-                    tabindex="0"
-                    role="note"
-                    title="Pin the vertical lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
-                    aria-label="Pin the vertical lattice phase offset in cell units. Leave this blank to let the pipeline search. Phase X and Phase Y only work when the output size is fixed."
-                    >?</span
-                  >
-                </span>
-                <input id="phaseYInput" class="field-control" name="phaseY" type="number" step="0.05" placeholder="search" />
-              </label>
-              <label class="field">
-                <span class="field-heading">
                   <span class="field-label">Steps</span>
                   <span
                     class="help-tip"
@@ -308,13 +280,13 @@
               <label class="toggle-row ui-surface ui-frame">
                 <input id="skipRerankInput" name="skipRerank" type="checkbox" />
                 <span class="toggle-copy">
-                  <span>Skip low-confidence phase rerank</span>
+                  <span>Skip candidate rerank</span>
                   <span
                     class="help-tip"
                     tabindex="0"
                     role="note"
-                    title="Skip the preview rerank pass that rescues shaky size or phase picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
-                    aria-label="Skip the preview rerank pass that rescues shaky size or phase picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
+                    title="Skip the preview rerank pass that rescues shaky size picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
+                    aria-label="Skip the preview rerank pass that rescues shaky size picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
                     >?</span
                   >
                 </span>

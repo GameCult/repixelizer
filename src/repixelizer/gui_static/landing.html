@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Repixelizer</title>
+          <link rel="stylesheet" href="/app/styles.css?v={{STYLES_VERSION}}">
+      <style>
+        .landing-grid {
+          display: grid;
+          gap: 12px;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .landing-pitch {
+          display: grid;
+          gap: 16px;
+        }
+
+        .pitch-copy {
+          display: grid;
+          gap: 10px;
+          max-width: 1120px;
+        }
+
+        .pitch-copy h2 {
+          font-size: 1.05rem;
+          line-height: 1.35;
+        }
+
+        .pitch-story {
+          display: grid;
+          gap: 8px;
+          font-size: 1.12rem;
+          line-height: 1.2;
+        }
+
+        .pitch-gallery {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          align-items: stretch;
+        }
+
+        .pitch-shot {
+          display: grid;
+          grid-template-rows: auto minmax(0, 1fr) auto;
+          gap: 10px;
+          margin: 0;
+          min-width: 0;
+          padding: 10px;
+        }
+
+        .pitch-shot strong {
+          color: var(--ui-accent);
+          font-family: "Press Start 2P", "VT323", monospace;
+          font-size: 0.66rem;
+          line-height: 1.35;
+          text-transform: uppercase;
+        }
+
+        .pitch-shot span {
+          color: var(--ui-text-muted);
+          font-size: 1rem;
+          line-height: 1.15;
+        }
+
+        .pitch-image-wrap {
+          display: grid;
+          place-items: center;
+          aspect-ratio: 1 / 1;
+          min-height: clamp(280px, 28vw, 420px);
+          background:
+            repeating-linear-gradient(45deg, rgba(247, 239, 216, 0.06) 0 8px, rgba(0, 0, 0, 0.18) 8px 16px),
+            linear-gradient(180deg, #07172c, #0a2039);
+          border: 3px solid rgba(8, 36, 62, 0.9);
+          box-shadow: inset 0 0 0 1px rgba(255, 216, 74, 0.15);
+          overflow: hidden;
+        }
+
+        .pitch-image-wrap img {
+          display: block;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          image-rendering: pixelated;
+        }
+
+        .pitch-closeup img {
+          object-fit: cover;
+          transform: scale(3.45);
+          transform-origin: 42% 63%;
+        }
+
+        .landing-auth-strip {
+          display: grid;
+          gap: 10px;
+        }
+
+        .landing-header {
+          grid-template-columns: minmax(0, 1.35fr) auto minmax(280px, 0.9fr) minmax(220px, 0.65fr);
+        }
+
+        .landing-header .editor-actions {
+          display: grid;
+          gap: 10px;
+          align-self: start;
+          justify-content: stretch;
+          margin-left: 0;
+        }
+
+        .landing-header .editor-actions .button {
+          width: 100%;
+        }
+
+        @media (max-width: 1200px) {
+          .landing-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .pitch-gallery {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 940px) {
+          .landing-header {
+            grid-template-columns: 1fr;
+          }
+
+          .landing-grid {
+            grid-template-columns: 1fr;
+          }
+        }
+      </style>
+   </head>
+   <body>
+        <main class="shell app-shell">
+        <section class="app-shell-header landing-header ui-surface ui-frame">
+          <div class="brand-lockup">
+            <div class="brand-emblem" aria-hidden="true">
+              <img class="brand-emblem-art" src="/app/logos/repixelizer-logo-monogram.svg" alt="" />
+            </div>
+            <div class="copy-stack">
+              <p class="eyebrow">Repixelizer hosted demo</p>
+              <h1>Repixelizer</h1>
+              <p class="copy-tag brand-tag">
+                Force fake pixel art back onto a real grid, then inspect each step with a full solver view.
+              </p>
+            </div>
+          </div>
+          <a
+            class="header-github-link"
+            href="https://github.com/GameCult/repixelizer"
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label="Repixelizer on GitHub"
+            title="Repixelizer on GitHub"
+          >
+            <svg viewBox="0 0 98 96" aria-hidden="true">
+              <path
+                d="M41.4395 69.3848C28.8066 67.8535 19.9062 58.7617 19.9062 46.9902C19.9062 42.2051 21.6289 37.0371 24.5 33.5918C23.2559 30.4336 23.4473 23.7344 24.8828 20.959C28.7109 20.4805 33.8789 22.4902 36.9414 25.2656C40.5781 24.1172 44.4062 23.543 49.0957 23.543C53.7852 23.543 57.6133 24.1172 61.0586 25.1699C64.0254 22.4902 69.2891 20.4805 73.1172 20.959C74.457 23.543 74.6484 30.2422 73.4043 33.4961C76.4668 37.1328 78.0937 42.0137 78.0937 46.9902C78.0937 58.7617 69.1934 67.6621 56.3691 69.2891C59.623 71.3945 61.8242 75.9883 61.8242 81.252L61.8242 91.2051C61.8242 94.0762 64.2168 95.7031 67.0879 94.5547C84.4102 87.9512 98 70.6289 98 49.1914C98 22.1074 75.9883 0 48.9043 0C21.8203 0 0 22.1074 0 49.1914C0 70.4375 13.4941 88.0469 31.6777 94.6504C34.2617 95.6074 36.75 93.8848 36.75 91.3008L36.75 83.6445C35.4102 84.2188 33.6875 84.6016 32.1562 84.6016C25.8398 84.6016 22.1074 81.1563 19.4277 74.7441C18.375 72.1602 17.2266 70.6289 15.0254 70.3418C13.877 70.2461 13.4941 69.7676 13.4941 69.1934C13.4941 68.0449 15.4082 67.1836 17.3223 67.1836C20.0977 67.1836 22.4902 68.9063 24.9785 72.4473C26.8926 75.2227 28.9023 76.4668 31.2949 76.4668C33.6875 76.4668 35.2187 75.6055 37.4199 73.4043C39.0469 71.7773 40.291 70.3418 41.4395 69.3848Z"
+              />
+            </svg>
+          </a>
+          <div class="header-instructions">
+            <p class="eyebrow">How to enter</p>
+            <p class="instruction-line">Start from this page, authenticate if enabled, then continue into the app.</p>
+            <p class="instruction-line">The hosted flow is a short handoff, not a separate experience.</p>
+            <p class="instruction-line">If auth is disabled, the demo button goes straight to the live workspace.</p>
+          </div>
+          <div class="editor-actions">
+            <a class="button" href="{{PRIMARY_HREF}}" id="primaryAction">{{PRIMARY_LABEL}}</a>
+            <button class="button button-secondary" id="authSignOut" type="button" {{SIGNOUT_HIDDEN}}>Sign out</button>
+          </div>
+        </section>
+        <section class="hero panel-stack ui-surface ui-frame">
+          <div class="landing-pitch">
+            <div class="pitch-copy">
+              <p class="eyebrow">The usual little disaster</p>
+              <h2>You need pixel art for a project, but pixel art is a craft and your favorite AI is mostly vibes in a trench coat.</h2>
+              <div class="pitch-story">
+                <p>So you ask for a cute pill-shaped character in a hazmat suit, with a sci-fi gun and a tank on his back.</p>
+                <p>Hey, that is pretty nice. Then you look closer.</p>
+                <p>Oh. Oh, no. That is not pixel art. Toss that bad boy into Repixelizer and make the lattice do actual work.</p>
+              </div>
+            </div>
+            <div class="pitch-gallery">
+              <figure class="pitch-shot pitch-input ui-surface ui-frame">
+                <strong>The AI gives you this</strong>
+                <div class="pitch-image-wrap">
+                  <img src="/app/landing-assets/character-input.png" alt="AI-generated hazmat character before repixelizing">
+                </div>
+                <span>Looks charming from orbit. Suspiciously charming.</span>
+              </figure>
+              <figure class="pitch-shot pitch-closeup ui-surface ui-frame">
+                <strong>Then you zoom in</strong>
+                <div class="pitch-image-wrap">
+                  <img src="/app/landing-assets/character-input.png" alt="Zoomed close-up showing fake pixel-art artifacts around the hazmat symbol">
+                </div>
+                <span>Smears, half-cells, anti-grid nonsense. The crime scene has opinions.</span>
+              </figure>
+              <figure class="pitch-shot pitch-output ui-surface ui-frame">
+                <strong>Repixelizer spits out this</strong>
+                <div class="pitch-image-wrap">
+                  <img src="/app/landing-assets/character-repixelized.png" alt="Repixelized hazmat character output">
+                </div>
+                <span>Real cells on a real lattice, ready for cleanup or export.</span>
+              </figure>
+            </div>
+            <div class="landing-auth-strip">
+              <p class="copy-tag">{{HERO_NOTE}}</p>
+              <div class="editor-button-group" id="authProviders">{{AUTH_PROVIDER_BUTTONS}}</div>
+              <p class="status-text" id="authStateLine">
+                {{AUTH_STATE_TEXT}}
+              </p>
+            </div>
+          </div>
+        </section>
+        <section class="card panel-stack ui-surface ui-frame">
+          <div class="card-head">
+            <div class="copy-stack">
+              <p class="eyebrow">Pipeline</p>
+              <h2>How the machine behaves</h2>
+              <p class="copy-tag">A short machine, full of ugly truths and no unnecessary ceremony.</p>
+            </div>
+          </div>
+          <div class="landing-grid">
+            <article class="info-card">
+              <strong>1. Read the grid</strong>
+              <span>Infer one plausible lattice from autocorrelation instead of wandering through a candidate carnival all day.</span>
+            </article>
+            <article class="info-card">
+              <strong>2. Pick the size</strong>
+              <span>Probe a tiny size check up front so the solver does not begin life already standing in a pothole.</span>
+            </article>
+            <article class="info-card">
+              <strong>3. Let the field work</strong>
+              <span>Run one displacement field with enough leash to recover detail instead of compensating with decorative nonsense.</span>
+            </article>
+          </div>
+          <p class="copy-tag status-text">
+            Self-hosters can still go straight to <a href="/app/">the app</a>. Hosted mode just gets a front door instead of making everyone trip over raw controls immediately.
+          </p>
+          {{AUTH_NOTICE}}
+        </section>
+      </main>
+    <script>
+      const authConfig = {{AUTH_CONFIG_JSON}};
+      const sessionSubject = {{SESSION_SUBJECT_JSON}};
+      const providerRow = document.getElementById("authProviders");
+      const primaryAction = document.getElementById("primaryAction");
+      const authStateLine = document.getElementById("authStateLine");
+      const authNotice = document.getElementById("authNotice");
+      const signOutButton = document.getElementById("authSignOut");
+      const defaultPrimaryLabel = {{DEFAULT_PRIMARY_LABEL_JSON}};
+      let activeAttemptId = null;
+
+      function setNotice(text) {
+        if (authNotice) {
+          authNotice.textContent = text;
+        }
+        if (authStateLine) {
+          authStateLine.textContent = text;
+        }
+      }
+
+      function setBusy(providerSlug, busy) {
+        if (!providerRow) {
+          return;
+        }
+        for (const node of providerRow.querySelectorAll("button[data-provider]")) {
+          node.disabled = busy;
+        }
+        if (primaryAction && primaryAction instanceof HTMLElement) {
+          primaryAction.textContent = busy ? `Waiting on ${providerSlug}...` : defaultPrimaryLabel;
+        }
+      }
+
+      async function pollAttempt(attemptId, providerLabel) {
+        for (;;) {
+          const response = await fetch(`/api/auth/attempts/${attemptId}`, {
+            method: "GET",
+            cache: "no-store",
+            credentials: "same-origin",
+          });
+          const payload = await response.json().catch(() => ({ status: "failed", errorDescription: "Auth polling failed." }));
+          if (!response.ok) {
+            setNotice(payload.errorDescription || payload.detail || "Auth polling failed.");
+            setBusy(providerLabel, false);
+            return;
+          }
+          if (payload.status === "pending") {
+            await new Promise((resolve) => window.setTimeout(resolve, 900));
+            continue;
+          }
+          if (payload.status === "succeeded") {
+            const adopt = await fetch(`/api/auth/attempts/${attemptId}/adopt`, {
+              method: "POST",
+              credentials: "same-origin",
+            });
+            const adopted = await adopt.json().catch(() => ({ status: "failed", detail: "Session adoption failed." }));
+            if (!adopt.ok) {
+              setNotice(adopted.detail || "Session adoption failed.");
+              setBusy(providerLabel, false);
+              return;
+            }
+            window.location.href = adopted.returnTo || "/app/";
+            return;
+          }
+          setNotice(payload.errorDescription || "Sign-in failed.");
+          setBusy(providerLabel, false);
+          return;
+        }
+      }
+
+      async function startAuth(provider) {
+        if (!authConfig.enabled || !authConfig.startEndpoint) {
+          return;
+        }
+        setBusy(provider.label, true);
+        setNotice(`Opening ${provider.label}. If the browser throws a fit, that is still somehow considered normal web behavior.`);
+        try {
+          const response = await fetch(authConfig.startEndpoint, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            credentials: "same-origin",
+            body: JSON.stringify({ provider: provider.slug }),
+          });
+          const payload = await response.json().catch(() => ({ detail: "Auth start failed." }));
+          if (!response.ok) {
+            setNotice(payload.detail || "Auth start failed.");
+            setBusy(provider.label, false);
+            return;
+          }
+          activeAttemptId = payload.attemptId;
+          const opened = window.open(payload.authorizationUrl, "_blank");
+          if (!opened) {
+            setNotice(`Popup blocked. Opening ${provider.label} in this tab because the browser demanded drama.`);
+            window.location.href = payload.authorizationUrl;
+            return;
+          }
+          void pollAttempt(payload.attemptId, provider.label);
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : "Auth start failed.");
+          setBusy(provider.label, false);
+        }
+      }
+
+      if (authConfig.enabled && Array.isArray(authConfig.providers) && providerRow && !sessionSubject.authenticated) {
+        for (const button of providerRow.querySelectorAll("button[data-provider]")) {
+          if (button instanceof HTMLButtonElement) {
+            const provider = authConfig.providers.find((candidate) => candidate && candidate.slug === button.dataset.provider);
+            if (!provider) {
+              continue;
+            }
+            button.addEventListener("click", () => {
+              void startAuth(provider);
+            });
+          }
+        }
+      }
+
+      if (primaryAction && authConfig.enabled && !sessionSubject.authenticated) {
+        primaryAction.addEventListener("click", (event) => {
+          event.preventDefault();
+          const firstProvider = Array.isArray(authConfig.providers) ? authConfig.providers[0] : null;
+          if (firstProvider) {
+            void startAuth(firstProvider);
+          }
+        });
+      }
+
+      if (signOutButton) {
+        signOutButton.addEventListener("click", async () => {
+          try {
+            await fetch(authConfig.logoutUrl || "/api/auth/logout", {
+              method: "POST",
+              credentials: "same-origin",
+            });
+          } finally {
+            window.location.href = "/";
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
+
+

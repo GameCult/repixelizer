@@ -24,7 +24,7 @@ The solver nails a regular grid over the source, gives every output cell a tiny 
 
 These are the pieces that actually matter:
 
-- `inference`: chosen lattice width, height, phase, confidence, and optional top candidates
+- `inference`: chosen lattice width, height, confidence, and optional top candidates
 - `edge_map`: one normalized scout map of where the source image has strong luminance/alpha changes
 - `uv0_px`: the fixed source-space center for each output cell before any optimization
 - `disp_t`: the live displacement field, one `(dx, dy)` vector per output cell
@@ -65,22 +65,20 @@ That means the solver is not maintaining alternate per-cell candidate sets or se
 - `run_pipeline(...)` in `src/repixelizer/pipeline.py`
 - `_resolve_requested_target_dims(...)` in `src/repixelizer/pipeline.py`
 - `infer_lattice(...)` and `infer_fixed_lattice(...)` in `src/repixelizer/inference.py`
-- `_select_phase_candidate_with_reconstruction(...)` in `src/repixelizer/pipeline.py`
+- `_select_candidate_with_reconstruction(...)` in `src/repixelizer/pipeline.py`
 
 ### Inputs
 
 - source RGBA image
-- optional pinned target size / width / height / phase
-- optional `--skip-phase-rerank`
+- optional pinned target size / width / height
+- optional `--skip-candidate-rerank`
 
 ### Outputs
 
 - `InferenceResult`
   - `target_width`
   - `target_height`
-  - `phase_x`
-  - `phase_y`
-  - `confidence`
+    - `confidence`
   - `top_candidates`
 
 ### What the source actually does
@@ -88,17 +86,17 @@ That means the solver is not maintaining alternate per-cell candidate sets or se
 The pipeline first decides whether the lattice is:
 
 - fixed explicitly by the caller, using `infer_fixed_lattice(...)`, or
-- inferred directly from autocorr consensus with one cheap phase probe, using `infer_autocorr_lattice(...)`, or
+- inferred directly from autocorr consensus, using `infer_autocorr_lattice(...)`, or
 - searched automatically by `infer_lattice(...)`
 
 The two automatic paths split like this:
 
 - both paths estimate rough cell spacing from source edge-profile autocorrelation
 - both paths keep a tiny near-best lag plateau long enough to find cross-axis consensus instead of collapsing instantly to one lag
-- `infer_autocorr_lattice(...)` takes one consensus size, scores one small phase grid, and stops there
-- `infer_lattice(...)` still builds a small candidate size family, scores a small phase grid for each size, and keeps the best candidate plus top alternates
+- `infer_autocorr_lattice(...)` takes one consensus size, scores the canonical center-grid size check, and stops there
+- `infer_lattice(...)` still builds a small candidate size family, scores the canonical center-grid size check for each size, and keeps the best candidate plus top alternates
 
-After that, phase rerank may still happen, but only for `phase-field`, only when confidence is low, and only when rerank is enabled. The rerank probe is a short preview solve. It calls `_run_reconstruction(...)` with a small bounded step count, capped by both the requested solver steps and `phase_rerank_preview_steps`.
+After that, candidate rerank may still happen, but only for `phase-field`, only when confidence is low, and only when rerank is enabled. The rerank probe is a short preview solve. It calls `_run_reconstruction(...)` with a small bounded step count, capped by both the requested solver steps and `candidate_rerank_preview_steps`.
 
 That part matters. The pipeline is effectively asking:
 
@@ -189,7 +187,7 @@ Prep does a few brutally practical things:
 2. Builds the fixed lattice centers with `_make_regular_uv_px(...)`.
    - `cell_x = source_width / target_width`
    - `cell_y = source_height / target_height`
-   - `phase_x` and `phase_y` shift those centers before clipping to image bounds
+   - centers are placed at the canonical middle of each inferred output cell before clipping to image bounds
 
 3. Converts the source, edge map, and lattice centers to torch tensors.
 
@@ -339,7 +337,7 @@ Code:
 
 Meaning:
 
-The field pays a small tax for wandering too far. Motion has to earn its keep, but the leash is long enough to recover from moderate phase error instead of dying half a cell short of the right blob.
+The field pays a small tax for wandering too far. Motion has to earn its keep, but the leash is long enough to recover from moderate starting-grid error instead of dying half a cell short of the right blob.
 
 ### Metaphor
 
@@ -528,7 +526,7 @@ The solver also reports displacement statistics like:
 - local residual
 - dominant offset ratio
 
-Those are the closest thing this machine has to an X-ray of its phase drift.
+Those are the closest thing this machine has to an X-ray of its field drift.
 
 ### Metaphor
 
@@ -551,7 +549,7 @@ These pieces all belong to the same model of the machine.
 
 ## Current seams
 
-- low-confidence phase rerank uses only a short preview solve, not the full optimized field
+- low-confidence candidate rerank uses only a short preview solve, not the full optimized field
 - the edge scout only knows edge magnitude, not direction, so the solver still struggles with along-stroke versus across-stroke behavior near tapered contours
 
 These are the places where the current implementation is still a little awkward or incomplete.

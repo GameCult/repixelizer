@@ -174,7 +174,7 @@ def _response_json(response) -> dict[str, object]:
 
 def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
     source = make_emblem(20, 20)
-    fake = fake_pixelize(source, upscale=8, phase_x=0.15, phase_y=0.2, blur_radius=0.45, seed=3)
+    fake = fake_pixelize(source, upscale=8, blur_radius=0.45, seed=3)
     events: list[str] = []
 
     def observer(event: str, payload) -> None:
@@ -185,19 +185,17 @@ def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
         fake,
         target_width=20,
         target_height=20,
-        phase_x=0.0,
-        phase_y=0.0,
         steps=2,
         device="cpu",
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
         observer=observer,
     )
 
     assert events[0] == "source_loaded"
     assert events.count("stage_started") == 6
     assert events.index("inference_candidates_ready") < events.index("analysis_completed")
-    assert events.index("analysis_completed") < events.index("phase_selection_completed")
-    assert events.index("phase_selection_completed") < events.index("phase_field_prepared")
+    assert events.index("analysis_completed") < events.index("candidate_selection_completed")
+    assert events.index("candidate_selection_completed") < events.index("phase_field_prepared")
     assert "phase_field_prepared" in events
     assert "phase_field_initial" in events
     assert events.count("phase_field_step") == 2
@@ -206,7 +204,7 @@ def test_run_pipeline_rgba_emits_observer_events_for_gui() -> None:
 
 def test_run_pipeline_rgba_respects_phase_field_preview_stride() -> None:
     source = make_emblem(12, 12)
-    fake = fake_pixelize(source, upscale=6, phase_x=0.12, phase_y=-0.08, blur_radius=0.35, seed=5)
+    fake = fake_pixelize(source, upscale=6, blur_radius=0.35, seed=5)
 
     class PreviewObserver:
         phase_field_preview_stride = 2
@@ -223,11 +221,9 @@ def test_run_pipeline_rgba_respects_phase_field_preview_stride() -> None:
         fake,
         target_width=12,
         target_height=12,
-        phase_x=0.0,
-        phase_y=0.0,
         steps=5,
         device="cpu",
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
         observer=observer,
     )
 
@@ -416,7 +412,7 @@ def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> Non
     assert status == 200
     assert headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert "Repixelizer hosted demo" in html
-    assert "Force fake pixel art back onto a real grid." in html
+    assert "Force fake pixel art back onto a real grid, then inspect each step with a full solver view." in html
     assert 'href="/app/"' in html
 
 
@@ -532,7 +528,7 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
         lambda width, height, target_size, *, hinted_sizes=None: [(10, 8), (12, 10)],
     )
 
-    def fake_score_phase_group(
+    def fake_score_size_candidate(
         rgba,
         *,
         target_width,
@@ -540,23 +536,19 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
         prior_cell_x,
         prior_cell_y,
         prior_reliability,
-        phase_x_values,
-        phase_y_values,
         device,
     ):
-        del rgba, prior_cell_x, prior_cell_y, prior_reliability, phase_x_values, phase_y_values, device
+        del rgba, prior_cell_x, prior_cell_y, prior_reliability, device
         return [
             InferenceCandidate(
                 target_width=target_width,
                 target_height=target_height,
-                phase_x=0.0,
-                phase_y=0.0,
                 score=0.9 if target_width == 12 else 0.6,
                 breakdown={},
             )
         ]
 
-    monkeypatch.setattr(inference_module, "_score_phase_group", fake_score_phase_group)
+    monkeypatch.setattr(inference_module, "_score_size_candidate", fake_score_size_candidate)
     monkeypatch.setattr(inference_module, "_top_candidates_by_size", lambda candidates, limit: candidates[:limit])
     monkeypatch.setattr(
         inference_module,
@@ -583,16 +575,14 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
     assert events[2][1]["target_width"] == 12
 
 
-def test_phase_rerank_emits_candidate_progress_events(monkeypatch) -> None:
+def test_candidate_rerank_emits_candidate_progress_events(monkeypatch) -> None:
     inference = InferenceResult(
         target_width=16,
         target_height=16,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=0.0,
         top_candidates=[
-            InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.75, breakdown={}),
-            InferenceCandidate(target_width=18, target_height=18, phase_x=0.1, phase_y=-0.1, score=0.73, breakdown={}),
+            InferenceCandidate(target_width=16, target_height=16, score=0.75, breakdown={}),
+            InferenceCandidate(target_width=18, target_height=18, score=0.73, breakdown={}),
         ],
     )
     analysis = PhaseFieldSourceAnalysis(edge_map=np.zeros((4, 4), dtype=np.float32))
@@ -629,23 +619,23 @@ def test_phase_rerank_emits_candidate_progress_events(monkeypatch) -> None:
     def observer(event: str, payload: dict[str, object]) -> None:
         events.append((event, payload))
 
-    pipeline_module._select_phase_candidate_with_reconstruction(
+    pipeline_module._select_candidate_with_reconstruction(
         np.zeros((16, 16, 4), dtype=np.uint8),
         inference,
         analysis=analysis,
         steps=2,
         seed=1,
         device="cpu",
-        solver_params=SolverHyperParams(phase_rerank_preview_steps=2, phase_rerank_confidence_threshold=1.0),
+        solver_params=SolverHyperParams(candidate_rerank_preview_steps=2, candidate_rerank_confidence_threshold=1.0),
         observer=observer,
     )
 
     event_names = [event for event, _payload in events]
-    assert event_names[0] == "phase_rerank_started"
-    assert event_names.count("phase_rerank_candidate_started") == 2
-    assert event_names.count("phase_rerank_candidate_step") == 6
-    assert event_names.count("phase_rerank_candidate_completed") == 2
-    first_step_payload = next(payload for event, payload in events if event == "phase_rerank_candidate_step")
+    assert event_names[0] == "candidate_rerank_started"
+    assert event_names.count("candidate_rerank_candidate_started") == 2
+    assert event_names.count("candidate_rerank_candidate_step") == 6
+    assert event_names.count("candidate_rerank_candidate_completed") == 2
+    first_step_payload = next(payload for event, payload in events if event == "candidate_rerank_candidate_step")
     assert first_step_payload["candidate_index"] == 1
     assert first_step_payload["total_steps"] == 2
 
@@ -866,19 +856,17 @@ def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:
         target_size=None,
         target_width=None,
         target_height=None,
-        phase_x=None,
-        phase_y=None,
         steps=None,
         seed=7,
         device="auto",
         strip_background=False,
-        skip_phase_rerank=False,
+        skip_candidate_rerank=False,
     )
 
     assert options["target_size"] is None
     assert options["lattice_inference_mode"] == "autocorr"
     assert options["max_inferred_target_size"] == 256
-    assert options["skip_phase_rerank"] is True
+    assert options["skip_candidate_rerank"] is True
 
 
 def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: Path) -> None:
@@ -907,13 +895,11 @@ def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: P
                 target_size=None,
                 target_width=None,
                 target_height=None,
-                phase_x=None,
-                phase_y=None,
                 steps=None,
                 seed=7,
                 device="auto",
                 strip_background=False,
-                skip_phase_rerank=False,
+                skip_candidate_rerank=False,
             )
         )
     assert created.status_code == 200
@@ -985,13 +971,11 @@ def test_gui_queue_rejects_eleventh_waiting_job(monkeypatch, tmp_path: Path) -> 
                     target_size=None,
                     target_width=None,
                     target_height=None,
-                    phase_x=None,
-                    phase_y=None,
                     steps=None,
                     seed=7,
                     device="auto",
                     strip_background=False,
-                    skip_phase_rerank=False,
+                    skip_candidate_rerank=False,
                 )
             )
         )
@@ -1003,13 +987,11 @@ def test_gui_queue_rejects_eleventh_waiting_job(monkeypatch, tmp_path: Path) -> 
                 target_size=None,
                 target_width=None,
                 target_height=None,
-                phase_x=None,
-                phase_y=None,
                 steps=None,
                 seed=7,
                 device="auto",
                 strip_background=False,
-                skip_phase_rerank=False,
+                skip_candidate_rerank=False,
             )
         )
     except Exception as exc:
@@ -1044,13 +1026,11 @@ def test_gui_hosted_jobs_dispatch_direct_autocorr_pipeline(monkeypatch, tmp_path
             target_size=None,
             target_width=None,
             target_height=None,
-            phase_x=None,
-            phase_y=None,
             steps=None,
             seed=7,
             device="auto",
             strip_background=False,
-            skip_phase_rerank=False,
+            skip_candidate_rerank=False,
         )
     )
     deadline = time.time() + 2.0
@@ -1062,7 +1042,7 @@ def test_gui_hosted_jobs_dispatch_direct_autocorr_pipeline(monkeypatch, tmp_path
     assert calls
     assert calls[0]["lattice_inference_mode"] == "autocorr"
     assert calls[0]["max_inferred_target_size"] == 256
-    assert calls[0]["enable_phase_rerank"] is False
+    assert calls[0]["enable_candidate_rerank"] is False
     assert calls[0]["target_size"] is None
 
 
@@ -1090,13 +1070,11 @@ def test_gui_canceling_queued_job_cleans_spool_file(monkeypatch, tmp_path: Path)
             target_size=None,
             target_width=None,
             target_height=None,
-            phase_x=None,
-            phase_y=None,
             steps=None,
             seed=7,
             device="auto",
             strip_background=False,
-            skip_phase_rerank=False,
+            skip_candidate_rerank=False,
         )
     )
     second = asyncio.run(
@@ -1105,13 +1083,11 @@ def test_gui_canceling_queued_job_cleans_spool_file(monkeypatch, tmp_path: Path)
             target_size=None,
             target_width=None,
             target_height=None,
-            phase_x=None,
-            phase_y=None,
             steps=None,
             seed=7,
             device="auto",
             strip_background=False,
-            skip_phase_rerank=False,
+            skip_candidate_rerank=False,
         )
     )
     assert first.status_code == 200
@@ -1158,13 +1134,11 @@ def test_gui_running_job_is_canceled_after_stale_heartbeat(monkeypatch, tmp_path
             target_size=None,
             target_width=None,
             target_height=None,
-            phase_x=None,
-            phase_y=None,
             steps=None,
             seed=7,
             device="auto",
             strip_background=False,
-            skip_phase_rerank=False,
+            skip_candidate_rerank=False,
         )
     )
     assert created.status_code == 200
@@ -1199,13 +1173,11 @@ def test_gui_rejects_oversized_upload_and_output(monkeypatch, tmp_path: Path) ->
                 target_size=None,
                 target_width=None,
                 target_height=None,
-                phase_x=None,
-                phase_y=None,
                 steps=None,
                 seed=7,
                 device="auto",
                 strip_background=False,
-                skip_phase_rerank=False,
+                skip_candidate_rerank=False,
             )
         )
     except Exception as exc:
@@ -1223,13 +1195,11 @@ def test_gui_rejects_oversized_upload_and_output(monkeypatch, tmp_path: Path) ->
                 target_size=None,
                 target_width=16,
                 target_height=None,
-                phase_x=None,
-                phase_y=None,
                 steps=None,
                 seed=7,
                 device="auto",
                 strip_background=False,
-                skip_phase_rerank=False,
+                skip_candidate_rerank=False,
             )
         )
     except Exception as exc:

@@ -29,11 +29,11 @@ Do not trust this file for the exact live HEAD. Always check git.
 - `phase-field` is the only live reconstruction engine.
 - The live pipeline is `source -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
 - searched lattice inference now trusts autocorrelation only; it keeps a tiny near-best lag plateau and looks for cross-axis consensus before collapsing to one lattice family. the old change-interval / pixel-walk sizing path was cut after it kept steering the badge away from the `126` family, and the projected edge-energy spectral pass was also removed after floor-hugging to 2px / 626-family aliases on the dense landscape fixture
-- hosted demo inference now uses one direct autocorr-consensus size plus the cheap inferred phase, capped by the hosted output limit. it no longer silently pins unspecified jobs to `max_output_dimension`
+- hosted demo inference now uses one direct autocorr-consensus size, capped by the hosted output limit. it no longer silently pins unspecified jobs to `max_output_dimension`
 - hosted web access now has an explicit seam in `src/repixelizer/access.py`; `src/repixelizer/gui.py` binds request subjects, guards hosted routes, and stamps queued jobs with local owner metadata
 - `GC_ACCESS_MODE=heimdall` is now landed in that web layer: Repixelizer creates auth attempts, asks Heimdall to start provider OAuth, accepts the direct backend callback, verifies Heimdall Ed25519 access tokens locally, and adopts an httpOnly local session cookie
-- The low-confidence phase rerank path is a short preview solve, not a second full optimizer.
-- the phase field now has a wider displacement budget, so moderate phase mistakes are allowed to get corrected by the field instead of relying purely on rerank ceremony
+- The low-confidence candidate rerank path is a short preview solve, not a second full optimizer.
+- the phase field now has a wider displacement budget, so moderate starting-grid mistakes are allowed to get corrected by the field instead of relying purely on candidate-rerank ceremony
 - Cleanup is secondary and usually a no-op; the core result is supposed to come from the solver, not cleanup cosplay.
 - The current tracked weakness is the widened dark contour near the badge sword tip on tapered shapes.
 - `source_structure` exists because lattice-only `source_fidelity` could call visibly better outputs worse.
@@ -57,10 +57,10 @@ The current spine:
 
 - lattice inference with fixed-size and searched-size paths
 - searched lattice inference currently trusts autocorrelation only, not the rejected pixel-walk or spectral priors
-- hosted demo inference uses the direct autocorr path and keeps phase rerank off
+- hosted demo inference uses the direct autocorr path and keeps candidate rerank off
 - hosted route auth belongs in `src/repixelizer/access.py` + `src/repixelizer/gui.py`, not in the solver or pipeline
 - the first Heimdall consumer path is live there: provider buttons on the landing page, direct backend callback handoff, local JWT verification, and cookie adoption
-- low-confidence phase rerank through short preview reconstruction
+- low-confidence candidate rerank through short preview reconstruction
 - edge analysis feeding one projected displacement-field optimizer with a wider displacement leash
 - nearest-source final sampling from `uv0_px + disp_t`
 - cleanup, optional palette fit, diagnostics, compare mode, tuning, and GUI observer events on the live path

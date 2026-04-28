@@ -20,8 +20,6 @@ def test_source_lattice_reference_recovers_stable_cell_colors() -> None:
         source,
         target_width=2,
         target_height=2,
-        phase_x=0.0,
-        phase_y=0.0,
     )
 
     assert np.allclose(reference.sharp_rgba, lowres, atol=1e-5)
@@ -44,8 +42,6 @@ def test_source_lattice_reference_tracks_edge_peaks_and_gradients() -> None:
         source,
         target_width=2,
         target_height=2,
-        phase_x=0.0,
-        phase_y=0.0,
         edge_hint=edge_hint,
         edge_grad_x_hint=edge_grad_x,
         edge_grad_y_hint=edge_grad_y,
@@ -65,15 +61,11 @@ def test_source_lattice_reference_cpu_device_matches_default_path() -> None:
         source,
         target_width=4,
         target_height=4,
-        phase_x=0.0,
-        phase_y=0.0,
     )
     accelerated = build_source_lattice_reference(
         source,
         target_width=4,
         target_height=4,
-        phase_x=0.0,
-        phase_y=0.0,
         device="cpu",
     )
 

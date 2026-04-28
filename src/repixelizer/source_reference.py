@@ -63,13 +63,11 @@ def lattice_indices(
     width: int,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
 ) -> np.ndarray:
     cell_x = width / max(1, target_width)
     cell_y = height / max(1, target_height)
-    xs = (np.arange(width, dtype=np.float32) + 0.5) / cell_x - phase_x
-    ys = (np.arange(height, dtype=np.float32) + 0.5) / cell_y - phase_y
+    xs = (np.arange(width, dtype=np.float32) + 0.5) / cell_x
+    ys = (np.arange(height, dtype=np.float32) + 0.5) / cell_y
     x_idx = np.clip(np.floor(xs).astype(np.int32), 0, max(0, target_width - 1))
     y_idx = np.clip(np.floor(ys).astype(np.int32), 0, max(0, target_height - 1))
     return y_idx[:, None] * target_width + x_idx[None, :]
@@ -82,14 +80,12 @@ def _lattice_indices_torch(
     width: int,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
     device: str,
 ):
     cell_x = width / max(1, target_width)
     cell_y = height / max(1, target_height)
-    xs = (torch.arange(width, device=device, dtype=torch.float32) + 0.5) / cell_x - phase_x
-    ys = (torch.arange(height, device=device, dtype=torch.float32) + 0.5) / cell_y - phase_y
+    xs = (torch.arange(width, device=device, dtype=torch.float32) + 0.5) / cell_x
+    ys = (torch.arange(height, device=device, dtype=torch.float32) + 0.5) / cell_y
     x_idx = torch.floor(xs).to(dtype=torch.long).clamp(0, max(0, target_width - 1))
     y_idx = torch.floor(ys).to(dtype=torch.long).clamp(0, max(0, target_height - 1))
     return y_idx[:, None] * target_width + x_idx[None, :]
@@ -129,8 +125,6 @@ def build_source_lattice_reference(
     *,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
     alpha_threshold: float = 0.05,
     edge_hint: np.ndarray | None = None,
     edge_grad_x_hint: np.ndarray | None = None,
@@ -141,8 +135,6 @@ def build_source_lattice_reference(
         source_rgba,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         alpha_threshold=alpha_threshold,
         edge_hint=edge_hint,
         edge_grad_x_hint=edge_grad_x_hint,
@@ -157,8 +149,6 @@ def _build_reference_payload(
     *,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
     alpha_threshold: float = 0.05,
     edge_hint: np.ndarray | None = None,
     edge_grad_x_hint: np.ndarray | None = None,
@@ -182,8 +172,6 @@ def _build_reference_payload(
             width=width,
             target_width=target_width,
             target_height=target_height,
-            phase_x=phase_x,
-            phase_y=phase_y,
             device=resolved_device,
         )
         cell_count = max(1, target_width * target_height)
@@ -219,12 +207,12 @@ def _build_reference_payload(
         cell_x = width / max(1, target_width)
         cell_y = height / max(1, target_height)
         default_x_t = torch.clamp(
-            torch.round((torch.arange(target_width, device=resolved_device, dtype=torch.float32) + 0.5 + phase_x) * cell_x - 0.5),
+            torch.round((torch.arange(target_width, device=resolved_device, dtype=torch.float32) + 0.5 ) * cell_x - 0.5),
             0,
             max(0, width - 1),
         ).to(dtype=torch.long)
         default_y_t = torch.clamp(
-            torch.round((torch.arange(target_height, device=resolved_device, dtype=torch.float32) + 0.5 + phase_y) * cell_y - 0.5),
+            torch.round((torch.arange(target_height, device=resolved_device, dtype=torch.float32) + 0.5 ) * cell_y - 0.5),
             0,
             max(0, height - 1),
         ).to(dtype=torch.long)
@@ -303,8 +291,6 @@ def _build_reference_payload(
         width=width,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
     )
     cell_count = max(1, target_width * target_height)
     premul = premultiply(source_rgba)
@@ -338,12 +324,12 @@ def _build_reference_payload(
     cell_x = width / max(1, target_width)
     cell_y = height / max(1, target_height)
     default_x = np.clip(
-        np.rint((np.arange(target_width, dtype=np.float32) + 0.5 + phase_x) * cell_x - 0.5),
+        np.rint((np.arange(target_width, dtype=np.float32) + 0.5 ) * cell_x - 0.5),
         0,
         max(0, width - 1),
     )
     default_y = np.clip(
-        np.rint((np.arange(target_height, dtype=np.float32) + 0.5 + phase_y) * cell_y - 0.5),
+        np.rint((np.arange(target_height, dtype=np.float32) + 0.5 ) * cell_y - 0.5),
         0,
         max(0, height - 1),
     )

@@ -19,8 +19,6 @@ def test_optimize_phase_field_emits_displacement_diagnostics_and_source_colors()
     inference = InferenceResult(
         target_width=6,
         target_height=6,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=1.0,
         top_candidates=[],
     )
@@ -49,8 +47,6 @@ def test_optimize_phase_field_moves_off_zero_when_phase_is_wrong() -> None:
     fake = fake_pixelize(
         source,
         upscale=8,
-        phase_x=0.18,
-        phase_y=-0.14,
         blur_radius=0.35,
         warp_strength=0.12,
         warp_detail=4,
@@ -59,8 +55,6 @@ def test_optimize_phase_field_moves_off_zero_when_phase_is_wrong() -> None:
     inference = InferenceResult(
         target_width=18,
         target_height=18,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=1.0,
         top_candidates=[],
     )
@@ -81,8 +75,6 @@ def test_optimize_phase_field_honors_cooperative_cancellation() -> None:
     inference = InferenceResult(
         target_width=12,
         target_height=12,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=1.0,
         top_candidates=[],
     )

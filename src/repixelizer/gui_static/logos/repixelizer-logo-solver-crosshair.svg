@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
-  <title id="title">Repixelizer phase crosshair logo concept</title>
-  <desc id="desc">A chunky pixel in a phase-lock reticle with ghost positions hinting at the search.</desc>
+  <title id="title">Repixelizer solver crosshair logo concept</title>
+  <desc id="desc">A chunky pixel in a solver reticle with ghost positions hinting at the search.</desc>
   <defs>
     <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur stdDeviation="3" result="blur" />

@@ -61,8 +61,6 @@ def run_compare(
     target_size: int | None = None,
     target_width: int | None = None,
     target_height: int | None = None,
-    phase_x: float | None = None,
-    phase_y: float | None = None,
     palette_path: str | Path | None = None,
     palette_mode: str = "off",
     diagnostics_dir: str | Path | None = None,
@@ -70,7 +68,7 @@ def run_compare(
     steps: int = 200,
     device: str = "auto",
     strip_background: bool = False,
-    enable_phase_rerank: bool = True,
+    enable_candidate_rerank: bool = True,
 ) -> dict[str, Any]:
     diagnostics_path = Path(diagnostics_dir) if diagnostics_dir else Path(output_path).with_suffix("")
     diagnostics_path.mkdir(parents=True, exist_ok=True)
@@ -80,8 +78,6 @@ def run_compare(
         target_size=target_size,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         palette_path=palette_path,
         palette_mode=palette_mode,
         diagnostics_dir=diagnostics_path,
@@ -89,7 +85,7 @@ def run_compare(
         steps=steps,
         device=device,
         strip_background=strip_background,
-        enable_phase_rerank=enable_phase_rerank,
+        enable_candidate_rerank=enable_candidate_rerank,
     )
     source = result.source_rgba
     palette = load_palette(palette_path) if palette_path else None

@@ -126,8 +126,8 @@ def run_roundtrip_benchmark(
                     "input_width": int(fake.shape[1]),
                     "input_height": int(fake.shape[0]),
                     "upscale": settings["upscale"],
-                    "phase_x": settings["phase_x"],
-                    "phase_y": settings["phase_y"],
+                    "offset_x": settings["offset_x"],
+                    "offset_y": settings["offset_y"],
                     "blur_radius": settings["blur_radius"],
                     "warp_strength": settings["warp_strength"],
                     "warp_detail": settings["warp_detail"],
@@ -213,8 +213,8 @@ def _variant_settings(seed: int, profile: str) -> dict[str, Any]:
     if profile == "crisp":
         return {
             "upscale": int(rng.integers(8, 15)),
-            "phase_x": float(rng.uniform(-0.45, 0.45)),
-            "phase_y": float(rng.uniform(-0.45, 0.45)),
+            "offset_x": float(rng.uniform(-0.45, 0.45)),
+            "offset_y": float(rng.uniform(-0.45, 0.45)),
             "blur_radius": 0.0,
             "warp_strength": float(rng.uniform(0.14, 0.46)),
             "warp_detail": int(rng.integers(5, 9)),
@@ -225,8 +225,8 @@ def _variant_settings(seed: int, profile: str) -> dict[str, Any]:
     if profile == "soft":
         return {
             "upscale": int(rng.integers(8, 15)),
-            "phase_x": float(rng.uniform(-0.45, 0.45)),
-            "phase_y": float(rng.uniform(-0.45, 0.45)),
+            "offset_x": float(rng.uniform(-0.45, 0.45)),
+            "offset_y": float(rng.uniform(-0.45, 0.45)),
             "blur_radius": float(rng.uniform(0.45, 1.15)),
             "warp_strength": float(rng.uniform(0.18, 0.55)),
             "warp_detail": int(rng.integers(4, 8)),
@@ -237,8 +237,8 @@ def _variant_settings(seed: int, profile: str) -> dict[str, Any]:
     if profile == "ai":
         return {
             "upscale": int(rng.integers(8, 15)),
-            "phase_x": float(rng.uniform(-0.48, 0.48)),
-            "phase_y": float(rng.uniform(-0.48, 0.48)),
+            "offset_x": float(rng.uniform(-0.48, 0.48)),
+            "offset_y": float(rng.uniform(-0.48, 0.48)),
             "blur_radius": float(rng.uniform(0.18, 0.95)),
             "warp_strength": float(rng.uniform(0.24, 0.68)),
             "warp_detail": int(rng.integers(5, 10)),

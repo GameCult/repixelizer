@@ -3,8 +3,6 @@
   "input": "tests/fixtures/real/ai-badge-cleaned.png",
   "target_width": 126,
   "target_height": 126,
-  "phase_x": 0.0,
-  "phase_y": -0.2,
   "steps": 48,
   "cell_bbox": [67, 90, 97, 122]
 }

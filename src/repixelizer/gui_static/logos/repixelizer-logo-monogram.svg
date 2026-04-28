@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="12 12 232 232" role="img" aria-labelledby="title desc">
   <title id="title">Repixelizer monogram logo concept</title>
-  <desc id="desc">A discrete pixel-tile R monogram built from the reference mosaic, inset cleanly inside the rounded badge and trailed by a right-shifted phase ghost.</desc>
+  <desc id="desc">A discrete pixel-tile R monogram built from the reference mosaic, inset cleanly inside the rounded badge and trailed by a right-shifted tile echo.</desc>
   <defs>
     <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
       <path d="M 12 0 L 0 0 0 12" fill="none" stroke="#ffd84a" stroke-opacity="0.08" stroke-width="1" />

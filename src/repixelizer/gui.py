@@ -1,4 +1,5 @@
 import base64
+import html
 import contextlib
 import io
 import json
@@ -167,7 +168,7 @@ class HostedDemoConfig:
     def from_env(cls) -> "HostedDemoConfig":
         hosted_demo = _env_flag("REPIXELIZER_HOSTED_DEMO", False)
         defaults = {
-            "max_upload_bytes": 1_048_576 if hosted_demo else 16 * 1_048_576,
+            "max_upload_bytes": 2 * 1_048_576 if hosted_demo else 16 * 1_048_576,
             "max_input_dimension": 2048 if hosted_demo else 4096,
             "max_output_dimension": 256 if hosted_demo else 1024,
             "default_steps": 32 if hosted_demo else 48,
@@ -335,14 +336,14 @@ class GuiJob:
                 "operation": payload.get("operation"),
                 "sourceImage": _image_asset(source),
             }
-        if event in {"inference_candidates_ready", "phase_selection_completed"}:
+        if event in {"inference_candidates_ready", "candidate_selection_completed"}:
             inference = payload["inference"]
             self.current_inference = inference
             return {
                 "inference": inference_to_json(inference),
                 "inferenceMode": payload.get("inference_mode"),
             }
-        if event == "phase_rerank_started":
+        if event == "candidate_rerank_started":
             return {
                 "previewSteps": int(payload["preview_steps"]),
                 "candidateCount": int(payload["candidate_count"]),
@@ -351,7 +352,6 @@ class GuiJob:
         if event == "lattice_search_started":
             return {
                 "candidateCount": int(payload["candidate_count"]),
-                "phaseSampleCount": int(payload["phase_sample_count"]),
                 "device": str(payload["device"]),
             }
         if event == "lattice_search_progress":
@@ -360,40 +360,33 @@ class GuiJob:
                 "totalCandidates": int(payload["total_candidates"]),
                 "targetWidth": int(payload["target_width"]),
                 "targetHeight": int(payload["target_height"]),
-                "phaseSampleCount": int(payload["phase_sample_count"]),
                 "bestScore": None if payload.get("best_score") is None else float(payload["best_score"]),
             }
-        if event == "phase_rerank_candidate_started":
+        if event == "candidate_rerank_candidate_started":
             return {
                 "candidateIndex": int(payload["candidate_index"]),
                 "totalCandidates": int(payload["total_candidates"]),
                 "targetWidth": int(payload["target_width"]),
                 "targetHeight": int(payload["target_height"]),
-                "phaseX": float(payload["phase_x"]),
-                "phaseY": float(payload["phase_y"]),
                 "previewSteps": int(payload["preview_steps"]),
             }
-        if event == "phase_rerank_candidate_step":
+        if event == "candidate_rerank_candidate_step":
             return {
                 "candidateIndex": int(payload["candidate_index"]),
                 "totalCandidates": int(payload["total_candidates"]),
                 "targetWidth": int(payload["target_width"]),
                 "targetHeight": int(payload["target_height"]),
-                "phaseX": float(payload["phase_x"]),
-                "phaseY": float(payload["phase_y"]),
                 "step": int(payload["step"]),
                 "totalSteps": int(payload["total_steps"]),
                 "loss": None if payload.get("loss") is None else float(payload["loss"]),
             }
-        if event == "phase_rerank_candidate_completed":
+        if event == "candidate_rerank_candidate_completed":
             return {
                 "candidateIndex": int(payload["candidate_index"]),
                 "totalCandidates": int(payload["total_candidates"]),
                 "completedCandidates": int(payload["completed_candidates"]),
                 "targetWidth": int(payload["target_width"]),
                 "targetHeight": int(payload["target_height"]),
-                "phaseX": float(payload["phase_x"]),
-                "phaseY": float(payload["phase_y"]),
                 "totalSteps": int(payload["total_steps"]),
                 "finalLoss": None if payload.get("final_loss") is None else float(payload["final_loss"]),
             }
@@ -427,7 +420,7 @@ class GuiJob:
                 "totalSteps": int(payload["total_steps"]),
                 "loss": None if payload.get("loss") is None else float(payload["loss"]),
                 "terms": {key: float(value) for key, value in payload.get("terms", {}).items()},
-                "phaseMetrics": {key: float(value) for key, value in payload.get("phase_metrics", {}).items()},
+                "solverMetrics": {key: float(value) for key, value in payload.get("phase_metrics", {}).items()},
                 "outputImage": _image_asset(payload["target_rgba"]),
                 "samplingOverlayImage": _image_asset(
                     _render_sample_overlay(self.current_source_rgba, payload["sample_x"], payload["sample_y"])
@@ -493,13 +486,11 @@ def _normalize_job_options(
     target_size: int | None,
     target_width: int | None,
     target_height: int | None,
-    phase_x: float | None,
-    phase_y: float | None,
     steps: int | None,
     seed: int,
     device: str,
     strip_background: bool,
-    skip_phase_rerank: bool,
+    skip_candidate_rerank: bool,
 ) -> dict[str, Any]:
     normalized_target_size = _normalize_optional_positive_int("target_size", target_size)
     normalized_target_width = _normalize_optional_positive_int("target_width", target_width)
@@ -511,8 +502,6 @@ def _normalize_job_options(
             target_size=normalized_target_size,
             target_width=normalized_target_width,
             target_height=normalized_target_height,
-            phase_x=phase_x,
-            phase_y=phase_y,
         )
     except ValueError as exc:
         raise ValueError(str(exc)) from exc
@@ -526,18 +515,16 @@ def _normalize_job_options(
     normalized_strip_background = False if config.hosted_demo else bool(strip_background)
     inference_mode = "autocorr" if config.hosted_demo and fixed_dims is None else "search"
     max_inferred_target_size = config.max_output_dimension if config.hosted_demo and fixed_dims is None else None
-    normalized_skip_phase_rerank = True if config.hosted_demo else bool(skip_phase_rerank)
+    normalized_skip_candidate_rerank = True if config.hosted_demo else bool(skip_candidate_rerank)
     return {
         "target_size": normalized_target_size,
         "target_width": normalized_target_width,
         "target_height": normalized_target_height,
-        "phase_x": phase_x,
-        "phase_y": phase_y,
         "steps": normalized_steps,
         "seed": int(seed),
         "device": normalized_device,
         "strip_background": normalized_strip_background,
-        "skip_phase_rerank": normalized_skip_phase_rerank,
+        "skip_candidate_rerank": normalized_skip_candidate_rerank,
         "lattice_inference_mode": inference_mode,
         "max_inferred_target_size": max_inferred_target_size,
     }
@@ -551,13 +538,11 @@ def _validate_upload_request(
     target_size: int | None,
     target_width: int | None,
     target_height: int | None,
-    phase_x: float | None,
-    phase_y: float | None,
     steps: int | None,
     seed: int,
     device: str,
     strip_background: bool,
-    skip_phase_rerank: bool,
+    skip_candidate_rerank: bool,
 ) -> tuple[dict[str, Any], int, int]:
     if len(raw) > config.max_upload_bytes:
         raise ValueError(f"Upload is too large. Limit is {config.max_upload_bytes // 1024} KiB for the hosted demo.")
@@ -576,13 +561,11 @@ def _validate_upload_request(
         target_size=target_size,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         steps=steps,
         seed=seed,
         device=device,
         strip_background=strip_background,
-        skip_phase_rerank=skip_phase_rerank,
+        skip_candidate_rerank=skip_candidate_rerank,
     )
     return options, source_width, source_height
 
@@ -597,14 +580,12 @@ def _execute_job(job: GuiJob) -> None:
         target_size=job.options["target_size"],
         target_width=job.options["target_width"],
         target_height=job.options["target_height"],
-        phase_x=job.options["phase_x"],
-        phase_y=job.options["phase_y"],
         palette_mode="off",
         seed=job.options["seed"],
         steps=job.options["steps"],
         device=job.options["device"],
         strip_background=job.options["strip_background"],
-        enable_phase_rerank=not job.options["skip_phase_rerank"],
+        enable_candidate_rerank=not job.options["skip_candidate_rerank"],
         lattice_inference_mode=job.options["lattice_inference_mode"],
         max_inferred_target_size=job.options["max_inferred_target_size"],
         observer=job.observe,
@@ -918,8 +899,10 @@ def _landing_page_html(
             label = provider.get("label")
             if not isinstance(slug, str) or not isinstance(label, str):
                 continue
+            escaped_slug = html.escape(slug, quote=True)
+            escaped_label = html.escape(label)
             fragments.append(
-                f'<button class="button secondary" type="button" data-provider="{slug}">Login with {label}</button>'
+                f'<button class="button button-secondary" type="button" data-provider="{escaped_slug}">Login with {escaped_label}</button>'
             )
         provider_button_html = "".join(fragments)
     hero_note = (
@@ -930,445 +913,34 @@ def _landing_page_html(
     auth_notice = ""
     if auth_enabled and not auth_payload.get("providers"):
         auth_notice = (
-            '<p class="footer" id="authNotice">Auth is enabled here, but no providers are configured yet. '
+            '<p class="copy-tag status-text" id="authNotice">Auth is enabled here, but no providers are configured yet. '
             "The front door exists, but somebody still owes it an actual key.</p>"
         )
     elif auth_enabled:
-        auth_notice = '<p class="footer" id="authNotice">Choose a provider. The main page stays put while Heimdall and the backend sort out the paperwork in another tab.</p>'
-    return f"""<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Repixelizer</title>
-    <style>
-      @import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap");
-      :root {{
-        color-scheme: dark;
-        --bg-top: #01040b;
-        --bg-mid: #020813;
-        --bg-bottom: #01050d;
-        --panel-top: #0a2239;
-        --panel-bottom: #061627;
-        --surface-top: #061424;
-        --surface-bottom: #030b16;
-        --text-bright: #f7efd8;
-        --text: #efe5c9;
-        --text-muted: #d3bb7f;
-        --accent: #ffd84a;
-        --accent-strong: #ffae1a;
-        --border: #0a2740;
-        --shadow: rgba(0, 0, 0, 0.55);
-      }}
-      * {{ box-sizing: border-box; }}
-      html, body {{ min-height: 100%; }}
-      body {{
-        margin: 0;
-        background:
-          repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 3px),
-          repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 4px),
-          linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 46%, var(--bg-bottom) 100%);
-        color: var(--text);
-        font-family: "VT323", "Courier New", monospace;
-        font-size: 26px;
-        line-height: 1.22;
-        letter-spacing: 0.01em;
-      }}
-      body::before {{
-        content: "";
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        background:
-          radial-gradient(circle at 14% 18%, rgba(255, 216, 74, 0.08), transparent 26%),
-          radial-gradient(circle at 84% 20%, rgba(255, 174, 26, 0.11), transparent 24%),
-          radial-gradient(circle at 24% 76%, rgba(255, 216, 74, 0.04), transparent 22%),
-          radial-gradient(circle at 78% 82%, rgba(255, 174, 26, 0.04), transparent 24%);
-        opacity: 0.35;
-      }}
-      a {{ color: inherit; }}
-      .shell {{
-        width: min(1160px, calc(100% - 32px));
-        margin: 0 auto;
-        padding: 28px 0 48px;
-      }}
-      .hero {{
-        position: relative;
-        overflow: hidden;
-        border: 3px solid rgba(158, 112, 22, 0.94);
-        background:
-          linear-gradient(180deg, rgba(9, 28, 46, 0.96), rgba(4, 13, 24, 0.98)),
-          linear-gradient(135deg, rgba(255, 216, 74, 0.06), transparent 34%);
-        box-shadow: inset 0 0 0 2px rgba(7, 24, 44, 0.9), 0 18px 52px var(--shadow);
-        padding: 24px;
-      }}
-      .hero::after {{
-        content: "";
-        position: absolute;
-        inset: 10px;
-        border: 1px solid rgba(255, 216, 74, 0.1);
-        pointer-events: none;
-      }}
-      .eyebrow, h1, h2, .button {{
-        font-family: "Press Start 2P", "VT323", monospace;
-      }}
-      .eyebrow {{
-        margin: 0 0 18px;
-        color: var(--accent);
-        font-size: 0.7rem;
-        line-height: 1.6;
-        text-transform: uppercase;
-      }}
-      h1 {{
-        margin: 0;
-        color: var(--text-bright);
-        font-size: clamp(1.7rem, 4vw, 3.15rem);
-        line-height: 1.15;
-        max-width: 13ch;
-      }}
-      .lede {{
-        max-width: 26ch;
-        margin: 20px 0 0;
-        color: var(--text);
-        font-size: clamp(1.1rem, 2vw, 1.45rem);
-      }}
-      .hero-grid {{
-        display: grid;
-        grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.95fr);
-        gap: 20px;
-        align-items: end;
-      }}
-      .cta-row {{
-        display: flex;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-top: 24px;
-      }}
-      .button {{
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 54px;
-        padding: 0 18px;
-        text-decoration: none;
-        text-transform: uppercase;
-        font-size: 0.72rem;
-        line-height: 1.45;
-        border: 2px solid var(--accent-strong);
-        background: linear-gradient(180deg, #ffd84a, #ffb01f);
-        color: #1b1202;
-        box-shadow: inset 0 -2px 0 rgba(0,0,0,0.24);
-      }}
-      button.button {{
-        cursor: pointer;
-      }}
-      .button[disabled] {{
-        opacity: 0.55;
-        cursor: wait;
-      }}
-      .button.secondary {{
-        background: linear-gradient(180deg, rgba(15, 40, 64, 0.96), rgba(7, 19, 32, 0.98));
-        color: var(--text-bright);
-        border-color: var(--border);
-      }}
-      .button.ghost {{
-        background: transparent;
-        color: var(--text-muted);
-        border-color: rgba(255, 216, 74, 0.2);
-      }}
-      .stats, .grid {{
-        display: grid;
-        gap: 14px;
-      }}
-      .stats {{
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-top: 22px;
-      }}
-      .stat, .panel {{
-        border: 2px solid var(--border);
-        background: linear-gradient(180deg, var(--panel-top), var(--panel-bottom));
-        box-shadow: inset 0 0 0 1px rgba(255, 216, 74, 0.05);
-      }}
-      .stat {{
-        padding: 14px;
-      }}
-      .stat strong {{
-        display: block;
-        color: var(--text-bright);
-        font-size: 1.05rem;
-      }}
-      .stat span {{
-        display: block;
-        color: var(--text-muted);
-        margin-top: 8px;
-      }}
-      .hero-note {{
-        padding: 16px 18px;
-      }}
-      .hero-note p {{
-        margin: 0 0 12px;
-      }}
-      .hero-note p:last-child {{
-        margin-bottom: 0;
-      }}
-      .stack {{
-        margin-top: 20px;
-      }}
-      .stack h2 {{
-        margin: 0 0 14px;
-        color: var(--text-bright);
-        font-size: 1rem;
-        line-height: 1.5;
-      }}
-      .grid {{
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }}
-      .panel {{
-        padding: 16px;
-      }}
-      .panel p {{
-        margin: 0;
-      }}
-      .panel strong {{
-        display: block;
-        margin-bottom: 10px;
-        color: var(--accent);
-        font-family: "Press Start 2P", "VT323", monospace;
-        font-size: 0.62rem;
-        line-height: 1.5;
-        text-transform: uppercase;
-      }}
-      .footer {{
-        margin-top: 18px;
-        color: var(--text-muted);
-      }}
-      .status-line {{
-        margin-top: 16px;
-        min-height: 1.2em;
-      }}
-      .auth-provider-row {{
-        margin-top: 14px;
-      }}
-      @media (max-width: 900px) {{
-        .hero-grid, .grid, .stats {{
-          grid-template-columns: 1fr;
-        }}
-        body {{
-          font-size: 23px;
-        }}
-        .shell {{
-          width: min(100% - 18px, 1160px);
-          padding-top: 12px;
-          padding-bottom: 24px;
-        }}
-        .hero {{
-          padding: 18px;
-        }}
-      }}
-    </style>
-  </head>
-  <body>
-    <main class="shell">
-      <section class="hero">
-        <div class="hero-grid">
-          <div>
-            <p class="eyebrow">Repixelizer hosted demo</p>
-            <h1>Force fake pixel art back onto a real grid.</h1>
-            <p class="lede">
-              Repixelizer takes AI-slop pixel cosplay, infers the lattice it should have had, then drags it back onto an actual coherent mosaic.
-            </p>
-            <div class="cta-row" id="primaryActions">
-              <a class="button" href="{primary_href}" id="primaryAction">{primary_label}</a>
-              <button class="button secondary" id="authSignOut" type="button" {"hidden" if not authenticated else ""}>Sign out</button>
-              <a class="button secondary" href="https://github.com/GameCult/repixelizer">View the repo</a>
-            </div>
-            <div class="cta-row auth-provider-row" id="authProviders">{provider_button_html}</div>
-            <p class="status-line footer" id="authStateLine">
-              {"Already authenticated as " + str(subject_payload.get("displayName") or subject_payload.get("accountId") or "a local creature") + "." if authenticated else ""}
-            </p>
-            <div class="stats">
-              <div class="stat">
-                <strong>One engine</strong>
-                <span>Phase-field reconstruction. No pipeline graveyard.</span>
-              </div>
-              <div class="stat">
-                <strong>Hosted limits</strong>
-                <span>{demo_limits}</span>
-              </div>
-              <div class="stat">
-                <strong>Lean inference</strong>
-                <span>Autocorr lattice, cheap phase probe, then the real solve.</span>
-              </div>
-            </div>
-          </div>
-          <aside class="panel hero-note">
-            <h2>What it is for</h2>
-            <p>Bad AI badge art. Mushy fake sprites. Grid-shaped lies with enough latent structure left to salvage.</p>
-            <p>{hero_note}</p>
-          </aside>
-        </div>
-      </section>
-      <section class="stack">
-        <h2>How the machine behaves</h2>
-        <div class="grid">
-          <article class="panel">
-            <strong>1. Read the grid</strong>
-            <p>Infer one plausible lattice from autocorrelation instead of wandering through a candidate carnival all day.</p>
-          </article>
-          <article class="panel">
-            <strong>2. Find the phase</strong>
-            <p>Probe a tiny phase grid up front so the solver does not begin life already standing in a pothole.</p>
-          </article>
-          <article class="panel">
-            <strong>3. Let the field work</strong>
-            <p>Run one displacement field with enough leash to recover detail instead of compensating with decorative nonsense.</p>
-          </article>
-        </div>
-        <p class="footer">Self-hosters can still go straight to <a href="/app/">the app</a>. Hosted mode just gets a front door instead of making everyone trip over raw controls immediately.</p>
-        {auth_notice}
-      </section>
-    </main>
-    <script>
-      const authConfig = {_json_html(auth_payload)};
-      const sessionSubject = {_json_html(subject_payload)};
-      const providerRow = document.getElementById("authProviders");
-      const primaryAction = document.getElementById("primaryAction");
-      const authStateLine = document.getElementById("authStateLine");
-      const authNotice = document.getElementById("authNotice");
-      const signOutButton = document.getElementById("authSignOut");
-      const defaultPrimaryLabel = {json.dumps(primary_label)};
-      let activeAttemptId = null;
-
-      function setNotice(text) {{
-        if (authNotice) {{
-          authNotice.textContent = text;
-        }}
-        if (authStateLine) {{
-          authStateLine.textContent = text;
-        }}
-      }}
-
-      function setBusy(providerSlug, busy) {{
-        if (!providerRow) {{
-          return;
-        }}
-        for (const node of providerRow.querySelectorAll("button[data-provider]")) {{
-          node.disabled = busy;
-        }}
-        if (primaryAction && primaryAction instanceof HTMLElement) {{
-          primaryAction.textContent = busy ? `Waiting on ${{providerSlug}}...` : defaultPrimaryLabel;
-        }}
-      }}
-
-      async function pollAttempt(attemptId, providerLabel) {{
-        for (;;) {{
-          const response = await fetch(`/api/auth/attempts/${{attemptId}}`, {{
-            method: "GET",
-            cache: "no-store",
-            credentials: "same-origin",
-          }});
-          const payload = await response.json().catch(() => ({{ status: "failed", errorDescription: "Auth polling failed." }}));
-          if (!response.ok) {{
-            setNotice(payload.errorDescription || payload.detail || "Auth polling failed.");
-            setBusy(providerLabel, false);
-            return;
-          }}
-          if (payload.status === "pending") {{
-            await new Promise((resolve) => window.setTimeout(resolve, 900));
-            continue;
-          }}
-          if (payload.status === "succeeded") {{
-            const adopt = await fetch(`/api/auth/attempts/${{attemptId}}/adopt`, {{
-              method: "POST",
-              credentials: "same-origin",
-            }});
-            const adopted = await adopt.json().catch(() => ({{ status: "failed", detail: "Session adoption failed." }}));
-            if (!adopt.ok) {{
-              setNotice(adopted.detail || "Session adoption failed.");
-              setBusy(providerLabel, false);
-              return;
-            }}
-            window.location.href = adopted.returnTo || "/app/";
-            return;
-          }}
-          setNotice(payload.errorDescription || "Sign-in failed.");
-          setBusy(providerLabel, false);
-          return;
-        }}
-      }}
-
-      async function startAuth(provider) {{
-        if (!authConfig.enabled || !authConfig.startEndpoint) {{
-          return;
-        }}
-        setBusy(provider.label, true);
-        setNotice(`Opening ${{provider.label}}. If the browser throws a fit, that is still somehow considered normal web behavior.`);
-        try {{
-          const response = await fetch(authConfig.startEndpoint, {{
-            method: "POST",
-            headers: {{
-              "content-type": "application/json",
-            }},
-            credentials: "same-origin",
-            body: JSON.stringify({{ provider: provider.slug }}),
-          }});
-          const payload = await response.json().catch(() => ({{ detail: "Auth start failed." }}));
-          if (!response.ok) {{
-            setNotice(payload.detail || "Auth start failed.");
-            setBusy(provider.label, false);
-            return;
-          }}
-          activeAttemptId = payload.attemptId;
-          const opened = window.open(payload.authorizationUrl, "_blank");
-          if (!opened) {{
-            setNotice(`Popup blocked. Opening ${{provider.label}} in this tab because the browser demanded drama.`);
-            window.location.href = payload.authorizationUrl;
-            return;
-          }}
-          void pollAttempt(payload.attemptId, provider.label);
-        }} catch (error) {{
-          setNotice(error instanceof Error ? error.message : "Auth start failed.");
-          setBusy(provider.label, false);
-        }}
-      }}
-
-      if (authConfig.enabled && Array.isArray(authConfig.providers) && providerRow && !sessionSubject.authenticated) {{
-        for (const provider of authConfig.providers) {{
-          const button = providerRow.querySelector(`button[data-provider="${{provider.slug}}"]`);
-          if (button instanceof HTMLButtonElement) {{
-            button.addEventListener("click", () => {{
-              void startAuth(provider);
-            }});
-          }}
-        }}
-      }}
-
-      if (primaryAction && authConfig.enabled && !sessionSubject.authenticated) {{
-        primaryAction.addEventListener("click", (event) => {{
-          event.preventDefault();
-          const firstProvider = Array.isArray(authConfig.providers) ? authConfig.providers[0] : null;
-          if (firstProvider) {{
-            void startAuth(firstProvider);
-          }}
-        }});
-      }}
-
-      if (signOutButton) {{
-        signOutButton.addEventListener("click", async () => {{
-          try {{
-            await fetch(authConfig.logoutUrl || "/api/auth/logout", {{
-              method: "POST",
-              credentials: "same-origin",
-            }});
-          }} finally {{
-            window.location.href = "/";
-          }}
-        }});
-      }}
-    </script>
-  </body>
-</html>
-"""
+        auth_notice = '<p class="copy-tag status-text" id="authNotice">Choose a provider. The main page stays put while Heimdall and the backend sort out the paperwork in another tab.</p>'
+    auth_state_text = (
+        f"Already authenticated as {subject_payload.get('displayName') or subject_payload.get('accountId') or 'a local creature'}."
+        if authenticated
+        else ""
+    )
+    static_dir = _static_dir()
+    styles_path = static_dir / "styles.css"
+    styles_version = int(styles_path.stat().st_mtime_ns) if styles_path.exists() else 0
+    landing_template = (static_dir / "landing.html").read_text(encoding="utf-8")
+    return (
+        landing_template.replace("{{STYLES_VERSION}}", str(styles_version))
+        .replace("{{HERO_NOTE}}", html.escape(hero_note))
+        .replace("{{PRIMARY_HREF}}", html.escape(primary_href, quote=True))
+        .replace("{{PRIMARY_LABEL}}", html.escape(primary_label))
+        .replace("{{SIGNOUT_HIDDEN}}", "hidden" if not authenticated else "")
+        .replace("{{AUTH_PROVIDER_BUTTONS}}", provider_button_html)
+        .replace("{{AUTH_STATE_TEXT}}", html.escape(auth_state_text))
+        .replace("{{DEMO_LIMITS}}", html.escape(demo_limits))
+        .replace("{{AUTH_NOTICE}}", auth_notice)
+        .replace("{{AUTH_CONFIG_JSON}}", _json_html(auth_payload))
+        .replace("{{SESSION_SUBJECT_JSON}}", _json_html(subject_payload))
+        .replace("{{DEFAULT_PRIMARY_LABEL_JSON}}", _json_html(primary_label))
+    )
 
 
 def create_app():
@@ -1550,13 +1122,11 @@ def create_app():
         target_size: int | None = Form(default=None),
         target_width: int | None = Form(default=None),
         target_height: int | None = Form(default=None),
-        phase_x: float | None = Form(default=None),
-        phase_y: float | None = Form(default=None),
         steps: int | None = Form(default=None),
         seed: int = Form(default=7),
         device: str = Form(default="auto"),
         strip_background: bool = Form(default=False),
-        skip_phase_rerank: bool = Form(default=False),
+        skip_candidate_rerank: bool = Form(default=False),
     ):
         raw = await image.read()
         filename = image.filename or "input.png"
@@ -1568,13 +1138,11 @@ def create_app():
                 target_size=target_size,
                 target_width=target_width,
                 target_height=target_height,
-                phase_x=phase_x,
-                phase_y=phase_y,
                 steps=steps,
                 seed=seed,
                 device=device,
                 strip_background=strip_background,
-                skip_phase_rerank=skip_phase_rerank,
+                skip_candidate_rerank=skip_candidate_rerank,
             )
             subject = access_controller.require_current_capability("queue_submit")
             job = manager.submit_job(

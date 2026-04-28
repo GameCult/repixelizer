@@ -23,9 +23,9 @@ The live pipeline is:
 
 Inference now splits three ways:
 
-- fixed lattice when the caller pins size and/or phase explicitly
+- fixed lattice when the caller pins size explicitly
 - searched lattice for the full local workflow
-- direct autocorr lattice for the hosted demo path: one consensus size, one cheap phase probe, no size search, no phase rerank
+- direct autocorr lattice for the hosted demo path: one consensus size, no size search, no candidate rerank
 
 The hosted web shell now also has an auth seam:
 
@@ -36,7 +36,7 @@ The hosted web shell now also has an auth seam:
 
 ## What is working
 
-- lattice size and phase inference are still shared and still CUDA-capable
+- lattice size inference are still shared and still CUDA-capable
 - `phase-field` is the only canonical reconstruction path and produces the best-looking badge result in the repo so far
 - compare mode, benchmark mode, diagnostics writing, and tuning all still work after the optimizer cutover
 - the repo now reports both:
@@ -53,7 +53,7 @@ Pinned badge case:
 
 - fixture: `tests/fixtures/real/ai-badge-cleaned.png`
 - lattice: `126x126`
-- phase: `(0.0, -0.2)`
+- initial lattice centers: canonical
 - steps: `48`
 
 Useful artifacts:
@@ -108,17 +108,17 @@ Current stance:
 
 - keep the shipped searched path grounded in autocorrelation only
 - let autocorr keep a small near-best lag plateau and use cross-axis consensus before collapsing to one lattice family
-- the hosted demo path now skips multi-size search entirely and uses one autocorr-consensus size plus the cheap inferred phase, capped by the hosted output limit
+- the hosted demo path now skips multi-size search entirely and uses one autocorr-consensus size , capped by the hosted output limit
 - do not trust the old pixel-walk / change-interval spacing path; it was cut after it kept pruning the badge away from the `126` family
 - do not keep the projected edge-energy spectral pass; it floor-hugged to `2px` / `626`-family nonsense on the dense landscape fixture and did not earn its keep
-- treat phase rerank as optional scaffolding, not sacred machinery
+- treat candidate rerank as optional scaffolding, not sacred machinery
 
 Future options worth exploring, if autocorr stops carrying its weight:
 
 - distance-transform / medial-radius blob sizing on softened interiors
 - small scale-space blob-size detection (`LoG` / `DoG`)
 - blur-aware correction of observed blob width before converting to lattice size
-- tiny learned size-and-phase prior trained on synthetic fake-pixel-art fixtures
+- tiny learned size prior trained on synthetic fake-pixel-art fixtures
 
 ### 3. Keep phase-field honest
 

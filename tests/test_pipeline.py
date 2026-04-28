@@ -10,7 +10,7 @@ from repixelizer.analysis import analyze_phase_field_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error, source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
-from repixelizer.pipeline import _run_reconstruction, _select_phase_candidate, run_pipeline
+from repixelizer.pipeline import _run_reconstruction, _select_candidate, run_pipeline
 from repixelizer.observe import PipelineCancelled
 from repixelizer.phase_field import optimize_phase_field
 from repixelizer.io import nearest_resize
@@ -20,7 +20,7 @@ from repixelizer.types import InferenceCandidate, InferenceResult, SolverArtifac
 
 def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
     source = make_emblem(32, 32)
-    fake = fake_pixelize(source, upscale=10, phase_x=0.15, phase_y=0.25, blur_radius=0.5)
+    fake = fake_pixelize(source, upscale=10, blur_radius=0.5)
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
     diagnostics_dir = tmp_path / "diagnostics"
@@ -40,7 +40,7 @@ def test_pipeline_writes_output_and_diagnostics(tmp_path: Path) -> None:
     assert set(run_json["source_fidelity"].keys()) == {"initial_output", "solver_target", "final_output"}
     assert "source_structure" in run_json
     assert {"edge_f1", "exact_match_ratio", "score"} <= set(run_json["source_structure"].keys())
-    assert "phase_rerank_candidates" in run_json
+    assert "candidate_rerank_candidates" in run_json
     assert {"initial_output", "final_output"} <= set(run_json["optimizer_displacement"].keys())
     assert result.output_rgba.shape[0] == result.inference.target_height
     assert result.output_rgba.shape[1] == result.inference.target_width
@@ -51,8 +51,6 @@ def test_pipeline_beats_naive_on_roundtrip_fidelity_for_synthetic_emblem(tmp_pat
     fake = fake_pixelize(
         source,
         upscale=12,
-        phase_x=0.2,
-        phase_y=0.35,
         blur_radius=0.65,
         warp_strength=0.28,
         warp_detail=6,
@@ -75,7 +73,7 @@ def test_pipeline_beats_naive_on_roundtrip_fidelity_for_synthetic_emblem(tmp_pat
 
 def test_pipeline_preserves_transparency_for_sprite(tmp_path: Path) -> None:
     source = make_sprite(24, 24)
-    fake = fake_pixelize(source, upscale=9, phase_x=0.1, phase_y=0.22, blur_radius=0.45)
+    fake = fake_pixelize(source, upscale=9, blur_radius=0.45)
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
 
@@ -116,7 +114,7 @@ def test_pipeline_can_strip_checkerboard_background(tmp_path: Path) -> None:
 
 def test_pipeline_can_emit_initialized_output_without_optimizer_steps(tmp_path: Path) -> None:
     source = make_emblem(24, 24)
-    fake = fake_pixelize(source, upscale=10, phase_x=0.15, phase_y=0.2, blur_radius=0.6, warp_strength=0.2, warp_detail=5)
+    fake = fake_pixelize(source, upscale=10, blur_radius=0.6, warp_strength=0.2, warp_detail=5)
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
 
@@ -134,8 +132,6 @@ def test_fixed_phase_field_pipeline_output_matches_refactor_baseline(tmp_path: P
     fake = fake_pixelize(
         source,
         upscale=8,
-        phase_x=0.1,
-        phase_y=-0.05,
         blur_radius=0.4,
         warp_strength=0.15,
         warp_detail=4,
@@ -152,33 +148,29 @@ def test_fixed_phase_field_pipeline_output_matches_refactor_baseline(tmp_path: P
         output_path,
         target_width=24,
         target_height=24,
-        phase_x=0.1,
-        phase_y=-0.05,
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
         steps=0,
         device="cpu",
     )
 
     output_hash = hashlib.sha256(np.ascontiguousarray(result.output_rgba).view(np.uint8)).hexdigest()
-    assert output_hash == "9e01caa4ee4b508876d9a8360e5c8471f5ab07baf8ed1e5a08e76b9d3533c58e"
+    assert output_hash == "6ff8f628e1d926e7a5f00d9dceea7decf079d2b070824e18ebe53676311631a0"
 
 
-def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) -> None:
-    source = np.zeros((2, 2, 4), dtype=np.float32)
+def test_candidate_rerank_can_override_low_confidence_inference_pick(monkeypatch) -> None:
+    source = np.zeros((3, 3, 4), dtype=np.float32)
     source[0, 0] = np.asarray([1.0, 0.0, 0.0, 1.0], dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.4, phase_y=0.2, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.4, phase_y=0.2, score=0.909, breakdown={})
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=3, target_height=3, score=0.909, breakdown={})
     inference = InferenceResult(
         target_width=2,
         target_height=2,
-        phase_x=candidate_a.phase_x,
-        phase_y=candidate_a.phase_y,
         confidence=0.1,
         top_candidates=[candidate_a, candidate_b],
     )
     outputs = {
-        (candidate_a.phase_x, candidate_a.phase_y): np.ones_like(source),
-        (candidate_b.phase_x, candidate_b.phase_y): source.copy(),
+        (candidate_a.target_width, candidate_a.target_height): np.ones((2, 2, 4), dtype=np.float32),
+        (candidate_b.target_width, candidate_b.target_height): source.copy(),
     }
 
     class DummyArtifacts:
@@ -187,24 +179,37 @@ def test_phase_rerank_can_override_low_confidence_inference_pick(monkeypatch) ->
 
     def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
         assert steps == 8
-        return DummyArtifacts(outputs[(inference.phase_x, inference.phase_y)])
+        return DummyArtifacts(outputs[(inference.target_width, inference.target_height)])
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
+    monkeypatch.setattr(
+        "repixelizer.pipeline.source_lattice_consistency_breakdown",
+        lambda source_rgba, output_rgba, *, target_width, target_height: {"score": 0.10 if target_width == 2 else 0.01},
+    )
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_position_error", lambda preview, source_rgba: 0.0)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", lambda preview, source_rgba: 0.0)
+    monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", lambda rgba: 0.0)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
-    assert selected.phase_x == candidate_b.phase_x
-    assert selected.phase_y == candidate_b.phase_y
+    selected = _select_candidate(
+        source,
+        inference,
+        analysis=object(),
+        steps=32,
+        seed=7,
+        device="cpu",
+        solver_params=SolverHyperParams(candidate_rerank_max_size_delta_ratio=1.0, candidate_rerank_margin=0.0),
+    )
+    assert selected.target_width == candidate_b.target_width
+    assert selected.target_height == candidate_b.target_height
 
 
-def test_phase_rerank_preview_respects_requested_zero_steps(monkeypatch) -> None:
+def test_candidate_rerank_preview_respects_requested_zero_steps(monkeypatch) -> None:
     source = np.zeros((2, 2, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.4, phase_y=0.2, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.4, phase_y=0.2, score=0.909, breakdown={})
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=3, target_height=3, score=0.909, breakdown={})
     inference = InferenceResult(
         target_width=2,
         target_height=2,
-        phase_x=candidate_a.phase_x,
-        phase_y=candidate_a.phase_y,
         confidence=0.1,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -215,22 +220,28 @@ def test_phase_rerank_preview_respects_requested_zero_steps(monkeypatch) -> None
 
     def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
         assert steps == 0
-        return DummyArtifacts(np.zeros_like(source_rgba))
+        return DummyArtifacts(np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32))
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
 
-    _select_phase_candidate(source, inference, analysis=object(), steps=0, seed=7, device="cpu")
+    _select_candidate(
+        source,
+        inference,
+        analysis=object(),
+        steps=0,
+        seed=7,
+        device="cpu",
+        solver_params=SolverHyperParams(candidate_rerank_max_size_delta_ratio=1.0),
+    )
 
 
-def test_phase_rerank_honors_cooperative_cancellation(monkeypatch) -> None:
+def test_candidate_rerank_honors_cooperative_cancellation(monkeypatch) -> None:
     source = np.zeros((2, 2, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.4, phase_y=0.2, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.4, phase_y=0.2, score=0.909, breakdown={})
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=3, target_height=3, score=0.909, breakdown={})
     inference = InferenceResult(
         target_width=2,
         target_height=2,
-        phase_x=candidate_a.phase_x,
-        phase_y=candidate_a.phase_y,
         confidence=0.1,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -243,7 +254,7 @@ def test_phase_rerank_honors_cooperative_cancellation(monkeypatch) -> None:
             return True
 
     with pytest.raises(PipelineCancelled):
-        _select_phase_candidate(
+        _select_candidate(
             source,
             inference,
             analysis=object(),
@@ -254,15 +265,13 @@ def test_phase_rerank_honors_cooperative_cancellation(monkeypatch) -> None:
         )
 
 
-def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None:
+def test_candidate_rerank_can_override_to_better_size_candidate(monkeypatch) -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=18, target_height=18, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={})
+    candidate_a = InferenceCandidate(target_width=16, target_height=16, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=18, target_height=18, score=0.88, breakdown={})
     inference = InferenceResult(
         target_width=16,
         target_height=16,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=0.0,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -275,7 +284,7 @@ def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         return DummyArtifacts(rgba)
 
-    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height):
         if target_width == 16:
             return {"score": 0.10}
         return {"score": 0.01}
@@ -283,20 +292,18 @@ def test_phase_rerank_can_override_to_better_size_candidate(monkeypatch) -> None
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
 
 
-def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
+def test_candidate_rerank_rejects_large_size_jump(monkeypatch) -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=24, target_height=24, phase_x=0.0, phase_y=0.0, score=0.88, breakdown={})
+    candidate_a = InferenceCandidate(target_width=16, target_height=16, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=24, target_height=24, score=0.88, breakdown={})
     inference = InferenceResult(
         target_width=16,
         target_height=16,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=0.0,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -309,7 +316,7 @@ def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         return DummyArtifacts(rgba)
 
-    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height):
         if target_width == 16:
             return {"score": 0.10}
         return {"score": 0.01}
@@ -317,36 +324,34 @@ def test_phase_rerank_rejects_large_size_jump(monkeypatch) -> None:
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
 
 
-def test_select_phase_candidate_can_skip_phase_rerank(monkeypatch) -> None:
+def test_select_candidate_can_skip_candidate_rerank(monkeypatch) -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
-    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
+    candidate_a = InferenceCandidate(target_width=8, target_height=8, score=0.9, breakdown={})
+    candidate_b = InferenceCandidate(target_width=10, target_height=10, score=0.89, breakdown={})
     inference = InferenceResult(
         target_width=8,
         target_height=8,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=0.0,
         top_candidates=[candidate_a, candidate_b],
     )
 
     def fail(*args, **kwargs):
-        raise AssertionError("phase rerank probe should not run when disabled")
+        raise AssertionError("candidate rerank probe should not run when disabled")
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fail)
-    selected = _select_phase_candidate(
+    selected = _select_candidate(
         source,
         inference,
         analysis=object(),
         steps=32,
         seed=7,
         device="cpu",
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
     )
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
@@ -365,8 +370,6 @@ def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
     inference = InferenceResult(
         target_width=3,
         target_height=3,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=1.0,
         top_candidates=[],
     )
@@ -407,7 +410,7 @@ def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
     assert result.diagnostics["reconstruction"]["mode"] == "phase-field"
 
 
-def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, monkeypatch) -> None:
+def test_pipeline_fixed_target_skips_search_inference(tmp_path: Path, monkeypatch) -> None:
     source = np.zeros((6, 6, 4), dtype=np.float32)
     source[..., 3] = 1.0
     input_path = tmp_path / "input.png"
@@ -420,8 +423,6 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
     inference = InferenceResult(
         target_width=3,
         target_height=3,
-        phase_x=0.2,
-        phase_y=-0.2,
         confidence=1.0,
         top_candidates=[],
     )
@@ -430,7 +431,7 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
         edge_map = np.zeros((6, 6), dtype=np.float32)
 
     def fail_infer(*args, **kwargs):
-        raise AssertionError("full lattice search should not run for fixed target/phase")
+        raise AssertionError("full lattice search should not run for fixed target")
 
     def fake_infer_fixed(*args, **kwargs):
         return inference
@@ -456,9 +457,7 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
         output_path,
         target_width=3,
         target_height=3,
-        phase_x=0.2,
-        phase_y=-0.2,
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
         steps=0,
         device="cpu",
     )
@@ -466,8 +465,6 @@ def test_pipeline_fixed_target_and_phase_skip_search_inference(tmp_path: Path, m
     assert output_path.exists()
     assert result.inference.target_width == 3
     assert result.inference.target_height == 3
-    assert result.inference.phase_x == 0.2
-    assert result.inference.phase_y == -0.2
 
 
 def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -> None:
@@ -483,11 +480,9 @@ def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -
     inference = InferenceResult(
         target_width=3,
         target_height=3,
-        phase_x=0.2,
-        phase_y=-0.2,
         confidence=1.0,
         top_candidates=[
-            InferenceCandidate(target_width=3, target_height=3, phase_x=0.2, phase_y=-0.2, score=0.9, breakdown={})
+            InferenceCandidate(target_width=3, target_height=3, score=0.9, breakdown={})
         ],
     )
 
@@ -520,7 +515,7 @@ def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -
     result = run_pipeline(
         input_path,
         output_path,
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
         lattice_inference_mode="autocorr",
         max_inferred_target_size=5,
         steps=0,
@@ -530,19 +525,15 @@ def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -
     assert output_path.exists()
     assert result.inference.target_width == 3
     assert result.inference.target_height == 3
-    assert result.inference.phase_x == 0.2
-    assert result.inference.phase_y == -0.2
 
 
-def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
+def test_candidate_rerank_can_accept_low_confidence_size_jump_with_strong_support(monkeypatch) -> None:
     source = np.zeros((16, 16, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=16, target_height=16, phase_x=0.0, phase_y=0.0, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=21, target_height=21, phase_x=0.2, phase_y=-0.2, score=0.89, breakdown={})
+    candidate_a = InferenceCandidate(target_width=16, target_height=16, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=21, target_height=21, score=0.89, breakdown={})
     inference = InferenceResult(
         target_width=16,
         target_height=16,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=0.0,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -559,7 +550,7 @@ def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(mo
     def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
         return DummyArtifacts(outputs[inference.target_width])
 
-    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height):
         return {"score": 0.22 if target_width == 16 else 0.03}
 
     def fake_edge_position(preview, source_rgba):
@@ -577,20 +568,18 @@ def test_phase_rerank_can_accept_low_confidence_size_jump_with_strong_support(mo
     monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
     monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
 
 
-def test_phase_rerank_keeps_high_confidence_candidate_without_probe(monkeypatch) -> None:
+def test_candidate_rerank_keeps_high_confidence_candidate_without_probe(monkeypatch) -> None:
     source = np.zeros((8, 8, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=8, target_height=8, phase_x=0.0, phase_y=0.0, score=0.9, breakdown={})
-    candidate_b = InferenceCandidate(target_width=10, target_height=10, phase_x=0.2, phase_y=0.2, score=0.89, breakdown={})
+    candidate_a = InferenceCandidate(target_width=8, target_height=8, score=0.9, breakdown={})
+    candidate_b = InferenceCandidate(target_width=10, target_height=10, score=0.89, breakdown={})
     inference = InferenceResult(
         target_width=8,
         target_height=8,
-        phase_x=0.0,
-        phase_y=0.0,
         confidence=0.5,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -599,20 +588,18 @@ def test_phase_rerank_keeps_high_confidence_candidate_without_probe(monkeypatch)
         raise AssertionError("rerank probe should not run for high-confidence inference")
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fail)
-    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
 
 
-def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
+def test_candidate_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
     source = np.zeros((4, 4, 4), dtype=np.float32)
-    candidate_a = InferenceCandidate(target_width=2, target_height=2, phase_x=-0.2, phase_y=0.0, score=0.91, breakdown={})
-    candidate_b = InferenceCandidate(target_width=2, target_height=2, phase_x=0.2, phase_y=0.0, score=0.909, breakdown={})
+    candidate_a = InferenceCandidate(target_width=2, target_height=2, score=0.91, breakdown={})
+    candidate_b = InferenceCandidate(target_width=3, target_height=3, score=0.909, breakdown={})
     inference = InferenceResult(
         target_width=2,
         target_height=2,
-        phase_x=candidate_a.phase_x,
-        phase_y=candidate_a.phase_y,
         confidence=0.0,
         top_candidates=[candidate_a, candidate_b],
     )
@@ -621,7 +608,7 @@ def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
         def __init__(self, rgba: np.ndarray) -> None:
             self.target_rgba = rgba
 
-    def fake_support(source_rgba, output_rgba, *, target_width, target_height, phase_x, phase_y):
+    def fake_support(source_rgba, output_rgba, *, target_width, target_height):
         return {"score": 0.02}
 
     def fake_edge_position(preview, source_rgba):
@@ -634,12 +621,12 @@ def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
         return 0.15 if np.mean(rgba) < 0.01 else 0.28
 
     outputs = {
-        candidate_a.phase_x: np.zeros((2, 2, 4), dtype=np.float32),
-        candidate_b.phase_x: np.ones((2, 2, 4), dtype=np.float32),
+        candidate_a.target_width: np.zeros((2, 2, 4), dtype=np.float32),
+        candidate_b.target_width: np.ones((3, 3, 4), dtype=np.float32),
     }
 
     def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
-        return DummyArtifacts(outputs[inference.phase_x])
+        return DummyArtifacts(outputs[inference.target_width])
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
@@ -647,6 +634,19 @@ def test_phase_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
     monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
     monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
 
-    selected = _select_phase_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
-    assert selected.phase_x == candidate_b.phase_x
-    assert selected.phase_y == candidate_b.phase_y
+    selected = _select_candidate(
+        source,
+        inference,
+        analysis=object(),
+        steps=32,
+        seed=7,
+        device="cpu",
+        solver_params=SolverHyperParams(
+            candidate_rerank_size_penalty_weight=0.0,
+            candidate_rerank_inference_penalty_weight=0.0,
+            candidate_rerank_max_size_delta_ratio=1.0,
+            candidate_rerank_margin=0.0,
+        ),
+    )
+    assert selected.target_width == candidate_b.target_width
+    assert selected.target_height == candidate_b.target_height

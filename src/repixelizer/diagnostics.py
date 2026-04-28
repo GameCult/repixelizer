@@ -29,13 +29,11 @@ def write_lattice_overlay(path: str | Path, source_rgba: np.ndarray, inference: 
     height, width = source_rgba.shape[:2]
     cell_x = width / inference.target_width
     cell_y = height / inference.target_height
-    phase_x = inference.phase_x * cell_x
-    phase_y = inference.phase_y * cell_y
     for ix in range(inference.target_width + 1):
-        x = ix * cell_x + phase_x
+        x = ix * cell_x
         draw.line((x, 0, x, height), fill=(255, 255, 255, 96), width=1)
     for iy in range(inference.target_height + 1):
-        y = iy * cell_y + phase_y
+        y = iy * cell_y
         draw.line((0, y, width, y), fill=(255, 255, 255, 96), width=1)
     image.save(path)
 
@@ -156,41 +154,33 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
             result.solver.initial_rgba,
             target_width=result.inference.target_width,
             target_height=result.inference.target_height,
-            phase_x=result.inference.phase_x,
-            phase_y=result.inference.phase_y,
         ),
         "solver_target": source_lattice_consistency_breakdown(
             result.source_rgba,
             result.solver.target_rgba,
             target_width=result.inference.target_width,
             target_height=result.inference.target_height,
-            phase_x=result.inference.phase_x,
-            phase_y=result.inference.phase_y,
         ),
         "final_output": source_lattice_consistency_breakdown(
             result.source_rgba,
             result.output_rgba,
             target_width=result.inference.target_width,
             target_height=result.inference.target_height,
-            phase_x=result.inference.phase_x,
-            phase_y=result.inference.phase_y,
         ),
     }
     rerank_candidates = [
         {
             "target_width": candidate.target_width,
             "target_height": candidate.target_height,
-            "phase_x": candidate.phase_x,
-            "phase_y": candidate.phase_y,
             "score": candidate.score,
-            "phase_rerank_score": candidate.breakdown.get("phase_rerank_score"),
-            "phase_rerank_rank": candidate.breakdown.get("phase_rerank_rank"),
-            "phase_rerank_support_score": candidate.breakdown.get("phase_rerank_support_score"),
-            "phase_rerank_size_delta_ratio": candidate.breakdown.get("phase_rerank_size_delta_ratio"),
-            "phase_rerank_size_penalty": candidate.breakdown.get("phase_rerank_size_penalty"),
+            "candidate_rerank_score": candidate.breakdown.get("candidate_rerank_score"),
+            "candidate_rerank_rank": candidate.breakdown.get("candidate_rerank_rank"),
+            "candidate_rerank_support_score": candidate.breakdown.get("candidate_rerank_support_score"),
+            "candidate_rerank_size_delta_ratio": candidate.breakdown.get("candidate_rerank_size_delta_ratio"),
+            "candidate_rerank_size_penalty": candidate.breakdown.get("candidate_rerank_size_penalty"),
         }
         for candidate in result.inference.top_candidates
-        if "phase_rerank_score" in candidate.breakdown
+        if "candidate_rerank_score" in candidate.breakdown
     ]
     displacement_metrics = {}
     stage_diagnostics = result.solver.stage_diagnostics.get("displacements", {})
@@ -203,8 +193,6 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
     return {
         "target_width": result.inference.target_width,
         "target_height": result.inference.target_height,
-        "phase_x": result.inference.phase_x,
-        "phase_y": result.inference.phase_y,
         "confidence": result.inference.confidence,
         "coherence": coherence_breakdown(result.output_rgba),
         "source_preview_reconstruction_error": reconstruction_error(source_preview, result.source_rgba),
@@ -212,7 +200,7 @@ def summarize_run(result: RunResult) -> dict[str, Any]:
         "output_colors_from_source_ratio": _source_color_ratio(result.source_rgba, result.output_rgba),
         "source_fidelity": source_fidelity,
         "source_structure": source_structure_breakdown(result.source_rgba, result.output_rgba),
-        "phase_rerank_candidates": rerank_candidates,
+        "candidate_rerank_candidates": rerank_candidates,
         "loss_history": result.solver.loss_history,
         "optimizer_displacement": displacement_metrics,
     }

@@ -98,16 +98,12 @@ def _build_focus_states(
             artifacts.initial_rgba,
             target_width=inference.target_width,
             target_height=inference.target_height,
-            phase_x=inference.phase_x,
-            phase_y=inference.phase_y,
         ),
         "final": source_lattice_consistency_breakdown(
             source,
             artifacts.target_rgba,
             target_width=inference.target_width,
             target_height=inference.target_height,
-            phase_x=inference.phase_x,
-            phase_y=inference.phase_y,
         ),
     }
     return source, artifacts.initial_rgba, artifacts.target_rgba, (cell_x, cell_y), fidelity

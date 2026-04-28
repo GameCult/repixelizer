@@ -29,6 +29,7 @@ def cleanup_pixels(rgba: np.ndarray, source_guidance: np.ndarray, iterations: in
     height, width = result.shape[:2]
     heatmap = np.zeros((height, width), dtype=np.float32)
     if iterations <= 0:
+        result = _snap_alpha(result)
         return CleanupArtifacts(cleaned_rgba=result, isolated_heatmap=heatmap)
     for _ in range(iterations):
         updated = result.copy()
@@ -57,4 +58,13 @@ def cleanup_pixels(rgba: np.ndarray, source_guidance: np.ndarray, iterations: in
                 updated[y, x] = best
                 heatmap[y, x] = max(heatmap[y, x], current_energy - best_energy)
         result = np.clip(updated, 0.0, 1.0)
+    result = _snap_alpha(result)
     return CleanupArtifacts(cleaned_rgba=result, isolated_heatmap=heatmap)
+
+
+def _snap_alpha(rgba: np.ndarray, threshold: float = 0.5) -> np.ndarray:
+    result = rgba.copy()
+    alpha = (result[..., 3] >= threshold).astype(np.float32)
+    result[..., 3] = alpha
+    result[..., :3] *= alpha[..., None]
+    return result

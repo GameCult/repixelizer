@@ -9,7 +9,7 @@ import numpy as np
 
 from .benchmark import run_roundtrip_benchmark
 from .diagnostics import write_json
-from .params import SolverHyperParams
+from .params import SolverHyperParams, load_solver_params
 
 
 def _safe_ratio(numerator: float, denominator: float) -> float:
@@ -66,144 +66,97 @@ def _mutate_linear(
 def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: float) -> SolverHyperParams:
     return replace(
         base,
-        phase_field_patch_extent=_mutate_linear(
+        phase_field_grid_alignment_weight=_mutate_positive(
             rng,
-            base.phase_field_patch_extent,
-            scale=scale,
-            sigma=0.035,
-            low=0.05,
-            high=0.35,
-        ),
-        phase_field_data_coherence_weight=_mutate_positive(
-            rng,
-            base.phase_field_data_coherence_weight,
-            scale=scale,
-            low=0.15,
-            high=3.0,
-        ),
-        phase_field_data_edge_weight=_mutate_positive(
-            rng,
-            base.phase_field_data_edge_weight,
-            scale=scale,
-            low=0.05,
-            high=2.5,
-        ),
-        phase_field_smoothness_weight=_mutate_positive(
-            rng,
-            base.phase_field_smoothness_weight,
-            scale=scale,
-            low=0.01,
-            high=1.2,
-        ),
-        phase_field_edge_gate_strength=_mutate_positive(
-            rng,
-            base.phase_field_edge_gate_strength,
+            base.phase_field_grid_alignment_weight,
             scale=scale,
             low=1.0,
-            high=30.0,
+            high=10.0,
         ),
-        phase_field_collapse_weight=_mutate_positive(
+        phase_field_local_search_radius_ratio=_mutate_linear(
             rng,
-            base.phase_field_collapse_weight,
+            base.phase_field_local_search_radius_ratio,
             scale=scale,
-            low=0.05,
-            high=4.0,
+            sigma=0.12,
+            low=0.25,
+            high=1.20,
         ),
-        phase_field_min_spacing_ratio=_mutate_linear(
+        phase_field_local_search_blend=_mutate_linear(
             rng,
-            base.phase_field_min_spacing_ratio,
+            base.phase_field_local_search_blend,
             scale=scale,
-            sigma=0.05,
-            low=0.01,
+            sigma=0.055,
+            low=0.06,
             high=0.45,
         ),
-        phase_field_magnitude_weight=_mutate_positive(
+        phase_field_local_search_move_weight=_mutate_positive(
             rng,
-            base.phase_field_magnitude_weight,
+            base.phase_field_local_search_move_weight,
             scale=scale,
-            low=0.001,
-            high=0.5,
+            low=0.03,
+            high=0.50,
         ),
-        phase_field_learning_rate=_mutate_positive(
+        phase_field_signal_weight=_mutate_positive(
             rng,
-            base.phase_field_learning_rate,
+            base.phase_field_signal_weight,
             scale=scale,
-            low=0.005,
-            high=0.5,
+            low=0.05,
+            high=0.80,
         ),
-        phase_field_max_displacement_ratio=_mutate_linear(
+        phase_field_signal_boundary_weight=_mutate_positive(
             rng,
-            base.phase_field_max_displacement_ratio,
+            base.phase_field_signal_boundary_weight,
             scale=scale,
-            sigma=0.08,
+            low=0.20,
+            high=2.50,
+        ),
+        phase_field_signal_curvature_weight=_mutate_positive(
+            rng,
+            base.phase_field_signal_curvature_weight,
+            scale=scale,
             low=0.10,
-            high=1.0,
+            high=2.00,
         ),
-        phase_rerank_support_weight=_mutate_positive(
+        phase_field_signal_self_penalty=_mutate_positive(
             rng,
-            base.phase_rerank_support_weight,
+            base.phase_field_signal_self_penalty,
             scale=scale,
-            low=0.05,
-            high=1.5,
+            low=1.00,
+            high=8.00,
         ),
-        phase_rerank_edge_position_weight=_mutate_positive(
+        phase_field_signal_context_power=_mutate_positive(
             rng,
-            base.phase_rerank_edge_position_weight,
+            base.phase_field_signal_context_power,
             scale=scale,
-            low=0.01,
-            high=1.0,
+            low=0.25,
+            high=2.00,
         ),
-        phase_rerank_wobble_weight=_mutate_positive(
+        phase_field_signal_peak_power=_mutate_positive(
             rng,
-            base.phase_rerank_wobble_weight,
+            base.phase_field_signal_peak_power,
             scale=scale,
-            low=0.01,
-            high=1.0,
+            low=1.00,
+            high=5.00,
         ),
-        phase_rerank_edge_concentration_weight=_mutate_positive(
-            rng,
-            base.phase_rerank_edge_concentration_weight,
-            scale=scale,
-            low=0.01,
-            high=1.0,
+        phase_field_signal_pyramid_levels=int(
+            round(
+                _mutate_linear(
+                    rng,
+                    float(base.phase_field_signal_pyramid_levels),
+                    scale=scale,
+                    sigma=0.65,
+                    low=3.0,
+                    high=7.0,
+                )
+            )
         ),
-        phase_rerank_size_penalty_weight=_mutate_positive(
+        phase_field_local_search_grid_weight=_mutate_linear(
             rng,
-            base.phase_rerank_size_penalty_weight,
-            scale=scale,
-            low=0.01,
-            high=1.0,
-        ),
-        phase_rerank_inference_penalty_weight=_mutate_positive(
-            rng,
-            base.phase_rerank_inference_penalty_weight,
-            scale=scale,
-            low=0.0,
-            high=0.5,
-        ),
-        phase_rerank_confidence_threshold=_mutate_linear(
-            rng,
-            base.phase_rerank_confidence_threshold,
-            scale=scale,
-            sigma=0.035,
-            low=0.0,
-            high=0.5,
-        ),
-        phase_rerank_max_size_delta_ratio=_mutate_linear(
-            rng,
-            base.phase_rerank_max_size_delta_ratio,
+            base.phase_field_local_search_grid_weight,
             scale=scale,
             sigma=0.08,
-            low=0.05,
-            high=1.0,
-        ),
-        phase_rerank_margin=_mutate_linear(
-            rng,
-            base.phase_rerank_margin,
-            scale=scale,
-            sigma=0.0015,
-            low=0.0005,
-            high=0.010,
+            low=0.0,
+            high=0.60,
         ),
     )
 
@@ -227,8 +180,6 @@ def tune_solver_hyperparams(
 
     selected_profiles = profiles or ["soft"]
     effective_limit = limit_cases
-    if effective_limit is None and not include_cases:
-        effective_limit = 8
 
     out_path = Path(out_dir)
     if out_path.exists():
@@ -238,7 +189,7 @@ def tune_solver_hyperparams(
     best_dir = out_path / "best-benchmark"
     rng = np.random.default_rng(seed)
 
-    best_params = SolverHyperParams()
+    best_params = load_solver_params()
     best_score = float("inf")
     best_summary: dict[str, Any] | None = None
     trials_payload: list[dict[str, Any]] = []
@@ -315,6 +266,7 @@ def tune_solver_hyperparams(
         "include_cases": include_cases or [],
         "limit_cases_effective": effective_limit,
         "objective": "0.20 * error_ratio_to_naive + 0.45 * adjacency_ratio_to_naive + 0.35 * motif_ratio_to_naive; lower is better",
+        "mutation_scope": "explicit solver only: signal, local search, and lattice spring parameters",
         "trial_results": trials_payload,
         "best_score": final_score["score"],
         "best_mean_row_score": final_score["mean_row_score"],
@@ -325,4 +277,5 @@ def tune_solver_hyperparams(
         "initial_benchmark": best_summary,
     }
     write_json(out_path / "tuning-results.json", payload)
+    write_json(out_path / "best-solver-params.json", best_params.to_dict())
     return payload

@@ -171,16 +171,12 @@ def test_source_lattice_consistency_prefers_matching_cell_structure() -> None:
         good,
         target_width=2,
         target_height=2,
-        phase_x=0.0,
-        phase_y=0.0,
     )["score"]
     bad_score = source_lattice_consistency_breakdown(
         source,
         bad,
         target_width=2,
         target_height=2,
-        phase_x=0.0,
-        phase_y=0.0,
     )["score"]
 
     assert good_score < bad_score

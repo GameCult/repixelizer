@@ -11,8 +11,6 @@ import numpy as np
 class InferenceCandidate:
     target_width: int
     target_height: int
-    phase_x: float
-    phase_y: float
     score: float
     breakdown: dict[str, float]
 
@@ -21,8 +19,6 @@ class InferenceCandidate:
 class InferenceResult:
     target_width: int
     target_height: int
-    phase_x: float
-    phase_y: float
     confidence: float
     top_candidates: list[InferenceCandidate] = field(default_factory=list)
 

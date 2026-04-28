@@ -64,7 +64,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dense-phase-field-output",
         default="tests/fixtures/real/dense-landscape-fixed-512.png",
-        help="Tracked fixed-lattice phase-field output used for the dense landscape row.",
+        help="Tracked fixed-lattice output used for the dense landscape row.",
     )
     parser.add_argument(
         "--guard-cell-bbox",
@@ -93,20 +93,7 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=126,
         help="Pinned target height for the canonical badge comparison.",
-    )
-    parser.add_argument(
-        "--phase-x",
-        type=float,
-        default=0.0,
-        help="Pinned lattice phase X for the canonical badge comparison.",
-    )
-    parser.add_argument(
-        "--phase-y",
-        type=float,
-        default=-0.2,
-        help="Pinned lattice phase Y for the canonical badge comparison.",
-    )
-    parser.add_argument(
+    )    parser.add_argument(
         "--dense-target-width",
         type=int,
         default=512,
@@ -393,12 +380,10 @@ def main() -> None:
         scratch_dir / "badge-ai-phase-field-pinned.png",
         target_width=args.target_width,
         target_height=args.target_height,
-        phase_x=args.phase_x,
-        phase_y=args.phase_y,
         diagnostics_dir=scratch_dir / "phase-field-diag",
         steps=args.steps,
         device=args.device,
-        enable_phase_rerank=False,
+        enable_candidate_rerank=False,
     )
 
     source_rgba = load_rgba(source_input)
@@ -429,7 +414,7 @@ def main() -> None:
     rows = [
         PreviewRow(
             row_id="badge",
-            title=f"AI fake pixel art -> {args.target_width}x{args.target_height} pinned lattice @ ({args.phase_x:.1f}, {args.phase_y:.1f})",
+            title=f"AI fake pixel art -> {args.target_width}x{args.target_height} pinned lattice",
             source_rgba=source_rgba,
             source_subtitle="Cleaned AI fake pixel art",
             lanczos_rgba=lanczos,

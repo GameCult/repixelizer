@@ -26,7 +26,7 @@ from .metrics import (
     foreground_stroke_wobble_error,
     source_lattice_consistency_breakdown,
 )
-from .params import SolverHyperParams
+from .params import SolverHyperParams, load_solver_params
 from .phase_field import optimize_phase_field
 from .palette import load_palette, quantize_rgba, save_palette_report
 from .preprocess import strip_edge_background
@@ -40,8 +40,6 @@ def run_pipeline(
     target_size: int | None = None,
     target_width: int | None = None,
     target_height: int | None = None,
-    phase_x: float | None = None,
-    phase_y: float | None = None,
     palette_path: str | Path | None = None,
     palette_mode: str = "off",
     diagnostics_dir: str | Path | None = None,
@@ -50,7 +48,7 @@ def run_pipeline(
     device: str = "auto",
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
-    enable_phase_rerank: bool = True,
+    enable_candidate_rerank: bool = True,
     lattice_inference_mode: str = "search",
     max_inferred_target_size: int | None = None,
     observer: PipelineObserver | None = None,
@@ -62,8 +60,6 @@ def run_pipeline(
         target_size=target_size,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         palette_path=palette_path,
         palette_mode=palette_mode,
         diagnostics_dir=diagnostics_dir,
@@ -72,7 +68,7 @@ def run_pipeline(
         device=device,
         solver_params=solver_params,
         strip_background=strip_background,
-        enable_phase_rerank=enable_phase_rerank,
+        enable_candidate_rerank=enable_candidate_rerank,
         lattice_inference_mode=lattice_inference_mode,
         max_inferred_target_size=max_inferred_target_size,
         observer=observer,
@@ -86,8 +82,6 @@ def run_pipeline_rgba(
     target_size: int | None = None,
     target_width: int | None = None,
     target_height: int | None = None,
-    phase_x: float | None = None,
-    phase_y: float | None = None,
     palette_path: str | Path | None = None,
     palette_mode: str = "off",
     diagnostics_dir: str | Path | None = None,
@@ -96,13 +90,13 @@ def run_pipeline_rgba(
     device: str = "auto",
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
-    enable_phase_rerank: bool = True,
+    enable_candidate_rerank: bool = True,
     lattice_inference_mode: str = "search",
     max_inferred_target_size: int | None = None,
     observer: PipelineObserver | None = None,
 ) -> RunResult:
     started = time.perf_counter()
-    solver_params = solver_params or SolverHyperParams()
+    solver_params = solver_params or load_solver_params()
     check_observer_cancelled(observer)
     emit_observer(observer, "source_loaded", source_rgba=source.copy())
     if strip_background:
@@ -123,17 +117,15 @@ def run_pipeline_rgba(
         target_size=target_size,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
     )
     if fixed_dims is None:
         check_observer_cancelled(observer)
         if lattice_inference_mode == "autocorr":
             inference_label = "Autocorr lattice"
-            inference_detail = "Taking one autocorr consensus size, probing phase once, and skipping size search."
+            inference_detail = "Scoring autocorr candidate sizes from canonical cell centers; the phase field is free to drift."
         elif lattice_inference_mode == "search":
             inference_label = "Lattice search"
-            inference_detail = "Searching for the output size and phase that best fit the input."
+            inference_detail = "Searching for output size from canonical cell centers; the phase field handles local drift."
         else:
             raise ValueError(f"Unknown lattice_inference_mode '{lattice_inference_mode}'.")
         emit_observer(
@@ -161,14 +153,12 @@ def run_pipeline_rgba(
             "stage_started",
             stage="inference",
             label="Pinned lattice",
-            detail="Locking in the requested size and phase instead of searching.",
+            detail="Locking in the requested size from canonical cell centers; the phase field handles local drift.",
         )
         inference = infer_fixed_lattice(
             source,
             target_width=fixed_dims[0],
             target_height=fixed_dims[1],
-            phase_x=phase_x,
-            phase_y=phase_y,
             device=device,
         )
         inference_mode = "fixed"
@@ -192,10 +182,10 @@ def run_pipeline_rgba(
         observer,
         "stage_started",
         stage="selection",
-        label="Phase selection",
+        label="Candidate selection",
         detail="Choosing the lattice candidate that deserves the full solve.",
     )
-    inference = _select_phase_candidate(
+    inference = _select_candidate(
         source,
         inference,
         analysis=analysis,
@@ -203,10 +193,10 @@ def run_pipeline_rgba(
         seed=seed,
         device=device,
         solver_params=solver_params,
-        enable_phase_rerank=enable_phase_rerank,
+        enable_candidate_rerank=enable_candidate_rerank,
         observer=observer,
     )
-    emit_observer(observer, "phase_selection_completed", inference=inference, inference_mode=inference_mode)
+    emit_observer(observer, "candidate_selection_completed", inference=inference, inference_mode=inference_mode)
     check_observer_cancelled(observer)
     emit_observer(
         observer,
@@ -288,14 +278,12 @@ def run_pipeline_rgba(
             "target_size": target_size,
             "target_width": target_width,
             "target_height": target_height,
-            "phase_x": phase_x,
-            "phase_y": phase_y,
             "palette_mode": palette_mode,
             "seed": seed,
             "steps": steps,
             "device": device,
             "strip_background": strip_background,
-            "enable_phase_rerank": enable_phase_rerank,
+            "enable_candidate_rerank": enable_candidate_rerank,
             "lattice_inference_mode": lattice_inference_mode,
             "max_inferred_target_size": max_inferred_target_size,
             "inference_mode": inference_mode,
@@ -356,7 +344,7 @@ def _prepare_analysis(
     return analyze_phase_field_source(source, seed=seed, device=device)
 
 
-def _select_phase_candidate(
+def _select_candidate(
     source: np.ndarray,
     inference: InferenceResult,
     *,
@@ -365,10 +353,10 @@ def _select_phase_candidate(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    enable_phase_rerank: bool = True,
+    enable_candidate_rerank: bool = True,
     observer: PipelineObserver | None = None,
 ) -> InferenceResult:
-    return _select_phase_candidate_with_reconstruction(
+    return _select_candidate_with_reconstruction(
         source,
         inference,
         analysis=analysis,
@@ -376,12 +364,12 @@ def _select_phase_candidate(
         seed=seed,
         device=device,
         solver_params=solver_params,
-        enable_phase_rerank=enable_phase_rerank,
+        enable_candidate_rerank=enable_candidate_rerank,
         observer=observer,
     )
 
 
-def _select_phase_candidate_with_reconstruction(
+def _select_candidate_with_reconstruction(
     source: np.ndarray,
     inference: InferenceResult,
     *,
@@ -390,20 +378,20 @@ def _select_phase_candidate_with_reconstruction(
     seed: int,
     device: str,
     solver_params: SolverHyperParams | None = None,
-    enable_phase_rerank: bool = True,
+    enable_candidate_rerank: bool = True,
     observer: PipelineObserver | None = None,
 ) -> InferenceResult:
-    solver_params = solver_params or SolverHyperParams()
-    if not enable_phase_rerank:
+    solver_params = solver_params or load_solver_params()
+    if not enable_candidate_rerank:
         return inference
-    if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.phase_rerank_confidence_threshold:
+    if len(inference.top_candidates) <= 1 or inference.confidence >= solver_params.candidate_rerank_confidence_threshold:
         return inference
 
-    preview_steps = min(max(0, int(steps)), max(0, int(solver_params.phase_rerank_preview_steps)))
+    preview_steps = min(max(0, int(steps)), max(0, int(solver_params.candidate_rerank_preview_steps)))
     top_score = float(inference.top_candidates[0].score)
     emit_observer(
         observer,
-        "phase_rerank_started",
+        "candidate_rerank_started",
         preview_steps=preview_steps,
         candidate_count=min(8, len(inference.top_candidates)),
         confidence=float(inference.confidence),
@@ -415,20 +403,16 @@ def _select_phase_candidate_with_reconstruction(
         candidate_inference = InferenceResult(
             target_width=candidate.target_width,
             target_height=candidate.target_height,
-            phase_x=candidate.phase_x,
-            phase_y=candidate.phase_y,
             confidence=inference.confidence,
             top_candidates=inference.top_candidates,
         )
         emit_observer(
             observer,
-            "phase_rerank_candidate_started",
+            "candidate_rerank_candidate_started",
             candidate_index=candidate_index,
             total_candidates=total_candidates,
             target_width=int(candidate.target_width),
             target_height=int(candidate.target_height),
-            phase_x=float(candidate.phase_x),
-            phase_y=float(candidate.phase_y),
             preview_steps=preview_steps,
         )
 
@@ -440,13 +424,11 @@ def _select_phase_candidate_with_reconstruction(
                 "total_candidates": total_candidates,
                 "target_width": int(candidate.target_width),
                 "target_height": int(candidate.target_height),
-                "phase_x": float(candidate.phase_x),
-                "phase_y": float(candidate.phase_y),
             }
             if event in {"phase_field_initial", "phase_field_step"}:
                 emit_observer(
                     observer,
-                    "phase_rerank_candidate_step",
+                    "candidate_rerank_candidate_step",
                     step=int(payload["step"]),
                     total_steps=int(payload["total_steps"]),
                     loss=None if payload.get("loss") is None else float(payload["loss"]),
@@ -468,14 +450,12 @@ def _select_phase_candidate_with_reconstruction(
         check_observer_cancelled(observer)
         emit_observer(
             observer,
-            "phase_rerank_candidate_completed",
+            "candidate_rerank_candidate_completed",
             candidate_index=candidate_index,
             total_candidates=total_candidates,
             completed_candidates=candidate_index,
             target_width=int(candidate.target_width),
             target_height=int(candidate.target_height),
-            phase_x=float(candidate.phase_x),
-            phase_y=float(candidate.phase_y),
             total_steps=preview_steps,
             final_loss=(
                 None
@@ -488,8 +468,6 @@ def _select_phase_candidate_with_reconstruction(
             candidate_artifacts.target_rgba,
             target_width=candidate.target_width,
             target_height=candidate.target_height,
-            phase_x=candidate.phase_x,
-            phase_y=candidate.phase_y,
         )
         preview = nearest_resize(candidate_artifacts.target_rgba, width=source.shape[1], height=source.shape[0])
         candidate_records.append(
@@ -515,7 +493,7 @@ def _select_phase_candidate_with_reconstruction(
         higher_is_better=True,
     )
     size_penalty = [
-        min(1.0, float(record["size_delta_ratio"]) / max(solver_params.phase_rerank_max_size_delta_ratio, 1e-6))
+        min(1.0, float(record["size_delta_ratio"]) / max(solver_params.candidate_rerank_max_size_delta_ratio, 1e-6))
         for record in candidate_records
     ]
     inference_penalty = _normalize_penalty(record["inference_penalty"] for record in candidate_records)
@@ -526,32 +504,30 @@ def _select_phase_candidate_with_reconstruction(
     annotated_candidates = []
     for index, record in enumerate(candidate_records):
         candidate_inference = record["inference"]
-        if float(record["size_delta_ratio"]) > solver_params.phase_rerank_max_size_delta_ratio:
+        if float(record["size_delta_ratio"]) > solver_params.candidate_rerank_max_size_delta_ratio:
             continue
         rank = (
-            solver_params.phase_rerank_support_weight * support_penalty[index]
-            + solver_params.phase_rerank_edge_position_weight * edge_position_penalty[index]
-            + solver_params.phase_rerank_wobble_weight * wobble_penalty[index]
-            + solver_params.phase_rerank_edge_concentration_weight * edge_concentration_penalty[index]
-            + solver_params.phase_rerank_size_penalty_weight * size_penalty[index]
-            + solver_params.phase_rerank_inference_penalty_weight * inference_penalty[index]
+            solver_params.candidate_rerank_support_weight * support_penalty[index]
+            + solver_params.candidate_rerank_edge_position_weight * edge_position_penalty[index]
+            + solver_params.candidate_rerank_wobble_weight * wobble_penalty[index]
+            + solver_params.candidate_rerank_edge_concentration_weight * edge_concentration_penalty[index]
+            + solver_params.candidate_rerank_size_penalty_weight * size_penalty[index]
+            + solver_params.candidate_rerank_inference_penalty_weight * inference_penalty[index]
         )
         source_candidate = inference.top_candidates[index]
         breakdown = dict(source_candidate.breakdown)
-        breakdown["phase_rerank_support_score"] = float(record["support_score"])
-        breakdown["phase_rerank_edge_position_error"] = float(record["edge_position_error"])
-        breakdown["phase_rerank_stroke_wobble_error"] = float(record["stroke_wobble_error"])
-        breakdown["phase_rerank_edge_concentration"] = float(record["edge_concentration"])
-        breakdown["phase_rerank_size_delta_ratio"] = float(record["size_delta_ratio"])
-        breakdown["phase_rerank_size_penalty"] = float(size_penalty[index])
-        breakdown["phase_rerank_inference_penalty"] = float(record["inference_penalty"])
-        breakdown["phase_rerank_score"] = float(rank)
+        breakdown["candidate_rerank_support_score"] = float(record["support_score"])
+        breakdown["candidate_rerank_edge_position_error"] = float(record["edge_position_error"])
+        breakdown["candidate_rerank_stroke_wobble_error"] = float(record["stroke_wobble_error"])
+        breakdown["candidate_rerank_edge_concentration"] = float(record["edge_concentration"])
+        breakdown["candidate_rerank_size_delta_ratio"] = float(record["size_delta_ratio"])
+        breakdown["candidate_rerank_size_penalty"] = float(size_penalty[index])
+        breakdown["candidate_rerank_inference_penalty"] = float(record["inference_penalty"])
+        breakdown["candidate_rerank_score"] = float(rank)
         annotated_candidates.append(
             source_candidate.__class__(
                 target_width=source_candidate.target_width,
                 target_height=source_candidate.target_height,
-                phase_x=source_candidate.phase_x,
-                phase_y=source_candidate.phase_y,
                 score=source_candidate.score,
                 breakdown=breakdown,
             )
@@ -561,25 +537,21 @@ def _select_phase_candidate_with_reconstruction(
         if rank < best_rank:
             best_rank = rank
             best_candidate = record["inference"]
-    annotated_candidates.sort(key=lambda candidate: float(candidate.breakdown.get("phase_rerank_score", float("inf"))))
+    annotated_candidates.sort(key=lambda candidate: float(candidate.breakdown.get("candidate_rerank_score", float("inf"))))
     for rank, candidate in enumerate(annotated_candidates, start=1):
-        candidate.breakdown["phase_rerank_rank"] = float(rank)
+        candidate.breakdown["candidate_rerank_rank"] = float(rank)
     if annotated_candidates:
         best_candidate = InferenceResult(
             target_width=best_candidate.target_width,
             target_height=best_candidate.target_height,
-            phase_x=best_candidate.phase_x,
-            phase_y=best_candidate.phase_y,
             confidence=inference.confidence,
             top_candidates=annotated_candidates,
         )
-    if baseline_rank is None or best_rank > baseline_rank - solver_params.phase_rerank_margin:
+    if baseline_rank is None or best_rank > baseline_rank - solver_params.candidate_rerank_margin:
         if annotated_candidates:
             selected = InferenceResult(
                 target_width=inference.target_width,
                 target_height=inference.target_height,
-                phase_x=inference.phase_x,
-                phase_y=inference.phase_y,
                 confidence=inference.confidence,
                 top_candidates=annotated_candidates,
             )
@@ -595,14 +567,9 @@ def _resolve_requested_target_dims(
     target_size: int | None,
     target_width: int | None,
     target_height: int | None,
-    phase_x: float | None,
-    phase_y: float | None,
 ) -> tuple[int, int] | None:
     explicit_size = target_width is not None or target_height is not None
-    explicit_phase = phase_x is not None or phase_y is not None
     if not explicit_size and target_size is None:
-        if explicit_phase:
-            raise ValueError("phase_x/phase_y require target_size or target_width/target_height so the lattice can be fixed explicitly.")
         return None
     if target_size is not None and explicit_size:
         raise ValueError("target_size cannot be combined with target_width or target_height.")

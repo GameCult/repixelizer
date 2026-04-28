@@ -57,7 +57,7 @@ Repixelizer treats this as lattice inference plus reconstruction rather than a r
 The canonical workflow should be fully automatic:
 
 1. load the source image
-2. infer lattice size and phase
+2. infer lattice size
 3. analyze source structure
 4. run the `phase-field` reconstruction over the inferred lattice
 5. project that result to a real pixel grid
@@ -104,10 +104,10 @@ The tool must estimate the resolution of the fake lattice being mimicked.
 
 Requirements:
 - search over candidate target sizes
-- search over subpixel phase offsets for each candidate
+- use canonical cell centers for each candidate
 - score candidates using coherence-oriented metrics rather than reconstruction alone
 - expose the top-ranked alternatives in diagnostics
-- if `--target-size` is provided, skip size search but still estimate phase
+- if `--target-size` is provided, skip size search
 
 Scoring goals:
 - low isolated-pixel rate

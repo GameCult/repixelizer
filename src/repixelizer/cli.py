@@ -21,8 +21,6 @@ def build_parser() -> argparse.ArgumentParser:
         target.add_argument("--target-size", type=int, default=None, help="Override the inferred target max dimension")
         target.add_argument("--target-width", type=int, default=None, help="Pin the output lattice width directly")
         target.add_argument("--target-height", type=int, default=None, help="Pin the output lattice height directly")
-        target.add_argument("--phase-x", type=float, default=None, help="Pin the lattice phase offset on the x axis")
-        target.add_argument("--phase-y", type=float, default=None, help="Pin the lattice phase offset on the y axis")
         target.add_argument("--palette", default=None, help="Optional palette file (.gpl, .txt, .json)")
         target.add_argument(
             "--palette-mode",
@@ -40,9 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
             help="Remove light neutral edge-connected backgrounds such as fake transparency checkerboards",
         )
         target.add_argument(
-            "--skip-phase-rerank",
+            "--skip-candidate-rerank",
+            dest="skip_candidate_rerank",
             action="store_true",
-            help="Skip low-confidence phase reranking and run the selected or pinned lattice directly",
+            help="Skip low-confidence candidate reranking and run the selected or pinned lattice directly",
         )
 
     run_parser = subparsers.add_parser("run", help="Run the optimizer.")
@@ -105,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="Only tune on the first N matching cases. Defaults to 8 when no cases are specified.",
+        help="Only tune on the first N matching cases. Defaults to the full matching corpus.",
     )
     tune_parser.add_argument(
         "--infer-size",
@@ -135,8 +134,6 @@ def main(argv: list[str] | None = None) -> int:
             target_size=args.target_size,
             target_width=args.target_width,
             target_height=args.target_height,
-            phase_x=args.phase_x,
-            phase_y=args.phase_y,
             palette_path=args.palette,
             palette_mode=args.palette_mode,
             diagnostics_dir=args.diagnostics_dir,
@@ -144,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
             steps=args.steps,
             device=args.device,
             strip_background=args.strip_background,
-            enable_phase_rerank=not args.skip_phase_rerank,
+            enable_candidate_rerank=not args.skip_candidate_rerank,
         )
         return 0
     if command == "benchmark":
@@ -189,8 +186,6 @@ def main(argv: list[str] | None = None) -> int:
         target_size=args.target_size,
         target_width=args.target_width,
         target_height=args.target_height,
-        phase_x=args.phase_x,
-        phase_y=args.phase_y,
         palette_path=args.palette,
         palette_mode=args.palette_mode,
         diagnostics_dir=args.diagnostics_dir,
@@ -198,6 +193,6 @@ def main(argv: list[str] | None = None) -> int:
         steps=args.steps,
         device=args.device,
         strip_background=args.strip_background,
-        enable_phase_rerank=not args.skip_phase_rerank,
+        enable_candidate_rerank=not args.skip_candidate_rerank,
     )
     return 0

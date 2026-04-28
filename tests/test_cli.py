@@ -9,7 +9,7 @@ from repixelizer.synthetic import fake_pixelize, make_emblem
 
 def test_default_command_runs_without_explicit_run_subcommand(tmp_path: Path) -> None:
     source = make_emblem(16, 16)
-    fake = fake_pixelize(source, upscale=8, phase_x=0.2, phase_y=0.25, blur_radius=0.4)
+    fake = fake_pixelize(source, upscale=8, blur_radius=0.4)
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
     save_rgba(input_path, fake)
@@ -20,7 +20,7 @@ def test_default_command_runs_without_explicit_run_subcommand(tmp_path: Path) ->
 
 def test_default_command_accepts_strip_background_flag(tmp_path: Path) -> None:
     source = make_emblem(16, 16)
-    fake = fake_pixelize(source, upscale=8, phase_x=0.2, phase_y=0.25, blur_radius=0.4)
+    fake = fake_pixelize(source, upscale=8, blur_radius=0.4)
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
     save_rgba(input_path, fake)
@@ -31,7 +31,7 @@ def test_default_command_accepts_strip_background_flag(tmp_path: Path) -> None:
 
 def test_default_command_accepts_fixed_lattice_flags(tmp_path: Path) -> None:
     source = make_emblem(16, 16)
-    fake = fake_pixelize(source, upscale=8, phase_x=0.2, phase_y=0.25, blur_radius=0.4)
+    fake = fake_pixelize(source, upscale=8, blur_radius=0.4)
     input_path = tmp_path / "input.png"
     output_path = tmp_path / "output.png"
     save_rgba(input_path, fake)
@@ -46,11 +46,7 @@ def test_default_command_accepts_fixed_lattice_flags(tmp_path: Path) -> None:
             "16",
             "--target-height",
             "16",
-            "--phase-x",
-            "0.2",
-            "--phase-y",
-            "0.25",
-            "--skip-phase-rerank",
+            "--skip-candidate-rerank",
         ]
     )
     assert exit_code == 0

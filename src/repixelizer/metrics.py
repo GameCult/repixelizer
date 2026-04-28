@@ -275,16 +275,12 @@ def source_lattice_consistency_breakdown(
     *,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
     alpha_threshold: float = 0.05,
 ) -> dict[str, float]:
     reference = build_source_lattice_reference(
         source_rgba,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         alpha_threshold=alpha_threshold,
     )
     cell_error = foreground_reconstruction_error(output_rgba, reference.mean_rgba, alpha_threshold=alpha_threshold, halo=0)
@@ -310,16 +306,12 @@ def source_lattice_evidence_breakdown(
     *,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
     alpha_threshold: float = 0.05,
 ) -> dict[str, float]:
     reference = build_source_lattice_reference(
         source_rgba,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         alpha_threshold=alpha_threshold,
     )
     adjacency_strength = foreground_adjacency_strength(reference.sharp_rgba, alpha_threshold=alpha_threshold)
@@ -511,16 +503,12 @@ def lattice_source_rgba(
     *,
     target_width: int,
     target_height: int,
-    phase_x: float,
-    phase_y: float,
     alpha_threshold: float = 0.05,
 ) -> tuple[np.ndarray, float]:
     reference = build_source_lattice_reference(
         source_rgba,
         target_width=target_width,
         target_height=target_height,
-        phase_x=phase_x,
-        phase_y=phase_y,
         alpha_threshold=alpha_threshold,
     )
     return reference.mean_rgba, reference.dispersion
