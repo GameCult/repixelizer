@@ -1122,7 +1122,7 @@ function endPan(pointerId: number | null = null): void {
 async function loadRuntimeConfig(): Promise<void> {
   const response = await fetch("/api/config");
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new Error(await responseErrorMessage(response, "Failed to load runtime config."));
   }
   applyRuntimeConfig((await response.json()) as RuntimeConfig);
 }
@@ -1138,7 +1138,7 @@ async function refreshQueueSummary(): Promise<void> {
   }
   const response = await fetch("/api/queue");
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new Error(await responseErrorMessage(response, "Failed to load queue summary."));
   }
   state.queueSummary = (await response.json()) as QueueSummary;
   renderQueueSummary();
@@ -1223,6 +1223,18 @@ function extractErrorDetail(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
+  const body = await response.text();
+  if (!body.trim()) {
+    return fallback;
+  }
+  try {
+    return extractErrorDetail(JSON.parse(body), fallback);
+  } catch {
+    return body;
+  }
+}
+
 async function cancelCurrentJob(options: { keepalive?: boolean; silent?: boolean } = {}): Promise<void> {
   if (!state.jobId || !hasActiveJob()) {
     return;
@@ -1237,7 +1249,7 @@ async function cancelCurrentJob(options: { keepalive?: boolean; silent?: boolean
   try {
     const response = await request;
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(await responseErrorMessage(response, "Failed to cancel the current job."));
     }
     const payload = (await response.json()) as JobStateSnapshot;
     applyJobSnapshot(payload);
@@ -1573,8 +1585,7 @@ async function startRun(): Promise<void> {
       body: buildFormData(),
     });
     if (!response.ok) {
-      const errorPayload = await response.json().catch(async () => ({ detail: await response.text() }));
-      throw new Error(extractErrorDetail(errorPayload, "Failed to start GUI job."));
+      throw new Error(await responseErrorMessage(response, "Failed to start GUI job."));
     }
     const payload = (await response.json()) as JobStateSnapshot;
     state.jobId = payload.jobId;

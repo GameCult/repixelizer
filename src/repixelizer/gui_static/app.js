@@ -887,7 +887,7 @@ function endPan(pointerId = null) {
 async function loadRuntimeConfig() {
     const response = await fetch("/api/config");
     if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await responseErrorMessage(response, "Failed to load runtime config."));
     }
     applyRuntimeConfig((await response.json()));
 }
@@ -902,7 +902,7 @@ async function refreshQueueSummary() {
     }
     const response = await fetch("/api/queue");
     if (!response.ok) {
-        throw new Error(await response.text());
+        throw new Error(await responseErrorMessage(response, "Failed to load queue summary."));
     }
     state.queueSummary = (await response.json());
     renderQueueSummary();
@@ -979,6 +979,18 @@ function extractErrorDetail(payload, fallback) {
     }
     return fallback;
 }
+async function responseErrorMessage(response, fallback) {
+    const body = await response.text();
+    if (!body.trim()) {
+        return fallback;
+    }
+    try {
+        return extractErrorDetail(JSON.parse(body), fallback);
+    }
+    catch {
+        return body;
+    }
+}
 async function cancelCurrentJob(options = {}) {
     if (!state.jobId || !hasActiveJob()) {
         return;
@@ -993,7 +1005,7 @@ async function cancelCurrentJob(options = {}) {
     try {
         const response = await request;
         if (!response.ok) {
-            throw new Error(await response.text());
+            throw new Error(await responseErrorMessage(response, "Failed to cancel the current job."));
         }
         const payload = (await response.json());
         applyJobSnapshot(payload);
@@ -1287,8 +1299,7 @@ async function startRun() {
             body: buildFormData(),
         });
         if (!response.ok) {
-            const errorPayload = await response.json().catch(async () => ({ detail: await response.text() }));
-            throw new Error(extractErrorDetail(errorPayload, "Failed to start GUI job."));
+            throw new Error(await responseErrorMessage(response, "Failed to start GUI job."));
         }
         const payload = (await response.json());
         state.jobId = payload.jobId;
