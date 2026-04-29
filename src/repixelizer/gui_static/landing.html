@@ -92,11 +92,6 @@
           transform-origin: 42% 63%;
         }
 
-        .landing-auth-strip {
-          display: grid;
-          gap: 10px;
-        }
-
         .landing-header {
           grid-template-columns: minmax(0, 1.35fr) auto minmax(280px, 0.9fr) minmax(220px, 0.65fr);
         }
@@ -165,13 +160,12 @@
           </a>
           <div class="header-instructions">
             <p class="eyebrow">How to enter</p>
-            <p class="instruction-line">Start from this page, authenticate if enabled, then continue into the app.</p>
-            <p class="instruction-line">The hosted flow is a short handoff, not a separate experience.</p>
-            <p class="instruction-line">If auth is disabled, the demo button goes straight to the live workspace.</p>
+            <p class="instruction-line">Pick a provider when hosted auth is enabled.</p>
+            <p class="instruction-line">Otherwise, go straight to the live workspace.</p>
+            <p class="instruction-line">The browser is merely the courier. It should not get ideas.</p>
           </div>
-          <div class="editor-actions">
-            <a class="button" href="{{PRIMARY_HREF}}" id="primaryAction">{{PRIMARY_LABEL}}</a>
-            <button class="button button-secondary" id="authSignOut" type="button" {{SIGNOUT_HIDDEN}}>Sign out</button>
+          <div class="editor-actions" id="authProviders">
+            {{HEADER_ACTIONS}}
           </div>
         </section>
         <section class="hero panel-stack ui-surface ui-frame">
@@ -208,13 +202,6 @@
                 <span>Real cells on a real lattice, ready for cleanup or export.</span>
               </figure>
             </div>
-            <div class="landing-auth-strip">
-              <p class="copy-tag">{{HERO_NOTE}}</p>
-              <div class="editor-button-group" id="authProviders">{{AUTH_PROVIDER_BUTTONS}}</div>
-              <p class="status-text" id="authStateLine">
-                {{AUTH_STATE_TEXT}}
-              </p>
-            </div>
           </div>
         </section>
         <section class="card panel-stack ui-surface ui-frame">
@@ -242,26 +229,19 @@
           <p class="copy-tag status-text">
             Self-hosters can still go straight to <a href="/app/">the app</a>. Hosted mode just gets a front door instead of making everyone trip over raw controls immediately.
           </p>
-          {{AUTH_NOTICE}}
         </section>
       </main>
     <script>
       const authConfig = {{AUTH_CONFIG_JSON}};
       const sessionSubject = {{SESSION_SUBJECT_JSON}};
       const providerRow = document.getElementById("authProviders");
-      const primaryAction = document.getElementById("primaryAction");
-      const authStateLine = document.getElementById("authStateLine");
-      const authNotice = document.getElementById("authNotice");
+      const authNotice = null;
       const signOutButton = document.getElementById("authSignOut");
-      const defaultPrimaryLabel = {{DEFAULT_PRIMARY_LABEL_JSON}};
       let activeAttemptId = null;
 
       function setNotice(text) {
         if (authNotice) {
           authNotice.textContent = text;
-        }
-        if (authStateLine) {
-          authStateLine.textContent = text;
         }
       }
 
@@ -271,9 +251,6 @@
         }
         for (const node of providerRow.querySelectorAll("button[data-provider]")) {
           node.disabled = busy;
-        }
-        if (primaryAction && primaryAction instanceof HTMLElement) {
-          primaryAction.textContent = busy ? `Waiting on ${providerSlug}...` : defaultPrimaryLabel;
         }
       }
 
@@ -361,16 +338,6 @@
             });
           }
         }
-      }
-
-      if (primaryAction && authConfig.enabled && !sessionSubject.authenticated) {
-        primaryAction.addEventListener("click", (event) => {
-          event.preventDefault();
-          const firstProvider = Array.isArray(authConfig.providers) ? authConfig.providers[0] : null;
-          if (firstProvider) {
-            void startAuth(firstProvider);
-          }
-        });
       }
 
       if (signOutButton) {

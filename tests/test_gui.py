@@ -414,6 +414,7 @@ def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> Non
     assert "Repixelizer hosted demo" in html
     assert "Force fake pixel art back onto a real grid, then inspect each step with a full solver view." in html
     assert 'href="/app/"' in html
+    assert "Login with Discord" not in html
 
 
 def test_gui_hosted_root_renders_heimdall_login_buttons(monkeypatch, tmp_path: Path) -> None:
@@ -433,6 +434,9 @@ def test_gui_hosted_root_renders_heimdall_login_buttons(monkeypatch, tmp_path: P
     assert status == 200
     assert "Login with Discord" in html
     assert "Login with Patreon" in html
+    assert "Sign in to the demo" not in html
+    assert "Already authenticated as" not in html
+    assert 'href="#auth"' not in html
     assert "/api/auth/heimdall/start" in html
     assert "Hosted access will be gated through Heimdall once the auth pass lands." not in html
 

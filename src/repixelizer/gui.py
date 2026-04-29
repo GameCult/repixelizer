@@ -886,11 +886,9 @@ def _landing_page_html(
     }
     auth_enabled = bool(auth_payload.get("enabled"))
     authenticated = bool(subject_payload.get("authenticated"))
-    primary_href = "/app/" if authenticated or not auth_enabled else "#auth"
-    primary_label = "Continue to the demo" if authenticated else ("Sign in to the demo" if auth_enabled else "Open the demo")
     providers = auth_payload.get("providers") if isinstance(auth_payload.get("providers"), list) else []
-    provider_button_html = ""
-    if auth_enabled and not authenticated:
+    header_actions_html = ""
+    if auth_enabled and not authenticated and providers:
         fragments = []
         for provider in providers:
             if not isinstance(provider, dict):
@@ -904,42 +902,24 @@ def _landing_page_html(
             fragments.append(
                 f'<button class="button button-secondary" type="button" data-provider="{escaped_slug}">Login with {escaped_label}</button>'
             )
-        provider_button_html = "".join(fragments)
-    hero_note = (
-        "Heimdall handles the provider dance, Repixelizer keeps the local verdict, and the browser mostly gets to stop couriering secrets."
-        if auth_enabled
-        else "It is not a miracle worker, and it is definitely not here to pretend it invented hand-authored pixel art from nothing."
-    )
-    auth_notice = ""
-    if auth_enabled and not auth_payload.get("providers"):
-        auth_notice = (
-            '<p class="copy-tag status-text" id="authNotice">Auth is enabled here, but no providers are configured yet. '
-            "The front door exists, but somebody still owes it an actual key.</p>"
+        header_actions_html = "".join(fragments)
+    elif authenticated:
+        header_actions_html = (
+            '<a class="button" href="/app/">Continue to the demo</a>'
+            '<button class="button button-secondary" id="authSignOut" type="button">Sign out</button>'
         )
-    elif auth_enabled:
-        auth_notice = '<p class="copy-tag status-text" id="authNotice">Choose a provider. The main page stays put while Heimdall and the backend sort out the paperwork in another tab.</p>'
-    auth_state_text = (
-        f"Already authenticated as {subject_payload.get('displayName') or subject_payload.get('accountId') or 'a local creature'}."
-        if authenticated
-        else ""
-    )
+    else:
+        header_actions_html = '<a class="button" href="/app/">Open the demo</a>'
     static_dir = _static_dir()
     styles_path = static_dir / "styles.css"
     styles_version = int(styles_path.stat().st_mtime_ns) if styles_path.exists() else 0
     landing_template = (static_dir / "landing.html").read_text(encoding="utf-8")
     return (
         landing_template.replace("{{STYLES_VERSION}}", str(styles_version))
-        .replace("{{HERO_NOTE}}", html.escape(hero_note))
-        .replace("{{PRIMARY_HREF}}", html.escape(primary_href, quote=True))
-        .replace("{{PRIMARY_LABEL}}", html.escape(primary_label))
-        .replace("{{SIGNOUT_HIDDEN}}", "hidden" if not authenticated else "")
-        .replace("{{AUTH_PROVIDER_BUTTONS}}", provider_button_html)
-        .replace("{{AUTH_STATE_TEXT}}", html.escape(auth_state_text))
+        .replace("{{HEADER_ACTIONS}}", header_actions_html)
         .replace("{{DEMO_LIMITS}}", html.escape(demo_limits))
-        .replace("{{AUTH_NOTICE}}", auth_notice)
         .replace("{{AUTH_CONFIG_JSON}}", _json_html(auth_payload))
         .replace("{{SESSION_SUBJECT_JSON}}", _json_html(subject_payload))
-        .replace("{{DEFAULT_PRIMARY_LABEL_JSON}}", _json_html(primary_label))
     )
 
 
