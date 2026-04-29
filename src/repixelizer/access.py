@@ -199,6 +199,7 @@ class AccessRuntimeConfig:
     jwks_cache_seconds: int = 300
     discord_access_guild_id: str | None = None
     discord_access_role_ids: tuple[str, ...] = ()
+    patreon_required_tier_title: str | None = None
 
     @property
     def enabled(self) -> bool:
@@ -464,6 +465,7 @@ class AccessController:
         start_endpoint = None
         discord_access_guild_id = None
         discord_access_role_ids: tuple[str, ...] = ()
+        patreon_required_tier_title = None
         login_url = _env_text("GC_ACCESS_LOGIN_URL")
         logout_url = _env_text("GC_ACCESS_LOGOUT_URL")
         verifier: HeimdallVerifier | None = None
@@ -504,6 +506,7 @@ class AccessController:
             start_endpoint = _AUTH_START_PATH
             discord_access_guild_id = _env_text("REPIXELIZER_ACCESS_DISCORD_GUILD_ID")
             discord_access_role_ids = tuple(_parse_csv(_env_text("REPIXELIZER_ACCESS_DISCORD_ALLOWED_ROLE_IDS")))
+            patreon_required_tier_title = _env_text("REPIXELIZER_ACCESS_PATREON_TIER_TITLE") or "Inner Sanctum"
             verifier = HeimdallVerifier(
                 issuer=heimdall_issuer,
                 app_slug=app_slug,
@@ -534,6 +537,7 @@ class AccessController:
             jwks_cache_seconds=jwks_cache_seconds,
             discord_access_guild_id=discord_access_guild_id,
             discord_access_role_ids=discord_access_role_ids,
+            patreon_required_tier_title=patreon_required_tier_title,
         )
         return cls(runtime, verifier=verifier)
 
@@ -627,6 +631,11 @@ class AccessController:
                 "kind": "discord_role_access",
                 "guildId": self.runtime.discord_access_guild_id,
                 "allowedRoleIds": list(self.runtime.discord_access_role_ids),
+            }
+        elif provider_slug == "patreon":
+            request_payload["entitlementPolicy"] = {
+                "kind": "patreon_membership_access",
+                "requiredTierTitle": self.runtime.patreon_required_tier_title or "Inner Sanctum",
             }
         start_url = urljoin(f"{heimdall_base_url}/", _AUTH_START_ENDPOINT_TEMPLATE.format(provider=provider_slug).lstrip("/"))
         try:

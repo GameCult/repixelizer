@@ -899,6 +899,50 @@ def test_gui_heimdall_callback_flow_adopts_local_cookie_session(monkeypatch, tmp
     assert app_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
 
+def test_gui_heimdall_patreon_auth_start_sends_membership_policy(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    start_calls: list[tuple[str, dict[str, object], float]] = []
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout_seconds: float):
+        start_calls.append((url, payload, timeout_seconds))
+        return {
+            "authorizationUrl": "https://www.patreon.com/oauth2/authorize?state=test-state",
+            "stateExpiresAt": "2026-04-27T12:15:00.000Z",
+        }
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_PATREON_TIER_TITLE", "Inner Sanctum")
+    monkeypatch.setattr("repixelizer.access._post_json", fake_post_json)
+
+    app = create_app()
+
+    start_status, _start_headers, start_body = asyncio.run(
+        _get_response(
+            app,
+            "/api/auth/heimdall/start",
+            method="POST",
+            headers={"content-type": "application/json"},
+            body=_json_bytes({"provider": "patreon"}),
+        )
+    )
+    start_payload = _response_json(type("Response", (), {"body": start_body})())
+
+    assert start_status == 201
+    assert start_payload["authorizationUrl"] == "https://www.patreon.com/oauth2/authorize?state=test-state"
+    assert start_calls
+    assert start_calls[0][0] == "https://heimdall.gamecult.org/v1/oauth/patreon/start"
+    assert start_calls[0][1]["entitlementPolicy"] == {
+        "kind": "patreon_membership_access",
+        "requiredTierTitle": "Inner Sanctum",
+    }
+
+
 def test_hosted_job_options_use_autocorr_and_allow_rerank() -> None:
     from repixelizer.gui import HostedDemoConfig, _normalize_job_options
 
