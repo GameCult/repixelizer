@@ -387,15 +387,18 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     app = create_app()
     html_status, html_headers, html_body = asyncio.run(_get_response(app, "/app/"))
     js_status, js_headers, js_body = asyncio.run(_get_response(app, "/app/app.js"))
+    css_status, _css_headers, css_body = asyncio.run(_get_response(app, "/app/styles.css"))
 
     assert html_status == 200
     assert js_status == 200
+    assert css_status == 200
     assert html_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert js_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert html_headers["pragma"] == "no-cache"
     assert js_headers["pragma"] == "no-cache"
     html_text = html_body.decode("utf-8")
     js_text = js_body.decode("utf-8")
+    css_text = css_body.decode("utf-8")
     assert "./styles.css?v=" in html_text
     assert "./app.js?v=" in html_text
     assert 'id="deviceField" class="field" hidden' in html_text
@@ -404,6 +407,8 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     assert "Skip candidate rerank" not in html_text
     assert '["skip_candidate_rerank", "false"]' in js_text
     assert "skipRerankInput" not in js_text
+    assert "[hidden]" in css_text
+    assert "display: none !important" in css_text
 
 
 def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> None:
