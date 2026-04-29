@@ -37,7 +37,13 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-repixelizer = ["gui_static/*.html", "gui_static/*.css", "gui_static/*.js"]
+repixelizer = [
+  "gui_static/*.html",
+  "gui_static/*.css",
+  "gui_static/*.js",
+  "gui_static/landing-assets/*",
+  "gui_static/logos/*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
