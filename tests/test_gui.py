@@ -469,6 +469,30 @@ def test_gui_heimdall_mode_redirects_to_landing_without_session(monkeypatch, tmp
     assert headers["location"] == "/"
 
 
+def test_gui_heimdall_mode_serves_static_assets_without_session(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord")
+
+    app = create_app()
+    css_status, css_headers, css_body = asyncio.run(_get_response(app, "/app/styles.css"))
+    logo_status, logo_headers, logo_body = asyncio.run(
+        _get_response(app, "/app/logos/repixelizer-logo-monogram.svg")
+    )
+
+    assert css_status == 200
+    assert "text/css" in css_headers["content-type"]
+    assert b"body" in css_body
+    assert logo_status == 200
+    assert "image/svg+xml" in logo_headers["content-type"]
+    assert b"<svg" in logo_body
+
+
 def test_gui_api_jobs_denies_unauthenticated_request_when_auth_required(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 

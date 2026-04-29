@@ -1014,15 +1014,17 @@ def create_app():
             elif path.startswith("/api/jobs/"):
                 capability = "job_cancel_own" if request.method.upper() == "DELETE" else "job_read_own"
                 subject = resolve_job_subject(capability)
-            elif path == "/app" or path.startswith("/app/"):
+            elif path in {"/app", "/app/"}:
                 if access_controller.runtime.enabled and access_controller.runtime.required:
                     subject = access_controller.require_request_capability(request, "app_access")
                 else:
                     subject = access_controller.peek_request_subject(request)
+            elif path.startswith("/app/"):
+                subject = access_controller.peek_request_subject(request)
             else:
                 subject = access_controller.peek_request_subject(request)
         except AccessDenied as exc:
-            if path == "/app" or path.startswith("/app/"):
+            if path in {"/app", "/app/"}:
                 return RedirectResponse(url=access_controller.app_gate_redirect_url(), status_code=303)
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
