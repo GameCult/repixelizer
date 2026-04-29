@@ -1282,10 +1282,17 @@ async function startRun() {
         setStage("idle", "Waiting for input", "Pick a file first. The machine is not clairvoyant.");
         return;
     }
+    const runtimeConfig = state.runtimeConfig;
+    const uploadLimit = runtimeConfig?.limits.maxUploadBytes;
+    if (uploadLimit !== undefined && state.file.size > uploadLimit) {
+        setJobState("failed");
+        setStage("failed", "File too large", `${state.file.name} is ${formatByteLimit(state.file.size)}. Hosted uploads are capped at ${formatByteLimit(uploadLimit)}.`);
+        addLog("Failure", "Selected file is over the hosted upload limit.");
+        return;
+    }
     resetRunArtifacts({ preserveSourceImage: true });
     renderEventLog();
     runButton.disabled = true;
-    const runtimeConfig = state.runtimeConfig;
     const maxSteps = runtimeConfig?.limits.maxSteps ?? 48;
     const defaultSteps = runtimeConfig?.limits.defaultSteps ?? 48;
     state.solverStepBudget = Math.max(0, Math.min(maxSteps, parseOptionalInteger(stepsInput) ?? defaultSteps));
@@ -1318,6 +1325,17 @@ async function startRun() {
     }
 }
 async function acceptFile(file) {
+    const uploadLimit = state.runtimeConfig?.limits.maxUploadBytes;
+    if (uploadLimit !== undefined && file.size > uploadLimit) {
+        state.file = null;
+        resetRunArtifacts();
+        dropzoneLabel.textContent = "Choose image";
+        setJobState("failed");
+        setStage("failed", "File too large", `${file.name} is ${formatByteLimit(file.size)}. Hosted uploads are capped at ${formatByteLimit(uploadLimit)}.`);
+        addLog("Failure", "Selected file is over the hosted upload limit.");
+        await renderEverything();
+        return;
+    }
     state.file = file;
     resetRunArtifacts();
     dropzoneLabel.textContent = file.name;
