@@ -3,6 +3,7 @@ import html
 import contextlib
 import io
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -23,6 +24,10 @@ from .inference import inference_to_json
 from .observe import PipelineCancelled
 from .pipeline import _resolve_requested_target_dims, run_pipeline_rgba
 from .types import InferenceResult, PaletteResult
+
+
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.INFO)
 
 
 def _require_gui_dependencies():
@@ -246,6 +251,7 @@ class GuiJob:
     access_revision: int | None = None
     created_at: float = field(default_factory=time.time)
     last_heartbeat_at: float = field(default_factory=time.time)
+    running_at: float | None = None
     phase_field_preview_stride: int = 4
     phase_field_include_snapshot: bool = True
     status: str = "queued"
@@ -277,22 +283,61 @@ class GuiJob:
 
     def mark_running(self) -> None:
         self.status = "running"
+        self.running_at = time.time()
         self.touch_heartbeat()
+        LOGGER.info(
+            "repixelizer_job_started job_id=%s wait_seconds=%.3f steps=%s target_size=%s target_width=%s target_height=%s",
+            self.job_id,
+            self.running_at - self.created_at,
+            self.options.get("steps"),
+            self.options.get("target_size"),
+            self.options.get("target_width"),
+            self.options.get("target_height"),
+        )
         self.publish("job_state", {"status": self.status})
 
     def mark_completed(self) -> None:
         self.status = "completed"
+        finished_at = time.time()
+        run_started_at = self.running_at or finished_at
+        LOGGER.info(
+            "repixelizer_job_completed job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f",
+            self.job_id,
+            run_started_at - self.created_at,
+            finished_at - run_started_at,
+            finished_at - self.created_at,
+        )
         self.publish("job_state", {"status": self.status})
 
     def mark_failed(self, message: str) -> None:
         self.status = "failed"
         self.error = message
+        finished_at = time.time()
+        run_started_at = self.running_at or finished_at
+        LOGGER.warning(
+            "repixelizer_job_failed job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f message=%r",
+            self.job_id,
+            run_started_at - self.created_at,
+            finished_at - run_started_at,
+            finished_at - self.created_at,
+            message,
+        )
         self.publish("job_failed", {"status": self.status, "message": message})
 
     def mark_canceled(self, message: str) -> None:
         self.status = "canceled"
         self.error = message
         self.cancel_reason = message
+        finished_at = time.time()
+        run_started_at = self.running_at or finished_at
+        LOGGER.info(
+            "repixelizer_job_canceled job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f message=%r",
+            self.job_id,
+            run_started_at - self.created_at,
+            finished_at - run_started_at,
+            finished_at - self.created_at,
+            message,
+        )
         self.publish("job_canceled", {"status": self.status, "message": message})
         self.publish("job_state", {"status": self.status, "message": message})
 
@@ -302,6 +347,7 @@ class GuiJob:
     def request_cancel(self, reason: str) -> None:
         self.cancel_reason = reason
         self._cancel_event.set()
+        LOGGER.info("repixelizer_job_cancel_requested job_id=%s status=%s reason=%r", self.job_id, self.status, reason)
 
     @property
     def cancellation_message(self) -> str:
@@ -661,11 +707,26 @@ class GuiJobManager:
         with self._condition:
             if len(self._queued_job_ids) >= self.config.queue_capacity:
                 self._cleanup_spool_file(job)
+                LOGGER.warning(
+                    "repixelizer_queue_full waiting_count=%d queue_capacity=%d upload_bytes=%d",
+                    len(self._queued_job_ids),
+                    self.config.queue_capacity,
+                    len(raw),
+                )
                 raise QueueFullError(f"Queue is full. {self.config.queue_capacity} waiting jobs are already lined up.")
             self.jobs[job.job_id] = job
             self._queued_job_ids.append(job.job_id)
             job.publish("job_state", {"status": job.status})
             self._publish_queue_state_locked()
+            LOGGER.info(
+                "repixelizer_job_queued job_id=%s queue_position=%s queue_depth=%d waiting_count=%d queue_capacity=%d upload_bytes=%d",
+                job.job_id,
+                self._queue_position_locked(job.job_id),
+                self._queue_depth_locked(),
+                len(self._queued_job_ids),
+                self.config.queue_capacity,
+                len(raw),
+            )
             self._condition.notify_all()
         return job
 
