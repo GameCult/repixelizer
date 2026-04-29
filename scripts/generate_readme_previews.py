@@ -258,6 +258,24 @@ def _build_pip_inset(
     return canvas
 
 
+def _pip_size_for_crop(
+    rgba_crop: np.ndarray,
+    *,
+    max_width: int,
+    max_height: int,
+    padding: int = 12,
+) -> tuple[int, int]:
+    crop_height, crop_width = rgba_crop.shape[:2]
+    if crop_width <= 0 or crop_height <= 0:
+        return max_width, max_height
+    inner_max_width = max(1, max_width - padding)
+    inner_max_height = max(1, max_height - padding)
+    aspect = crop_width / max(1, crop_height)
+    inner_width = int(round(inner_max_height * aspect))
+    inner_width = max(min(inner_width, inner_max_width), min(inner_max_width, inner_max_height))
+    return inner_width + padding, inner_max_height + padding
+
+
 def _add_pip_inset(render: RenderedPanel, inset: Image.Image, *, margin_x: int = 12, margin_y: int = 12) -> None:
     inner_x, inner_y, inner_w, inner_h = render.content_box
     placement_x = inner_x + max(0, inner_w - inset.width - margin_x)
@@ -359,7 +377,8 @@ def _build_row_panels(
         _crop_rgba(row.phase_field_rgba, row.focus_cell_bbox),
     ]
     for panel, crop in zip(panels, inset_crops, strict=True):
-        _add_pip_inset(panel, _build_pip_inset(crop, width=inset_width, height=inset_height), margin_x=4, margin_y=4)
+        pip_width, pip_height = _pip_size_for_crop(crop, max_width=inset_width, max_height=inset_height)
+        _add_pip_inset(panel, _build_pip_inset(crop, width=pip_width, height=pip_height), margin_x=4, margin_y=4)
     return panels, focus_source_bbox
 
 

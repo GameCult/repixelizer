@@ -7,8 +7,8 @@ look locally pixelated but fall apart the second you ask them to commit to one
 lattice like grown-ups.
 
 Instead of pretending this is a resize problem, Repixelizer treats it as
-lattice inference plus `phase-field` reconstruction: infer the ruler, scout the
-edges, let every output cell search a tiny local window for quieter paint,
+lattice inference plus `phase-field` reconstruction: infer the ruler, preview
+the edges, let every output cell search a tiny local window for quieter paint,
 relax the whole sheet back into a coherent lattice, then sample once and go
 home.
 
@@ -41,9 +41,7 @@ If you want to support the official hosted deployment and help us scale the poor
 
 This sheet carries two cases: the ugly fake-pixel badge and a dense
 higher-resolution landscape. The badge row shows the core salvage story. The
-landscape row is now generated through automatic lattice inference as well, so
-the preview shows the machine we actually ship instead of a pinned-size fairy
-tale wearing a serious hat.
+landscape row shows how the same automatic path handles a much larger source.
 
 Each row carries its own inset, so the tiny details have nowhere to hide.
 
@@ -194,8 +192,7 @@ Run the focused test suite with:
 ## Regenerating README Assets
 
 The README images are generated from repo-tracked fixtures, not from random
-artifacts left lying around. The dense landscape row runs automatic lattice
-inference instead of pinning a fixed output size:
+artifacts left lying around:
 
 ```powershell
 .venv\Scripts\python scripts\generate_readme_previews.py --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto
