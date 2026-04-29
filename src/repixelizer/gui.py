@@ -923,6 +923,13 @@ def _landing_page_html(
     )
 
 
+def _static_html_page(static_dir: Path, filename: str) -> str:
+    styles_path = static_dir / "styles.css"
+    styles_version = int(styles_path.stat().st_mtime_ns) if styles_path.exists() else 0
+    template = (static_dir / filename).read_text(encoding="utf-8")
+    return template.replace("{{STYLES_VERSION}}", str(styles_version))
+
+
 def create_app():
     deps = _require_gui_dependencies()
     FastAPI = deps["FastAPI"]
@@ -1238,6 +1245,16 @@ def create_app():
                     )
                 )
             return RedirectResponse(url="/app/")
+
+        @app.api_route("/privacy", methods=["GET", "HEAD"])
+        @app.api_route("/privacy/", methods=["GET", "HEAD"])
+        def privacy_policy():
+            return HTMLResponse(_static_html_page(static_dir, "privacy.html"))
+
+        @app.api_route("/terms", methods=["GET", "HEAD"])
+        @app.api_route("/terms/", methods=["GET", "HEAD"])
+        def terms_of_service():
+            return HTMLResponse(_static_html_page(static_dir, "terms.html"))
     else:  # pragma: no cover - only relevant before frontend assets exist
         @app.get("/")
         def root_missing():

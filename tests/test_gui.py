@@ -414,7 +414,39 @@ def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> Non
     assert "Repixelizer hosted demo" in html
     assert "Force fake pixel art back onto a real grid, then inspect each step with a full solver view." in html
     assert 'href="/app/"' in html
+    assert 'href="/privacy"' in html
+    assert 'href="/terms"' in html
     assert "Login with Discord" not in html
+
+
+def test_gui_serves_public_legal_pages(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+
+    app = create_app()
+    privacy_status, privacy_headers, privacy_body = asyncio.run(_get_response(app, "/privacy"))
+    terms_status, terms_headers, terms_body = asyncio.run(_get_response(app, "/terms"))
+    privacy_head_status, _privacy_head_headers, _privacy_head_body = asyncio.run(
+        _get_response(app, "/privacy", method="HEAD")
+    )
+    terms_head_status, _terms_head_headers, _terms_head_body = asyncio.run(
+        _get_response(app, "/terms", method="HEAD")
+    )
+    privacy_html = privacy_body.decode("utf-8")
+    terms_html = terms_body.decode("utf-8")
+
+    assert privacy_status == 200
+    assert "text/html" in privacy_headers["content-type"]
+    assert "Privacy Policy" in privacy_html
+    assert "meta@gamecult.org" in privacy_html
+    assert terms_status == 200
+    assert "text/html" in terms_headers["content-type"]
+    assert "Terms of Service" in terms_html
+    assert "meta@gamecult.org" in terms_html
+    assert privacy_head_status == 200
+    assert terms_head_status == 200
 
 
 def test_gui_hosted_root_renders_heimdall_login_buttons(monkeypatch, tmp_path: Path) -> None:
