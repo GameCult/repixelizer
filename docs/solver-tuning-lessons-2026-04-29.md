@@ -1,8 +1,7 @@
 # Solver tuning lessons - 2026-04-29
 
-This note records what the tuning pass actually taught us, what it did not
-teach us, and how the next pass should be run without constructing another
-beautiful little swamp.
+This note records what the tuning pass showed, what remains untested, and how
+the next tuning pass should be run.
 
 ## Shipping state
 
@@ -19,7 +18,7 @@ The current shipped trial config is intentionally usable, not final:
 }
 ```
 
-Everything else in `config/solver_params.json` remains as previously configured.
+Other solver parameters remain as configured in `config/solver_params.json`.
 
 The important caveat: this is a motion-geometry win, not a full signal-shape
 optimum. It is acceptable for shipping the hosted experiment, but it should not
@@ -28,9 +27,8 @@ be treated as the final form of the phase-field solver.
 ## What the pass proved
 
 The most useful discovery was that the local-search radius was much too large.
-The solver was not merely underpowered; it was letting samples inspect too much
-neighboring territory. Adjacent samples could chase the same feature, which
-looked like feature attraction but behaved like poaching.
+At larger radii, adjacent samples could inspect overlapping neighborhoods and
+chase the same feature.
 
 Recent focused artificial results, all with:
 
@@ -59,7 +57,7 @@ The model this supports:
 - `radius` is the gatekeeper for whether samples solve locally or poach.
 - Very small radius eventually starves movement, as seen at `0.16`.
 - The useful basin is narrow, roughly `0.20-0.22`, with `0.215` best in the focused pass.
-- Once the search window is tight, stronger blend becomes useful because samples can move without wandering into the neighbor's lunch.
+- Once the search window is tight, stronger blend becomes useful because samples move within a more local neighborhood.
 
 Blend sweep at `radius=0.215`:
 
@@ -74,7 +72,7 @@ Blend sweep at `radius=0.215`:
 The model this supports:
 
 - After radius is tightened, blend must be retuned.
-- Low blend was compensating for an over-wide search area.
+- Low blend performed best in the wider search regime.
 - At the new radius, `0.24` is better than `0.18` on focused metrics.
 - We did not yet find the upper blend cliff. `0.24` won the tested set, but values above it still need bracketing later.
 
@@ -96,18 +94,16 @@ not sweep:
 - `phase_field_grid_alignment_weight` around the new basin
 - `phase_field_local_search_grid_weight` around the new basin
 
-Earlier experiments touched some of these in older regimes, but those results
-should not be treated as final because they were gathered before the current
-motion geometry was discovered. A signal knob can look useless when the solver
-cannot move into the signal correctly. That is exactly how we wasted time
-before.
+Earlier experiments touched some of these in previous regimes, but those
+results should not be treated as final because they were gathered before the
+current motion geometry was selected.
 
 The correct summary is:
 
 - Current config is shippable.
 - Motion geometry is much better understood.
 - Signal shape remains underexplored in the new basin.
-- The next tuning pass should start from `radius=0.215, blend=0.24`, not from the old wide-radius config.
+- The next tuning pass should start from `radius=0.215, blend=0.24`.
 
 ## Current mental model
 
@@ -126,9 +122,7 @@ The important part is the scale separation:
 - The blend says how fast the sample moves toward the chosen position.
 - The lattice coherence force says how much the grid resists local deformation.
 
-The mistake was treating signal strength as the main issue while the search
-window was still too broad. A broad search window turns a good signal into a
-poaching contest.
+Signal tuning should be evaluated against the current search window.
 
 ## Config intents we can currently generate
 

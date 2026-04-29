@@ -10,7 +10,7 @@ The project exists because generated imagery often creates appealing pixel-like 
 - noisy highlights and outlines
 - fake micro-detail that collapses when downsampled
 
-Repixelizer treats this as lattice inference plus reconstruction rather than a resize problem.
+Repixelizer treats this as a lattice-inference and reconstruction problem.
 
 ## Goals
 
@@ -108,7 +108,7 @@ The tool must estimate the resolution of the fake lattice being mimicked.
 Requirements:
 - infer candidate target sizes from autocorrelation hints
 - use canonical cell centers for each candidate
-- score candidates using coherence-oriented metrics rather than reconstruction alone
+- score candidates using coherence-oriented metrics and source-derived periodicity priors
 - expose the top-ranked alternatives in diagnostics
 - if `--target-size`, `--target-width`, or `--target-height` is provided, skip automatic inference
 
@@ -141,7 +141,7 @@ Requirements:
 - relax row and column springs so the sample field stays coherent
 - nearest-sample the original source pixels for final output
 
-The current implementation is explicit NumPy local search plus spring relaxation. It is not the old PyTorch autograd / projected-Adam displacement solver.
+The current implementation is explicit NumPy local search plus spring relaxation.
 
 ### 4. Discrete projection and cleanup
 
@@ -150,9 +150,9 @@ After the phase-field stage, the result must be treated as a true pixel grid.
 The discrete stage should:
 - preserve source-sampled RGBA values
 - snap alpha to an opaque/transparent mask
-- leave structural repair to the solver rather than hiding confusion with a cleanup pass
+- keep structural repair in the solver
 
-Cleanup is intentionally small in v1. It should not become a second solver wearing a trench coat.
+Cleanup is intentionally small in v1.
 
 ### 5. Baselines and comparison mode
 

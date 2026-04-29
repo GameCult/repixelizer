@@ -10,8 +10,7 @@ Shared architecture note:
 
 - `E:\Projects\Heimdall\docs\architecture.md`
 
-This local file remains only as a redirect stub so Repixelizer does not keep a
-second copy of the same future auth plan fermenting in a corner.
+This local file remains as a redirect stub for existing notes and links.
 
 Current repo truth is unchanged:
 

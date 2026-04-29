@@ -10,8 +10,7 @@ Repixelizer-specific binding:
 
 - `E:\Projects\Heimdall\docs\app-profiles\repixelizer.md`
 
-This local file remains only as a redirect stub so old notes and links do not
-pretend the shared access plan still lives inside Repixelizer.
+This local file remains as a redirect stub for existing notes and links.
 
 Current repo truth is unchanged:
 

@@ -30,11 +30,11 @@ Do not continue implementation automatically from a rehydrate-only request.
 
 - `phase-field` is the only live reconstruction engine.
 - The live pipeline is `source -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search + lattice relaxation -> nearest source sample -> cleanup / diagnostics`.
-- The current solver is explicit local search, not projected Adam. It starts from fixed lattice centers, adds tiny seeded noise, chooses local preferred positions from a 5x5 candidate window, blends toward those positions, then relaxes lattice springs for row/column coherence.
+- The current solver starts from fixed lattice centers, adds tiny seeded noise, chooses local preferred positions from a 5x5 candidate window, blends toward those positions, then relaxes lattice springs for row/column coherence.
 - The final image is emitted by nearest-source sampling from final source positions. Bilinear interpolation is not the output path.
-- The signal is direct hierarchical flatness: multiscale luminance gradient/Laplacian energy, one normalization, inverted to flatness, then sharpened. No wall mask, no distance transform, no boundary-context reward, no lattice phase.
-- `source_structure` exists alongside `source_fidelity` because lattice-only scoring can lie about visible quality.
-- Cleanup is alpha snap plus diagnostics only. It is not the real solver.
+- The signal is direct hierarchical flatness: multiscale luminance gradient/Laplacian energy, one normalization, inverted to flatness, then sharpened.
+- `source_structure` exists alongside `source_fidelity` so visible structure and lattice agreement can be inspected separately.
+- Cleanup is alpha snap plus diagnostics.
 
 ## Hosted/web state
 
@@ -77,9 +77,8 @@ See `docs/solver-tuning-lessons-2026-04-29.md` before doing more solver tuning.
 
 Ship the hosted experiment path next. The source hygiene pass is complete:
 diagnostic analysis stays as a GUI/observer gauge, the solver does not accept
-`analysis`, stale GUI event names were removed, `docs/spec.md` matches the live
-explicit solver, and `config/solver_params.json` matches the documented
-shipping basin.
+`analysis`, `docs/spec.md` matches the live explicit solver, and
+`config/solver_params.json` matches the documented shipping basin.
 
 ## Current priority
 
@@ -94,7 +93,6 @@ combinations, and only then run final full-corpus validation.
 
 - Persistent state is the agent's mind; stale state is bad thought, not harmless clutter.
 - Keep the algorithm map grounded in source.
-- Do not reintroduce lattice phase, trays, portrait layers, or multi-stage solver religions casually.
 - Do not trust a metric win that makes the image look worse.
 - Revert or discard tuning changes that do not clearly improve the real outcome.
 - Prefer shipping the hosted path over polishing solver knobs right now.

@@ -6,11 +6,10 @@ It is aimed at the annoying middle ground: sprites, emblems, and logos that
 look locally pixelated but fall apart the second you ask them to commit to one
 lattice like grown-ups.
 
-Instead of pretending this is a resize problem, Repixelizer treats it as
-lattice inference plus `phase-field` reconstruction: infer the ruler, preview
-the edges, let every output cell search a tiny local window for quieter paint,
-relax the whole sheet back into a coherent lattice, then sample once and go
-home.
+Repixelizer treats fake pixel art as lattice inference plus `phase-field`
+reconstruction: infer the ruler, preview the edges, let every output cell
+search a tiny local window for quieter paint, relax the whole sheet back into a
+coherent lattice, then sample once and go home.
 
 ## GUI First
 
@@ -82,8 +81,7 @@ What exists now:
 - the `phase-field` reconstruction engine in `src/repixelizer/phase_field.py`
 - automatic diagnostics, comparisons, and benchmark runs
 - a tuning harness for offline parameter sweeps
-- metrics that finally care about visible structure instead of only pleasing the lattice accountant
-- `source_structure` is reported alongside `source_fidelity`, because the old metric was happily calling better-looking images worse
+- `source_fidelity` and `source_structure` metrics for lattice agreement and visible structure
 - a shippable explicit local-search solver config, with tuning notes in `docs/solver-tuning-lessons-2026-04-29.md`
 
 Current weak spots:
@@ -169,13 +167,13 @@ That keeps benchmark assets, attribution exports, and tuning runs from polluting
 - `tests`: focused regression tests
 - `docs/spec.md`: product and technical spec
 - `docs/implementation-plan.md`: working roadmap
-- `docs/lean-optimizer-algorithm-map.md`: map of the live displacement-field optimizer
+- `docs/lean-optimizer-algorithm-map.md`: map of the live phase-field solver
 - `examples/corpus/README.md`: local corpus layout and attribution workflow
 
 Core modules:
 
 - `inference.py`: target size inference
-- `phase_field.py`: default displacement-field optimizer
+- `phase_field.py`: explicit local-search phase-field solver
 - `metrics.py`: fidelity, adjacency, and motif metrics
 - `benchmark.py`: corpus benchmark runner
 - `tuning.py`: black-box hyperparameter search harness

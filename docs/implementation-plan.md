@@ -8,8 +8,7 @@ It is not the authoritative stage-by-stage control-flow map. That lives in
 `docs/lean-optimizer-algorithm-map.md`.
 
 If these two notes disagree about what the code does right now, trust the
-algorithm map and the source, then fix this plan instead of hand-waving about
-intent.
+algorithm map and the source, then fix this plan.
 
 ## Current machine
 
@@ -38,7 +37,7 @@ The hosted web shell has an auth seam:
 - `phase-field` is the only canonical reconstruction path.
 - The current explicit solver is fast enough for hosted interaction.
 - Compare mode, benchmark mode, diagnostics writing, GUI observer previews, and tuning harnesses exist.
-- The repo reports both `source_fidelity` and `source_structure` because lattice-only scoring can slander better-looking output.
+- The repo reports both `source_fidelity` and `source_structure` so lattice agreement and visible structure can be inspected separately.
 - Hosted landing/app flow is in place and should be the immediate product path.
 
 ## Current solver shipping state
@@ -86,14 +85,12 @@ Current stance:
 - keep automatic inference grounded in autocorrelation
 - let autocorr keep a small near-best lag plateau and use cross-axis consensus before collapsing to one lattice family
 - keep hosted demo inference on the autocorr path with candidate rerank available when confidence is low
-- do not revive the old pixel-walk / change-interval spacing path
-- do not revive the projected edge-energy spectral pass
-- treat candidate rerank as optional scaffolding, not sacred machinery
+- keep candidate rerank as optional support for low-confidence autocorr choices
 
 ### 3. Later: retune the phase-field solver deliberately
 
-The next solver pass should begin from the current live config, not from the old
-wide-radius geometry.
+The next solver pass should begin from the current live config and its narrow
+search geometry.
 
 Recommended order:
 
@@ -122,9 +119,6 @@ Knobs still underexplored in the new basin:
 - Show the output after every real reconstruction run when doing visual tuning.
 - Keep maps updated after code changes.
 - Revert or delete machinery that does not visibly earn its keep.
-- Do not reintroduce lattice phase, portrait layers, candidate trays, or solver-stage religions casually.
+- Keep solver changes inside the one-field / one-signal / one-relaxation model unless the design map changes first.
 - If a new term lands, it must belong cleanly in the one-field / one-signal / one-relaxation model.
-- If a result looks better and the metrics disagree, fix the metrics rather than worshipping them.
-
-This repo already spent enough time as a Jenga tower of maybe-useful cleverness.
-The machine has to deserve every part.
+- Treat metrics as evidence about the output, not as a replacement for visual inspection.

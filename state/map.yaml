@@ -5,7 +5,7 @@ project:
   premise: >
     Recover fake pixel art by inferring a real lattice and moving one explicit
     source-position field under a simple local flatness signal plus lattice
-    coherence, instead of piling up compensating solver machinery.
+    coherence.
 
 objective:
   primary: >
@@ -21,7 +21,7 @@ constraints:
   - Prefer one chosen ruler, one live position field, one direct signal, and nearest-source final sampling.
   - Use visible structure and focused fixtures, not just lattice proxy metrics.
   - Keep compare mode, diagnostics, tuning, and GUI observer surfaces working.
-  - Avoid reviving trays, portrait layers, lattice phase, or multi-stage solver religions.
+  - Keep solver changes inside the one-ruler, one-position-field, one-signal model unless the design map changes first.
   - Treat hosted convenience as the product path; do not prioritize native desktop packaging unless it clearly beats hosted access on revenue, support burden, or strategy.
 
 invariants:
@@ -39,7 +39,7 @@ active_subgoals:
   - Ship the hosted experiment so Repixelizer unblocks Heimdall and StreamPixels.
   - Keep the current usable solver config stable unless launch exposes a blocking quality regression.
   - Keep inference, compare mode, diagnostics, tuning, and GUI observer events working after solver changes.
-  - Preserve `source_structure` as a real objective signal instead of over-trusting lattice-only fidelity.
+  - Preserve `source_structure` as an objective signal alongside lattice fidelity.
   - Keep Heimdall-backed hosted auth isolated to the web layer so future provider or session work does not contaminate self-host or solver code.
 
 accepted_design:
@@ -53,9 +53,9 @@ accepted_design:
   - `src/repixelizer/access.py` owns the hosted access seam: trusted-header ingress still works, `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally, and auth attempts are adopted into local httpOnly cookie sessions.
   - The solver starts from fixed lattice centers, adds tiny seeded noise, follows a direct hierarchical flatness signal, enforces local lattice coherence through spring relaxation, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
-  - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.
+  - `source_fidelity` and `source_structure` separate lattice agreement from visible structure.
   - Character glint/symbol cases, artificial focused cases, and the badge fixture remain useful reality checks for later solver tuning.
-  - The algorithm map and forward plan must stay separate from scratch and evidence so the notes do not congeal into one giant lying blob.
+  - Keep the algorithm map, forward plan, scratch, and evidence separate.
   - The open-source distribution story is self-hosting; the paid offer is hosted convenience, not a desktop-app paywall.
 
 landed_baseline:
@@ -68,15 +68,15 @@ landed_baseline:
 
 rejected_paths:
   - name: tray_optimizer_sprawl
-    reason: the old tray-based optimizer added machinery without preserving the current lean model
-  - name: metric_worship
-    reason: lattice-only fidelity can call visibly better outputs worse
-  - name: multi_stage_solver_religion
-    reason: stacked stages and compensators hide confusion instead of fixing the one-field model
+    reason: persistent per-cell trays do not belong in the current one-field solver model
+  - name: lattice_only_metric_selection
+    reason: lattice fidelity alone does not cover visible structure
+  - name: multi_stage_solver_stack
+    reason: sequential solver stages do not match the current one-field model
   - name: projected_edge_spectrum_prior
-    reason: the projected edge-energy spectral pass floor-hugged to 2px / 626-family aliases on the dense landscape fixture and did not justify its complexity
+    reason: projected edge-energy spectral sizing was unreliable on the dense landscape fixture
   - name: lattice_phase
-    reason: lattice phase controls and search were removed; the live solver starts from fixed centers and moves the position field directly
+    reason: the live solver starts from fixed centers and moves the position field directly
 
 current_status:
   summary: >
@@ -94,10 +94,8 @@ current_status:
     `GC_ACCESS_*` turns the seam on. The solver is shipping with a usable but
     not final tuned config: local search radius `0.215`, blend `0.24`, move
     weight `0.09`, grid alignment `4.75`, signal energy power `1.4`, and signal
-    peak power `3.25`, now aligned in `config/solver_params.json` and the docs.
-    The source hygiene audit removed stale solver-analysis wiring, old GUI event
-    names, fake cleanup prose, and outdated spec text while keeping diagnostic
-    edge analysis as an observer/GUI gauge. The tuning pass proved that wide
+    peak power `3.25`, aligned in `config/solver_params.json` and the docs.
+    Diagnostic edge analysis remains an observer/GUI gauge. The tuning pass proved that wide
     local-search windows caused neighbor feature poaching and that tighter radius
     plus stronger blend is the current motion-geometry basin. It did not fully
     retune signal knobs around that basin.

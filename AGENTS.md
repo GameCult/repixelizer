@@ -3,12 +3,11 @@
 ## Project Purpose
 
 Repixelizer is a standalone Python CLI for forcing fake pixel art onto a real
-pixel lattice without turning the solver into a landfill of compensating
-heuristics.
+pixel lattice with a lean, inspectable solver.
 
 The live machine is intentionally lean: infer a lattice, analyze structure,
 optimize one displacement field, sample real source pixels, then write
-diagnostics good enough to catch when we are lying to ourselves.
+diagnostics that make the result inspectable.
 
 ## Canonical State
 
@@ -118,8 +117,11 @@ When the user says to prepare for imminent compaction:
 - If the diff grows while understanding shrinks, stop implementation and switch
   to diagnosis, mapping, or simplification.
 - Keep prose and maps grounded in concrete source paths.
-- Do not reintroduce trays, portrait layers, candidate sets, or multi-stage
-  solver religions unless the design has actually changed and the map says so.
+- Keep trays, portrait layers, candidate sets, and multi-stage solver stacks out
+  of the code unless the design has changed and the map says so.
+- Keep documentation focused on the current machine. Avoid victory-lap prose
+  about removed approaches; put historical context only in evidence,
+  changelogs, or compact rejected-path notes when it changes future decisions.
 - Before handoff or compaction, sync `state/map.yaml`, refresh
   `notes/fresh-workspace-handoff.md`, add distilled evidence when future belief
   changed, and make the next action explicit.

@@ -34,7 +34,8 @@ These are the pieces that actually matter:
 - `disp = pos - uv0_px`: reported displacement field derived from live positions
 - `target_rgba`: final output grid after nearest-source sampling
 
-Everything else is support scaffolding.
+The remaining helpers load inputs, write diagnostics, or carry this state across
+the CLI, GUI, and comparison harness.
 
 ## Diagram
 
@@ -61,7 +62,7 @@ flowchart TD
 - one lattice relaxation pass to keep spacing coherent
 - honest final nearest-source sampling
 
-The current live solver is not projected Adam anymore. The old differentiable loss scaffolding has been removed; `optimize_phase_field(...)` is the explicit NumPy local-search path.
+`optimize_phase_field(...)` is the explicit NumPy local-search path.
 
 ## Stage 0: The pipeline chooses the ruler
 
@@ -148,13 +149,7 @@ The current signal path is intentionally simple:
 - invert it so low-gradient / low-curvature regions become attractive flatness
 - sharpen the flatness map with `phase_field_signal_peak_power`
 
-What no longer happens:
-
-- no boundary-context reward
-- no wall mask
-- no distance transform
-- no ring/context/self-penalty signal knobs
-- no lattice phase concept
+The live signal is the flatness map described above; diagnostic edge preview remains separate from solver steering.
 
 ### Metaphor
 
@@ -247,7 +242,7 @@ grid_alignment * phase_field_grid_alignment_weight
 - local_signal * phase_field_signal_weight
 ```
 
-This is feedback for the GUI and logs. It is not a differentiable Adam objective.
+This is feedback for the GUI and logs.
 
 ### Metaphor
 
@@ -268,7 +263,7 @@ After the loop:
 2. Index the original source RGBA.
 3. Report `final_disp = pos - uv0_px` and normalized `uv_field`.
 
-The emitted image is made of actual source pixels, not bilinear soup.
+The emitted image is made of actual source pixels.
 
 ### Metaphor
 
@@ -327,15 +322,7 @@ The important tuning lesson:
 
 ## Guardrails
 
-These categories of complexity should not come back casually:
-
-- lattice phase search or explicit lattice phase controls
-- per-cell candidate trays that persist across stages
-- extra source-derived reference rasters steering the field directly
-- multiple sequential solver religions with separate objectives
-- cleanup pretending to be the real reconstruction engine
-
-The point of this machine is still one ruler, one position field, one local signal, one lattice relaxation, and one final source sample.
+Future solver changes should preserve the current model unless the design map is updated first: one ruler, one position field, one local signal, one lattice relaxation, and one final source sample.
 
 ## Documentation boundaries
 
