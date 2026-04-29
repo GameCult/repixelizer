@@ -197,6 +197,8 @@ class AccessRuntimeConfig:
     auth_attempt_ttl_seconds: int = 600
     http_timeout_seconds: float = 10.0
     jwks_cache_seconds: int = 300
+    discord_access_guild_id: str | None = None
+    discord_access_role_ids: tuple[str, ...] = ()
 
     @property
     def enabled(self) -> bool:
@@ -460,6 +462,8 @@ class AccessController:
         heimdall_jwks_url = None
         app_public_base_url = None
         start_endpoint = None
+        discord_access_guild_id = None
+        discord_access_role_ids: tuple[str, ...] = ()
         login_url = _env_text("GC_ACCESS_LOGIN_URL")
         logout_url = _env_text("GC_ACCESS_LOGOUT_URL")
         verifier: HeimdallVerifier | None = None
@@ -498,6 +502,8 @@ class AccessController:
             login_url = login_url or "/"
             logout_url = logout_url or _AUTH_LOGOUT_PATH
             start_endpoint = _AUTH_START_PATH
+            discord_access_guild_id = _env_text("REPIXELIZER_ACCESS_DISCORD_GUILD_ID")
+            discord_access_role_ids = tuple(_parse_csv(_env_text("REPIXELIZER_ACCESS_DISCORD_ALLOWED_ROLE_IDS")))
             verifier = HeimdallVerifier(
                 issuer=heimdall_issuer,
                 app_slug=app_slug,
@@ -526,6 +532,8 @@ class AccessController:
             auth_attempt_ttl_seconds=attempt_ttl_seconds,
             http_timeout_seconds=timeout_seconds,
             jwks_cache_seconds=jwks_cache_seconds,
+            discord_access_guild_id=discord_access_guild_id,
+            discord_access_role_ids=discord_access_role_ids,
         )
         return cls(runtime, verifier=verifier)
 
@@ -610,6 +618,16 @@ class AccessController:
                 "callbackUrl": callback_url,
             },
         }
+        if (
+            provider_slug == "discord"
+            and self.runtime.discord_access_guild_id
+            and self.runtime.discord_access_role_ids
+        ):
+            request_payload["entitlementPolicy"] = {
+                "kind": "discord_role_access",
+                "guildId": self.runtime.discord_access_guild_id,
+                "allowedRoleIds": list(self.runtime.discord_access_role_ids),
+            }
         start_url = urljoin(f"{heimdall_base_url}/", _AUTH_START_ENDPOINT_TEMPLATE.format(provider=provider_slug).lstrip("/"))
         try:
             response_payload = _post_json(

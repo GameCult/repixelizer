@@ -426,6 +426,8 @@ def test_gui_hosted_root_renders_heimdall_login_buttons(monkeypatch, tmp_path: P
     monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
     monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
     monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_DISCORD_GUILD_ID", "gamecult-guild")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_DISCORD_ALLOWED_ROLE_IDS", "role-repixelizer,role-patreon")
 
     app = create_app()
     status, _headers, body = asyncio.run(_get_response(app, "/"))
@@ -752,6 +754,8 @@ def test_gui_heimdall_callback_flow_adopts_local_cookie_session(monkeypatch, tmp
     monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
     monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
     monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_DISCORD_GUILD_ID", "gamecult-guild")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_DISCORD_ALLOWED_ROLE_IDS", "role-repixelizer,role-patreon")
     monkeypatch.setattr("repixelizer.access._post_json", fake_post_json)
     monkeypatch.setattr("repixelizer.access._fetch_json", fake_fetch_json)
 
@@ -774,6 +778,11 @@ def test_gui_heimdall_callback_flow_adopts_local_cookie_session(monkeypatch, tmp
     assert start_calls
     assert start_calls[0][0] == "https://heimdall.gamecult.org/v1/oauth/discord/start"
     assert start_calls[0][1]["handoff"]["callbackUrl"] == "https://repixelizer.gamecult.org/api/auth/heimdall/callback"
+    assert start_calls[0][1]["entitlementPolicy"] == {
+        "kind": "discord_role_access",
+        "guildId": "gamecult-guild",
+        "allowedRoleIds": ["role-repixelizer", "role-patreon"],
+    }
 
     pending_status, _pending_headers, pending_body = asyncio.run(_get_response(app, f"/api/auth/attempts/{attempt_id}"))
     pending_payload = _response_json(type("Response", (), {"body": pending_body})())
