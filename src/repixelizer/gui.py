@@ -1012,8 +1012,7 @@ def create_app():
             elif path == "/api/jobs" and request.method.upper() == "POST":
                 subject = access_controller.require_request_capability(request, "queue_submit")
             elif path.startswith("/api/jobs/"):
-                capability = "job_cancel_own" if request.method.upper() == "DELETE" else "job_read_own"
-                subject = resolve_job_subject(capability)
+                subject = resolve_job_subject("app_access")
             elif path in {"/app", "/app/"}:
                 if access_controller.runtime.enabled and access_controller.runtime.required:
                     subject = access_controller.require_request_capability(request, "app_access")
@@ -1111,7 +1110,7 @@ def create_app():
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         try:
-            access_controller.require_current_job_access(job, "job_read_own")
+            access_controller.require_current_job_access(job, "app_access")
         except AccessDenied as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         payload = manager.get_job_state_payload(job_id)
@@ -1186,7 +1185,7 @@ def create_app():
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         try:
-            access_controller.require_current_job_access(job, "job_read_own")
+            access_controller.require_current_job_access(job, "app_access")
         except AccessDenied as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         payload = manager.heartbeat(job_id)
@@ -1199,7 +1198,7 @@ def create_app():
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         try:
-            access_controller.require_current_job_access(job, "job_cancel_own")
+            access_controller.require_current_job_access(job, "app_access")
         except AccessDenied as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
         payload = manager.cancel_job(job_id, "Canceled because the browser left or explicitly bailed.")
@@ -1212,7 +1211,7 @@ def create_app():
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         try:
-            access_controller.require_current_job_access(job, "job_read_own")
+            access_controller.require_current_job_access(job, "app_access")
         except AccessDenied as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

@@ -908,7 +908,7 @@ def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: P
         account_id="acct-1",
         session_id="sess-1",
         access_revision=4,
-        capabilities=frozenset({"queue_submit", "job_read_own", "job_cancel_own"}),
+        capabilities=frozenset({"app_access", "queue_submit"}),
         auth_mode="trusted-header",
     )
     with bind_access_subject(subject):
@@ -936,7 +936,7 @@ def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: P
         account_id="acct-2",
         session_id="sess-2",
         access_revision=8,
-        capabilities=frozenset({"job_read_own"}),
+        capabilities=frozenset({"app_access"}),
         auth_mode="trusted-header",
     )
     with bind_access_subject(intruder):
