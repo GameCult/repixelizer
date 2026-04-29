@@ -1,11 +1,11 @@
 project:
   name: Repixelizer
   status: active
-  phase: phase_field_stabilization
+  phase: hosted_shipping
   premise: >
-    Recover fake pixel art by inferring a real lattice and moving one
-    displacement field under one coherent objective instead of piling up
-    decorative solver machinery.
+    Recover fake pixel art by inferring a real lattice and moving one explicit
+    source-position field under a simple local flatness signal plus lattice
+    coherence, instead of piling up compensating solver machinery.
 
 objective:
   primary: >
@@ -13,76 +13,58 @@ objective:
     structure better than resize baselines on icons, emblems, logos, and simple
     sprites.
   current: >
-    Keep the phase-field pipeline lean and coherent while improving the tracked
-    sword-tip contour failure near tapered shapes without reviving optimizer
-    sprawl.
+    Ship the hosted experiment with the current usable explicit phase-field
+    solver so Repixelizer stops blocking Heimdall and StreamPixels, while
+    preserving clean state for later signal tuning.
 
 constraints:
-  - Prefer one field, one compact objective, and nearest-source final sampling.
+  - Prefer one chosen ruler, one live position field, one direct signal, and nearest-source final sampling.
   - Use visible structure and focused fixtures, not just lattice proxy metrics.
   - Keep compare mode, diagnostics, tuning, and GUI observer surfaces working.
-  - Avoid reviving trays, portrait layers, or multi-stage solver religions.
+  - Avoid reviving trays, portrait layers, lattice phase, or multi-stage solver religions.
   - Treat hosted convenience as the product path; do not prioritize native desktop packaging unless it clearly beats hosted access on revenue, support burden, or strategy.
 
 invariants:
   - The map is canonical and slow-changing.
   - Scratch is temporary and disposable.
   - Evidence is durable and distilled; routine activity logs belong in git history, diagnostics, benchmark artifacts, or commit messages.
-  - The live pipeline is `source -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
+  - The live pipeline is `source -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search plus lattice relaxation -> nearest source sample -> cleanup -> optional palette fit -> diagnostics`.
   - `phase-field` is the only live reconstruction engine.
-  - The final image is emitted by nearest-source sampling from `uv0_px + disp_t`, not by bilinear output sampling.
+  - The final image is emitted by nearest-source sampling from final source positions, not by bilinear output sampling.
   - If a change cannot be explained cleanly against `docs/lean-optimizer-algorithm-map.md`, it should not land.
   - Failed benchmark or regression fixes should be reverted before the next hypothesis.
   - Persistent state cruft is the same failure class as code cruft.
 
-data_flow:
-  observe:
-    - task request
-    - repository state
-    - focused fixtures and diagnostics
-    - algorithm map and implementation plan
-  process:
-    - rehydrate from canonical state
-    - choose one bounded hypothesis
-    - modify only the surface that deserves to exist
-    - verify visually and numerically
-    - distill belief-changing evidence
-    - commit or backtrack
-  cut:
-    - revert failed code hypotheses immediately
-    - reject proxy-only wins when the image got worse
-    - trim duplicate or stale persistent notes instead of preserving them as fake continuity
-
 active_subgoals:
-  - Fix the tracked sword-tip contour widening without sacrificing the current internal linework win.
-  - Improve along-stroke versus across-stroke behavior near tapered contours in a way that still fits the one-field optimizer model.
+  - Ship the hosted experiment so Repixelizer unblocks Heimdall and StreamPixels.
+  - Keep the current usable solver config stable unless launch exposes a blocking quality regression.
   - Keep inference, compare mode, diagnostics, tuning, and GUI observer events working after solver changes.
   - Preserve `source_structure` as a real objective signal instead of over-trusting lattice-only fidelity.
   - Keep Heimdall-backed hosted auth isolated to the web layer so future provider or session work does not contaminate self-host or solver code.
 
 accepted_design:
   - `phase-field` in `src/repixelizer/phase_field.py` is the only live reconstruction engine.
-  - The working pipeline is `source image -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`.
+  - The working pipeline is `source image -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search plus lattice relaxation -> nearest source sample -> cleanup -> optional palette fitting -> diagnostics`.
   - `src/repixelizer/pipeline.py` owns orchestration and candidate rerank selection.
-  - `src/repixelizer/analysis.py` provides the normalized edge scout used for loss and cleanup guidance.
-  - `src/repixelizer/phase_field.py` owns the one honest optimization variable: `disp_t`.
-  - Hosted demo jobs now use a direct autocorr lattice path: one consensus size, capped by the hosted output limit, with candidate rerank disabled.
+  - `src/repixelizer/analysis.py` provides the normalized diagnostic edge preview used by observer/GUI/diagnostic paths; it does not steer the solver.
+  - `src/repixelizer/phase_field.py` owns the live source-position field: initialize from fixed centers, choose local preferred positions from a 5x5 candidate window, blend toward them, relax lattice springs, then nearest-sample the source.
+  - Hosted demo inference uses autocorr lattice candidates, capped by the hosted output limit, with low-confidence preview rerank available.
   - Hosted mode owns the public front door in `src/repixelizer/gui.py`: `/` is a landing page there, while local/self-host runs keep root as a plain redirect to `/app/`.
-  - `src/repixelizer/access.py` now owns the hosted access seam: trusted-header ingress still works, `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally, and auth attempts are adopted into local httpOnly cookie sessions.
-  - The optimizer starts from fixed lattice centers, uses a wider displacement budget than the earlier tighter leash, optimizes displacement with projected Adam, then rounds to real source pixels for final output.
+  - `src/repixelizer/access.py` owns the hosted access seam: trusted-header ingress still works, `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally, and auth attempts are adopted into local httpOnly cookie sessions.
+  - The solver starts from fixed lattice centers, adds tiny seeded noise, follows a direct hierarchical flatness signal, enforces local lattice coherence through spring relaxation, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` is useful but incomplete; `source_structure` exists because visible structure can improve while lattice-only scoring complains.
-  - The tracked badge fixture and sword-tip focus are the current reality check for solver changes.
+  - Character glint/symbol cases, artificial focused cases, and the badge fixture remain useful reality checks for later solver tuning.
   - The algorithm map and forward plan must stay separate from scratch and evidence so the notes do not congeal into one giant lying blob.
   - The open-source distribution story is self-hosting; the paid offer is hosted convenience, not a desktop-app paywall.
 
 landed_baseline:
-  - Lattice inference with fixed or searched target dimensions and optional low-confidence candidate rerank.
-  - Hosted demo inference uses a direct autocorr size pick instead of multi-size search, and it no longer silently pins unspecified jobs to `max_output_dimension`.
-  - Edge analysis plus one displacement-field optimizer with projected constraints.
+  - Lattice inference with fixed target dimensions or autocorr target candidates.
+  - Hosted demo inference uses capped autocorr candidates and allows low-confidence preview rerank.
+  - Diagnostic edge preview plus one explicit source-position solver with local search and lattice spring relaxation.
   - Compare mode, diagnostics writing, tuning, and GUI observer plumbing all working on the phase-field path.
   - `source_structure` reporting alongside `source_fidelity`.
-  - Focus fixture `tests/fixtures/real/ai-badge-tip-focus.json` for the tracked tapered-contour blemish.
+  - Hosted landing page and Heimdall auth seam in the web layer.
 
 rejected_paths:
   - name: tray_optimizer_sprawl
@@ -93,7 +75,35 @@ rejected_paths:
     reason: stacked stages and compensators hide confusion instead of fixing the one-field model
   - name: projected_edge_spectrum_prior
     reason: the projected edge-energy spectral pass floor-hugged to 2px / 626-family aliases on the dense landscape fixture and did not justify its complexity
+  - name: lattice_phase
+    reason: lattice phase controls and search were removed; the live solver starts from fixed centers and moves the position field directly
 
 current_status:
-  summary: The repo has one live reconstruction engine, `phase-field`, wired through the main pipeline with lattice inference, edge analysis, projected displacement optimization, cleanup, optional palette fitting, diagnostics, compare mode, tuning, and GUI observer events. The searched lattice path now trusts autocorrelation only; it keeps a tiny near-best lag plateau and uses cross-axis consensus before collapsing to one lattice family. The hosted demo path now skips multi-size lattice search and candidate rerank entirely, taking one direct autocorr-consensus size and respecting the hosted output cap instead of silently pinning unspecified jobs to that cap. Hosted web access is now auth-landed without smearing into the solver: `src/repixelizer/access.py` verifies Heimdall Ed25519 access tokens locally, tracks auth attempts, and adopts local cookie sessions, while `src/repixelizer/gui.py` owns provider-start routes, direct backend callback receipt, the hosted landing-page login buttons, route guards, and queue/job ownership checks. Self-host remains permissive by default unless `GC_ACCESS_*` turns the seam on. The spectral prior experiment was removed after it floor-hugged to 2px / 626-family aliases on the dense landscape fixture, and the old change-interval / pixel-walk sizing path was cut after it kept pruning the badge away from the `126` family. The solver now has a wider displacement budget so moderate starting-grid error can be recovered by the field instead of requiring as much candidate-rerank ceremony. `source_structure` now rides alongside `source_fidelity` because lattice-only scoring was lying about visible quality. The tracked weakness is still the widened dark contour near the badge sword tip on tapered shapes.
-  next_action: Resume manual tuning from `state/scratch.md`. Do not edit `config/solver_params.json` yet. Full-corpus validation picked `phase_field_local_search_radius_ratio=0.60` and `phase_field_local_search_blend=0.07`, but the regression guard found `0.50/0.07` and `0.55/0.05` may reduce known crisp-case regressions. Next run should full-validate those tighter/slower candidates against baseline before shipping params.
+  summary: >
+    The repo has one live reconstruction engine, `phase-field`, wired through
+    lattice inference, diagnostic edge preview, explicit local-search reconstruction,
+    cleanup, optional palette fitting, diagnostics, compare mode, tuning, and
+    GUI observer events. Automatic lattice inference uses autocorr candidates;
+    low-confidence autocorr candidates can be preview-reranked. Hosted web
+    access is auth-landed without smearing into the
+    solver: `src/repixelizer/access.py` verifies Heimdall Ed25519 access tokens
+    locally, tracks auth attempts, and adopts local cookie sessions, while
+    `src/repixelizer/gui.py` owns provider-start routes, direct backend callback
+    receipt, hosted landing-page login buttons, route guards, and queue/job
+    ownership checks. Self-host remains permissive by default unless
+    `GC_ACCESS_*` turns the seam on. The solver is shipping with a usable but
+    not final tuned config: local search radius `0.215`, blend `0.24`, move
+    weight `0.09`, grid alignment `4.75`, signal energy power `1.4`, and signal
+    peak power `3.25`, now aligned in `config/solver_params.json` and the docs.
+    The source hygiene audit removed stale solver-analysis wiring, old GUI event
+    names, fake cleanup prose, and outdated spec text while keeping diagnostic
+    edge analysis as an observer/GUI gauge. The tuning pass proved that wide
+    local-search windows caused neighbor feature poaching and that tighter radius
+    plus stronger blend is the current motion-geometry basin. It did not fully
+    retune signal knobs around that basin.
+  next_action: >
+    Ship the hosted experiment with the current usable solver config so
+    Repixelizer stops blocking Heimdall and StreamPixels. Later tuning should
+    start from `docs/solver-tuning-lessons-2026-04-29.md`: sweep signal knobs
+    around `radius=0.215, blend=0.24` first, then movement/coherence knobs, then
+    combinations, and only then run final full-corpus validation.

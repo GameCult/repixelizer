@@ -65,8 +65,8 @@ const eventTypes = [
     "stage_started",
     "source_loaded",
     "preprocess_completed",
-    "lattice_search_started",
-    "lattice_search_progress",
+    "lattice_inference_started",
+    "lattice_inference_progress",
     "inference_candidates_ready",
     "candidate_rerank_started",
     "candidate_rerank_candidate_started",
@@ -92,7 +92,7 @@ const state = {
     sourceImage: null,
     preprocessedImage: null,
     latticeImage: null,
-    guidanceImage: null,
+    signalImage: null,
     inference: null,
     inferenceMode: null,
     latticeSearch: null,
@@ -311,7 +311,7 @@ function applyRuntimeConfig(config) {
     }
     else {
         inputCopy.textContent = "Start with the ugly input.";
-        runControlsCopy.textContent = "Pin what you know. Search what you do not.";
+        runControlsCopy.textContent = "Pin what you know. Infer what you do not.";
     }
 }
 function resetRunArtifacts(options = {}) {
@@ -322,7 +322,7 @@ function resetRunArtifacts(options = {}) {
     }
     state.preprocessedImage = null;
     state.latticeImage = null;
-    state.guidanceImage = null;
+    state.signalImage = null;
     state.inference = null;
     state.inferenceMode = null;
     state.latticeSearch = null;
@@ -623,13 +623,13 @@ function resolveViewerPanels() {
             leftAsset = state.latticeImage;
             leftLabel = "Lattice Prep";
         }
-        if (state.guidanceImage) {
-            leftAsset = state.guidanceImage;
-            leftLabel = "Guidance";
+        if (state.signalImage) {
+            leftAsset = state.signalImage;
+            leftLabel = "Signal";
         }
         if (frame) {
-            if (state.stageKey === "solver" && state.guidanceImage) {
-                leftAsset = state.guidanceImage;
+            if (state.stageKey === "solver" && state.signalImage) {
+                leftAsset = state.signalImage;
                 rightAsset = frame.samplingOverlayImage;
                 leftLabel = "Signal";
                 rightLabel = "Sampling Overlay";
@@ -1302,7 +1302,7 @@ async function handleEvent(eventName, payload) {
             state.preprocessedImage = payload.sourceImage;
             addLog("Preprocess", "Stripped edge-connected background noise.");
             break;
-        case "lattice_search_started":
+        case "lattice_inference_started":
             state.latticeSearch = {
                 candidateCount: Number(payload.candidateCount ?? 0),
                 completedCandidates: 0,
@@ -1311,10 +1311,10 @@ async function handleEvent(eventName, payload) {
                 currentTargetHeight: null,
                 bestScore: null,
             };
-            setStage("inference", "Lattice search", `Testing ${state.latticeSearch.candidateCount} candidate sizes from canonical cell centers.`);
-            addLog("Search", `Started lattice search across ${String(payload.candidateCount)} size candidates.`);
+            setStage("inference", "Autocorr lattice", `Testing ${state.latticeSearch.candidateCount} autocorr candidate sizes from canonical cell centers.`);
+            addLog("Inference", `Started autocorr lattice inference across ${String(payload.candidateCount)} size candidates.`);
             break;
-        case "lattice_search_progress":
+        case "lattice_inference_progress":
             if (!state.latticeSearch) {
                 state.latticeSearch = {
                     candidateCount: Number(payload.totalCandidates ?? 0),
@@ -1331,7 +1331,7 @@ async function handleEvent(eventName, payload) {
             state.latticeSearch.currentTargetHeight = Number(payload.targetHeight ?? 0);
             state.latticeSearch.bestScore =
                 payload.bestScore === null || payload.bestScore === undefined ? state.latticeSearch.bestScore : Number(payload.bestScore);
-            setStage("inference", "Lattice search", `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} from canonical cell centers.`);
+            setStage("inference", "Autocorr lattice", `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} from canonical cell centers.`);
             break;
         case "inference_candidates_ready":
             state.inference = payload.inference;
@@ -1398,11 +1398,11 @@ async function handleEvent(eventName, payload) {
             addLog("Selection", "Committed to a lattice size.");
             break;
         case "analysis_completed":
-            addLog("Scout", "Built the edge map that tells the solver where the floorboards creak.");
+            addLog("Analysis", "Rendered the diagnostic edge preview.");
             break;
         case "phase_field_prepared":
             state.latticeImage = payload.latticeImage;
-            state.guidanceImage = payload.guidanceImage;
+            state.signalImage = payload.signalImage;
             state.phaseFieldPrep = {
                 targetWidth: Number(payload.targetWidth ?? 0),
                 targetHeight: Number(payload.targetHeight ?? 0),
@@ -1435,8 +1435,8 @@ async function handleEvent(eventName, payload) {
         case "cleanup_completed":
             state.cleanupImage = payload.cleanedImage;
             state.heatmapImage = payload.heatmapImage;
-            setStage("cleanup", "Cleanup", "Sweeping isolated artifacts and smoothing the last stubborn junk.");
-            addLog("Cleanup", "Ran the local cleanup sweep.");
+            setStage("cleanup", "Cleanup", "Snapping alpha to the final discrete mask.");
+            addLog("Cleanup", "Applied alpha snapping.");
             break;
         case "palette_completed":
             state.finalOutputImage = payload.outputImage;

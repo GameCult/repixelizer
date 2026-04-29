@@ -499,7 +499,7 @@ def test_gui_local_root_keeps_redirect_to_app(monkeypatch, tmp_path: Path) -> No
     assert headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
 
-def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
+def test_infer_autocorr_lattice_emits_candidate_progress_events(monkeypatch) -> None:
     class _FakeCuda:
         @staticmethod
         def is_available() -> bool:
@@ -524,8 +524,8 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
     monkeypatch.setattr(inference_module, "_estimate_lattice_prior_details", lambda rgba: (4.0, 4.0, 0.5))
     monkeypatch.setattr(
         inference_module,
-        "_candidate_dims",
-        lambda width, height, target_size, *, hinted_sizes=None: [(10, 8), (12, 10)],
+        "_candidate_dims_from_autocorr_hints",
+        lambda *args, **kwargs: [(10, 8), (12, 10)],
     )
 
     def fake_score_size_candidate(
@@ -561,13 +561,13 @@ def test_infer_lattice_emits_search_progress_events(monkeypatch) -> None:
     def observer(event: str, payload: dict[str, object]) -> None:
         events.append((event, payload))
 
-    result = inference_module.infer_lattice(np.zeros((16, 20, 4), dtype=np.uint8), observer=observer)
+    result = inference_module.infer_autocorr_lattice(np.zeros((16, 20, 4), dtype=np.uint8), observer=observer)
 
     assert result.target_width == 12
     assert [event for event, _payload in events] == [
-        "lattice_search_started",
-        "lattice_search_progress",
-        "lattice_search_progress",
+        "lattice_inference_started",
+        "lattice_inference_progress",
+        "lattice_inference_progress",
     ]
     assert events[0][1]["candidate_count"] == 2
     assert events[1][1]["completed_candidates"] == 1
@@ -597,7 +597,7 @@ def test_candidate_rerank_emits_candidate_progress_events(monkeypatch) -> None:
         artifacts = SolverArtifacts(
             target_rgba=target_rgba,
             uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
-            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            signal_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
             initial_rgba=target_rgba.copy(),
             loss_history=[0.25, 0.125],
         )
@@ -622,7 +622,6 @@ def test_candidate_rerank_emits_candidate_progress_events(monkeypatch) -> None:
     pipeline_module._select_candidate_with_reconstruction(
         np.zeros((16, 16, 4), dtype=np.uint8),
         inference,
-        analysis=analysis,
         steps=2,
         seed=1,
         device="cpu",
@@ -831,7 +830,7 @@ def test_gui_heimdall_callback_flow_adopts_local_cookie_session(monkeypatch, tmp
     assert app_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
 
-def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:
+def test_hosted_job_options_use_autocorr_and_allow_rerank() -> None:
     from repixelizer.gui import HostedDemoConfig, _normalize_job_options
 
     config = HostedDemoConfig(
@@ -866,7 +865,7 @@ def test_hosted_job_options_use_direct_autocorr_and_skip_rerank() -> None:
     assert options["target_size"] is None
     assert options["lattice_inference_mode"] == "autocorr"
     assert options["max_inferred_target_size"] == 256
-    assert options["skip_candidate_rerank"] is True
+    assert options["skip_candidate_rerank"] is False
 
 
 def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: Path) -> None:
@@ -1042,7 +1041,7 @@ def test_gui_hosted_jobs_dispatch_direct_autocorr_pipeline(monkeypatch, tmp_path
     assert calls
     assert calls[0]["lattice_inference_mode"] == "autocorr"
     assert calls[0]["max_inferred_target_size"] == 256
-    assert calls[0]["enable_candidate_rerank"] is False
+    assert calls[0]["enable_candidate_rerank"] is True
     assert calls[0]["target_size"] is None
 
 

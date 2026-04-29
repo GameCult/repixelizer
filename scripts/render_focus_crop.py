@@ -6,8 +6,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from repixelizer.analysis import analyze_phase_field_source
-from repixelizer.inference import infer_lattice
+from repixelizer.inference import infer_autocorr_lattice
 from repixelizer.io import load_rgba
 from repixelizer.metrics import source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
@@ -77,12 +76,10 @@ def _build_focus_states(
     device: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[float, float], dict[str, dict[str, float]]]:
     source = load_rgba(input_path)
-    inference = infer_lattice(source, device=device)
-    analysis = analyze_phase_field_source(source, seed=7, device=device)
+    inference = infer_autocorr_lattice(source, device=device)
     artifacts = optimize_phase_field(
         source,
         inference=inference,
-        analysis=analysis,
         steps=steps,
         seed=7,
         device=device,

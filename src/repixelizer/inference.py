@@ -40,95 +40,17 @@ def _resolve_device(torch, requested: str) -> str:
     return requested
 
 
-def _candidate_dims(
-    width: int,
-    height: int,
-    target_size: int | None,
-    *,
-    hinted_sizes: list[int] | None = None,
-) -> list[tuple[int, int]]:
-    if target_size is not None:
-        if width >= height:
-            return [(target_size, max(1, round(height * target_size / width)))]
-        return [(max(1, round(width * target_size / height)), target_size)]
-    max_dim = max(width, height)
-    min_size = max(12, int(round(max_dim / 48)))
-    capped_max_size = min(256, max(24, int(round(max_dim / 2.5))))
-    step = 2 if capped_max_size <= 96 else 4
-    size_values = set(range(min_size, capped_max_size + 1, step))
-    if hinted_sizes:
-        for hinted_size in hinted_sizes:
-            for delta in range(-2, 3):
-                candidate = int(hinted_size) + delta
-                if min_size <= candidate <= max_dim:
-                    size_values.add(candidate)
-    dims: list[tuple[int, int]] = []
-    for size in sorted(size_values):
-        if width >= height:
-            dims.append((size, max(1, round(height * size / width))))
-        else:
-            dims.append((max(1, round(width * size / height)), size))
-    return dims
 
 
 def _target_dims_from_major_size(width: int, height: int, target_size: int) -> tuple[int, int]:
-    return _candidate_dims(width, height, int(target_size))[0]
+    major_size = max(1, int(target_size))
+    if width >= height:
+        return major_size, max(1, round(height * major_size / width))
+    return max(1, round(width * major_size / height)), major_size
 
 
-def _autocorr_size_window(
-    hinted_sizes: list[int],
-    *,
-    prior_reliability: float,
-) -> tuple[int, int] | None:
-    if not hinted_sizes:
-        return None
-    center = int(round(float(np.median(np.asarray(hinted_sizes, dtype=np.float32)))))
-    spread = max(abs(int(size) - center) for size in hinted_sizes)
-    if spread > max(8, center // 2) and prior_reliability < 0.55:
-        return None
-    center_support = hinted_sizes.count(center)
-    support_ratio = center_support / max(1, len(hinted_sizes))
-    nearest_other = min((abs(int(size) - center) for size in hinted_sizes if int(size) != center), default=0)
-    if spread == 0:
-        radius = 0 if prior_reliability >= 0.82 else 1
-    elif support_ratio >= 0.5 and prior_reliability >= 0.82:
-        radius = 1 if nearest_other <= 2 else 2
-    elif spread <= 2 and prior_reliability >= 0.72:
-        radius = 1
-    elif spread <= 4 and prior_reliability >= 0.55:
-        radius = 2
-    else:
-        radius = max(3, min(12, spread + 2))
-    return center, radius
 
 
-def _resolve_candidate_dims_from_autocorr(
-    width: int,
-    height: int,
-    target_size: int | None,
-    *,
-    hinted_sizes: list[int],
-    prior_reliability: float,
-) -> list[tuple[int, int]]:
-    dims = _candidate_dims(width, height, target_size, hinted_sizes=hinted_sizes)
-    size_window = _autocorr_size_window(
-        hinted_sizes,
-        prior_reliability=prior_reliability,
-    )
-    if size_window is None:
-        if target_size is None and hinted_sizes:
-            hinted_dims = _candidate_dims_from_autocorr_hints(
-                width,
-                height,
-                hinted_sizes=hinted_sizes,
-            )
-            if hinted_dims:
-                return hinted_dims
-        return dims
-    center, radius = size_window
-    size_index = 0 if width >= height else 1
-    narrowed = [dim for dim in dims if abs(dim[size_index] - center) <= radius]
-    return narrowed or dims
 
 
 def _candidate_dims_from_autocorr_hints(
@@ -184,10 +106,6 @@ def _estimate_cell_size_details(profile: np.ndarray) -> AutocorrEstimate:
         candidate_lags=tuple(float(lag) for lag in lags.tolist()),
         candidate_scores=tuple(float(score) for score in scores),
     )
-
-
-def _estimate_cell_size(profile: np.ndarray) -> float:
-    return _estimate_cell_size_details(profile).best_lag
 
 
 def _edge_profiles(rgba: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -553,77 +471,6 @@ def _score_size_candidate(
     return candidates
 
 
-def infer_lattice(
-    rgba: np.ndarray,
-    target_size: int | None = None,
-    device: str = "auto",
-    observer: PipelineObserver | None = None,
-) -> InferenceResult:
-    torch, _ = _require_torch()
-    resolved_device = _resolve_device(torch, device)
-    height, width = rgba.shape[:2]
-    autocorr_x_estimate, autocorr_y_estimate = _estimate_lattice_autocorr_details(rgba)
-    prior_cell_x, prior_cell_y, prior_reliability = _estimate_lattice_prior_details(
-        rgba,
-    )
-    hinted_sizes = _hint_target_sizes_from_autocorr(
-        width,
-        height,
-        autocorr_x_estimate=autocorr_x_estimate,
-        autocorr_y_estimate=autocorr_y_estimate,
-        shared_prior=prior_cell_x,
-    )
-    candidate_dims = _resolve_candidate_dims_from_autocorr(
-        width,
-        height,
-        target_size,
-        hinted_sizes=hinted_sizes,
-        prior_reliability=prior_reliability,
-    )
-
-    emit_observer(
-        observer,
-        "lattice_search_started",
-        candidate_count=len(candidate_dims),
-        device=resolved_device,
-    )
-
-    candidates: list[InferenceCandidate] = []
-    for candidate_index, (target_width, target_height) in enumerate(candidate_dims, start=1):
-        check_observer_cancelled(observer)
-        scored_group = _score_size_candidate(
-            rgba,
-            target_width=target_width,
-            target_height=target_height,
-            prior_cell_x=prior_cell_x,
-            prior_cell_y=prior_cell_y,
-            prior_reliability=prior_reliability,
-            device=resolved_device,
-        )
-        candidates.extend(scored_group)
-        emit_observer(
-            observer,
-            "lattice_search_progress",
-            completed_candidates=candidate_index,
-            total_candidates=len(candidate_dims),
-            target_width=int(target_width),
-            target_height=int(target_height),
-            best_score=None if not scored_group else float(max(candidate.score for candidate in scored_group)),
-        )
-
-    candidates.sort(key=lambda item: item.score, reverse=True)
-    size_candidates = _top_candidates_by_size(candidates, limit=len(candidates))
-    reranked_candidates = _rerank_size_candidates_with_source_evidence(rgba, size_candidates)
-    best = reranked_candidates[0]
-    second = reranked_candidates[1] if len(reranked_candidates) > 1 else best
-    confidence = max(0.0, best.score - second.score)
-    top_candidates = reranked_candidates[:8]
-    return InferenceResult(
-        target_width=best.target_width,
-        target_height=best.target_height,
-        confidence=confidence,
-        top_candidates=top_candidates,
-    )
 
 
 def infer_autocorr_lattice(
@@ -654,7 +501,7 @@ def infer_autocorr_lattice(
 
     emit_observer(
         observer,
-        "lattice_search_started",
+        "lattice_inference_started",
         candidate_count=len(candidate_dims),
         device=resolved_device,
     )
@@ -674,7 +521,7 @@ def infer_autocorr_lattice(
         candidates.extend(scored_group)
         emit_observer(
             observer,
-            "lattice_search_progress",
+            "lattice_inference_progress",
             completed_candidates=candidate_index,
             total_candidates=len(candidate_dims),
             target_width=int(target_width),

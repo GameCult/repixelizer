@@ -103,9 +103,9 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
             low=0.05,
             high=0.80,
         ),
-        phase_field_signal_boundary_weight=_mutate_positive(
+        phase_field_signal_gradient_weight=_mutate_positive(
             rng,
-            base.phase_field_signal_boundary_weight,
+            base.phase_field_signal_gradient_weight,
             scale=scale,
             low=0.20,
             high=2.50,
@@ -117,16 +117,17 @@ def _mutate_params(base: SolverHyperParams, rng: np.random.Generator, scale: flo
             low=0.10,
             high=2.00,
         ),
-        phase_field_signal_self_penalty=_mutate_positive(
+        phase_field_signal_level_decay=_mutate_linear(
             rng,
-            base.phase_field_signal_self_penalty,
+            base.phase_field_signal_level_decay,
             scale=scale,
-            low=1.00,
-            high=8.00,
+            sigma=0.15,
+            low=0.0,
+            high=1.0,
         ),
-        phase_field_signal_context_power=_mutate_positive(
+        phase_field_signal_energy_power=_mutate_positive(
             rng,
-            base.phase_field_signal_context_power,
+            base.phase_field_signal_energy_power,
             scale=scale,
             low=0.25,
             high=2.00,
@@ -174,6 +175,7 @@ def tune_solver_hyperparams(
     infer_size: bool = False,
     include_cases: list[str] | None = None,
     limit_cases: int | None = None,
+    workers: int = 1,
 ) -> dict[str, Any]:
     if trials < 1:
         raise ValueError("trials must be at least 1")
@@ -216,6 +218,7 @@ def tune_solver_hyperparams(
             limit_cases=effective_limit,
             keep_existing=False,
             solver_params=candidate,
+            workers=workers,
         )
         score_info = _score_summary(summary)
         improved = score_info["score"] < best_score
@@ -248,6 +251,7 @@ def tune_solver_hyperparams(
         limit_cases=effective_limit,
         keep_existing=False,
         solver_params=best_params,
+        workers=workers,
     )
     final_score = _score_summary(final_summary)
 
@@ -265,6 +269,7 @@ def tune_solver_hyperparams(
         "infer_size": infer_size,
         "include_cases": include_cases or [],
         "limit_cases_effective": effective_limit,
+        "workers": workers,
         "objective": "0.20 * error_ratio_to_naive + 0.45 * adjacency_ratio_to_naive + 0.35 * motif_ratio_to_naive; lower is better",
         "mutation_scope": "explicit solver only: signal, local search, and lattice spring parameters",
         "trial_results": trials_payload,

@@ -2,9 +2,11 @@
 
 ## What this file is
 
-This is a map of the live `phase-field` machine in the repo right now.
+This is the source-grounded map of the live `phase-field` reconstruction machine.
 
-`source image -> lattice inference -> edge scout -> fixed lattice centers -> projected displacement-field optimization -> nearest source sample -> cleanup / diagnostics`
+The current spine is:
+
+`source image -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search + lattice relaxation -> nearest source sample -> cleanup / diagnostics`
 
 The relevant source lives in:
 
@@ -18,18 +20,19 @@ The relevant source lives in:
 
 ## One-sentence machine
 
-The solver nails a regular grid over the source, gives every output cell a tiny `(dx, dy)` shove vector, nudges those shoves until the cells settle into quieter paint while staying in order, then samples the source once and goes home.
+The solver lays a regular grid over the source, lets each cell look in a small local window for the flattest nearby source position, blends toward that local preference, relaxes the lattice back toward coherent spacing, then samples real source pixels once and goes home.
 
 ## Core state
 
 These are the pieces that actually matter:
 
-- `inference`: chosen lattice width, height, confidence, and optional top candidates
-- `edge_map`: one normalized scout map of where the source image has strong luminance/alpha changes
-- `uv0_px`: the fixed source-space center for each output cell before any optimization
-- `disp_t`: the live displacement field, one `(dx, dy)` vector per output cell
-- `pos_px = uv0_px + disp_t`: the current sample positions in source pixel space
-- `target_rgba`: the final output grid after nearest-source sampling
+- `InferenceResult`: chosen lattice width, height, confidence, and optional top candidates
+- `edge_map`: normalized luminance/alpha diagnostic preview from `analysis.py`
+- `uv0_px`: fixed source-space center for each output cell before movement
+- `signal_map`: hierarchical flatness map built in `phase_field.py`
+- `pos`: live source-space sample positions, initialized from `uv0_px`
+- `disp = pos - uv0_px`: reported displacement field derived from live positions
+- `target_rgba`: final output grid after nearest-source sampling
 
 Everything else is support scaffolding.
 
@@ -37,26 +40,28 @@ Everything else is support scaffolding.
 
 ```mermaid
 flowchart TD
-    A["Source RGBA"] --> B["Stage 0: Lattice inference<br/>pipeline.py + inference.py"]
-    B --> C["Stage 1: Edge scout<br/>analysis.py"]
-    C --> D["Stage 2: Phase-field prep<br/>phase_field._prepare_phase_field"]
-    D --> E["uv0_px (fixed centers)<br/>disp_t = 0"]
-    E --> F["Stage 3-5: Optimization loop<br/>sample patch -> compute loss -> Adam step -> project"]
-    F -->|repeat for steps| F
-    F --> G["Stage 6: Final nearest source sample<br/>target_rgba"]
-    G --> H["Stage 7: Cleanup / palette / diagnostics<br/>pipeline.py"]
-    H --> I["Output image + comparison + run.json"]
+    A["Source RGBA"] --> B["Stage 0: Lattice inference"]
+    B --> C["Stage 1: Diagnostic edge preview"]
+    C --> D["Stage 2: Prep fixed centers + signal"]
+    D --> E["uv0_px fixed centers<br/>pos = uv0_px + tiny seed noise"]
+    E --> F["Stage 3: Local candidate search<br/>25 nearby positions per cell"]
+    F --> G["Stage 4: Blend toward preferred positions"]
+    G --> H["Stage 5: Lattice spring relaxation"]
+    H -->|repeat for solver steps| F
+    H --> I["Stage 6: Final nearest source sample"]
+    I --> J["Stage 7: Cleanup / palette / diagnostics"]
 ```
 
-## How to read this machine
+## Stable core
 
-The machine has one honest variable: the displacement field.
+- one chosen ruler after inference
+- one live position field
+- one direct hierarchical flatness signal
+- one local candidate choice per cell per step
+- one lattice relaxation pass to keep spacing coherent
+- honest final nearest-source sampling
 
-- `uv0_px` is fixed after inference
-- `disp_t` is optimized
-- the final image comes from rounding `uv0_px + disp_t` to real source pixels
-
-That means the solver is not maintaining alternate per-cell candidate sets or separate reference images during optimization. It is one field moving under one loss, with projection after each step to stop it from folding into paste.
+The current live solver is not projected Adam anymore. The old differentiable loss scaffolding has been removed; `optimize_phase_field(...)` is the explicit NumPy local-search path.
 
 ## Stage 0: The pipeline chooses the ruler
 
@@ -64,61 +69,44 @@ That means the solver is not maintaining alternate per-cell candidate sets or se
 
 - `run_pipeline(...)` in `src/repixelizer/pipeline.py`
 - `_resolve_requested_target_dims(...)` in `src/repixelizer/pipeline.py`
-- `infer_lattice(...)` and `infer_fixed_lattice(...)` in `src/repixelizer/inference.py`
+- `infer_fixed_lattice(...)` and `infer_autocorr_lattice(...)` in `src/repixelizer/inference.py`
 - `_select_candidate_with_reconstruction(...)` in `src/repixelizer/pipeline.py`
 
 ### Inputs
 
 - source RGBA image
 - optional pinned target size / width / height
-- optional `--skip-candidate-rerank`
+- optional candidate rerank for low-confidence autocorr candidates
 
 ### Outputs
 
 - `InferenceResult`
   - `target_width`
   - `target_height`
-    - `confidence`
+  - `confidence`
   - `top_candidates`
 
 ### What the source actually does
 
-The pipeline first decides whether the lattice is:
+The pipeline decides whether the lattice is:
 
-- fixed explicitly by the caller, using `infer_fixed_lattice(...)`, or
-- inferred directly from autocorr consensus, using `infer_autocorr_lattice(...)`, or
-- searched automatically by `infer_lattice(...)`
+- fixed explicitly by the caller, using `infer_fixed_lattice(...)`
+- inferred from autocorr consensus, using `infer_autocorr_lattice(...)`
 
-The two automatic paths split like this:
+The automatic path estimates rough cell spacing from source edge-profile autocorrelation, keeps a tiny near-best lag plateau long enough to find cross-axis consensus, then surfaces multiple candidate lattice sizes.
 
-- both paths estimate rough cell spacing from source edge-profile autocorrelation
-- both paths keep a tiny near-best lag plateau long enough to find cross-axis consensus instead of collapsing instantly to one lag
-- `infer_autocorr_lattice(...)` takes one consensus size, scores the canonical center-grid size check, and stops there
-- `infer_lattice(...)` still builds a small candidate size family, scores the canonical center-grid size check for each size, and keeps the best candidate plus top alternates
-
-After that, candidate rerank may still happen, but only for `phase-field`, only when confidence is low, and only when rerank is enabled. The rerank probe is a short preview solve. It calls `_run_reconstruction(...)` with a small bounded step count, capped by both the requested solver steps and `candidate_rerank_preview_steps`.
-
-That part matters. The pipeline is effectively asking:
-
-`before the field starts wiggling, which lattice already looks most plausible?`
+Low-confidence autocorr candidates can still be reranked through a short preview solve. There is no separate searched-inference path in the live pipeline.
 
 ### Metaphor
 
-This is the survey crew laying down the ruler and arguing about where the graph paper should go.
+This is the survey crew laying graph paper over the mural. Autocorr proposes a small pile of plausible rulers; the preview reranker may make them argue before the workers show up.
 
-If the user pinned the lattice, the argument is over. If the hosted path is active, the crew makes one fast autocorr-backed call and moves on. If not, the crew drags the ruler around, checks a small pile of plausible alignments, and picks the one that seems most plausible before the real workers show up.
-
-## Stage 1: The edge scout builds a danger map
+## Stage 1: The diagnostic edge preview builds a gauge
 
 ### Source
 
 - `analyze_phase_field_source(...)` in `src/repixelizer/analysis.py`
 - `_compute_edge_map(...)` and `_compute_edge_map_torch(...)` in `src/repixelizer/analysis.py`
-
-### Inputs
-
-- source RGBA image
-- optional torch device
 
 ### Outputs
 
@@ -126,321 +114,167 @@ If the user pinned the lattice, the argument is over. If the hosted path is acti
 
 ### What the source actually does
 
-The analysis stage computes a single normalized `edge_map`:
-
-- luminance is derived from RGB
-- alpha is kept as a separate structure cue
-- horizontal and vertical absolute differences are measured for both luminance and alpha
-- those differences are combined into a magnitude map
-- the map is normalized to `[0, 1]`
-
-That is all. The analysis output for this solver is only one edge map: a report about where the source is calm and where it is breaking into edges.
-
-The map is used in two places later:
-
-- inside the loss, to penalize landing on edgy regions
-- inside the smoothness term, to weaken neighbor springs across real edges
+The analysis stage computes one normalized `edge_map` from luminance and alpha differences. It marks where the source breaks into edges for diagnostics and GUI preview. It does not steer the solver; the active local-search solver follows the separate hierarchical flatness signal built directly from the source image.
 
 ### Metaphor
 
-This stage walks the mural with a bucket of chalk and circles every crack, seam, and paint jump.
+This stage walks the mural with chalk and circles cracks, seams, and paint jumps.
 
-It does not tell the solver what color to choose. It tells the solver where the floorboards are creaking.
-
-## Stage 2: Prep converts the source into field-ready cargo
+## Stage 2: Prep builds fixed centers and the flatness signal
 
 ### Source
 
 - `_prepare_phase_field(...)` in `src/repixelizer/phase_field.py`
 - `_make_regular_uv_px(...)` in `src/repixelizer/phase_field.py`
+- `_source_signal_map_np(...)` in `src/repixelizer/phase_field.py`
 - `premultiply(...)` in `src/repixelizer/io.py`
-
-### Inputs
-
-- source RGBA
-- chosen `InferenceResult`
-- `PhaseFieldSourceAnalysis`
-- `SolverHyperParams`
-- torch device
-
-### Outputs
-
-- `_PhaseFieldPrep`
-  - `source_t`
-  - `edge_t`
-  - `uv0_px_t`
-  - `uv0_norm`
-  - `base_x_t`
-  - `base_y_t`
-  - `guidance`
-  - `cell_x`, `cell_y`
-  - `patch_offsets_t`
-  - `width`, `height`
 
 ### What the source actually does
 
-Prep does a few brutally practical things:
+Prep:
 
-1. Premultiplies the source RGBA.
-   - This makes later color differences respect alpha instead of hallucinating invisible color as if it mattered equally.
+1. Premultiplies source RGBA so transparent color does not lie.
+2. Computes `cell_x` and `cell_y` from source size and target size.
+3. Places canonical fixed centers in `uv0_px`.
+4. Builds support tensors used by diagnostics and observer snapshots.
+5. Builds `signal_map`, the live local-search attraction field.
 
-2. Builds the fixed lattice centers with `_make_regular_uv_px(...)`.
-   - `cell_x = source_width / target_width`
-   - `cell_y = source_height / target_height`
-   - centers are placed at the canonical middle of each inferred output cell before clipping to image bounds
+The current signal path is intentionally simple:
 
-3. Converts the source, edge map, and lattice centers to torch tensors.
+- compute derivative energy from luminance gradient plus Laplacian magnitude at each pyramid level
+- upsample each level back to source resolution
+- accumulate the levels with `phase_field_signal_level_decay`
+- normalize the accumulated derivative energy once
+- invert it so low-gradient / low-curvature regions become attractive flatness
+- sharpen the flatness map with `phase_field_signal_peak_power`
 
-4. Builds a tiny 9-point patch stencil from `phase_field_patch_extent`.
-   - center
-   - left / right / up / down
-   - four diagonals
+What no longer happens:
 
-5. Downscales the edge map to output resolution and stores it as `guidance`.
-   - This is not part of the optimizer proper.
-   - It is later passed into `cleanup_pixels(...)` so postprocessing can avoid sanding down high-edge regions.
+- no boundary-context reward
+- no wall mask
+- no distance transform
+- no ring/context/self-penalty signal knobs
+- no lattice phase concept
 
 ### Metaphor
 
-This is the loading dock.
+This is the loading dock. The source gets wrapped, the ruler becomes fixed anchor points, and the solver gets a heat map where quiet paint is warm and edges are cold.
 
-The source gets wrapped so transparent paint stops lying about its weight. The ruler gets converted into a neat grid of scaffold anchors. Then the solver gets handed a tiny feeler gauge: one center probe and eight little taps around it so it can ask, "am I standing in a quiet patch, or on the lip of a mess?"
-
-## Stage 3: The field starts at stillness
+## Stage 3: The field starts from the ruler
 
 ### Source
 
 - `optimize_phase_field(...)` in `src/repixelizer/phase_field.py`
-- `_nearest_source_rgba(...)` in `src/repixelizer/phase_field.py`
-
-### Inputs
-
-- `_PhaseFieldPrep`
-- `SolverHyperParams`
-- `steps`
-- `seed`
-
-### Outputs
-
-- `disp_t` initialized to zero
-- `initial_rgba`
 
 ### What the source actually does
 
-The solver initializes:
+The live position field starts as:
 
-- `disp_t = 0` everywhere
-- Adam optimizer over that tensor
+- `pos = uv0_px`
 
-Then it immediately computes a baseline image by rounding the fixed lattice centers to nearest integer source pixels:
-
-- `initial_x = round(uv0_px[..., 0])`
-- `initial_y = round(uv0_px[..., 1])`
-- `initial_rgba = source[initial_y, initial_x]`
-
-This is the zero-displacement output. Diagnostics call this `initial_output`. It is simply "the field before it moves."
+Diagnostics emit the zero-displacement image from those canonical centers. Then a tiny seeded noise is added to `pos` so ties in the local search do not all break in perfectly identical ways.
 
 ### Metaphor
 
-Every output cell begins with its boots directly under its shoulders.
+Every worker starts with boots under shoulders, then gets the slightest shove so a perfectly symmetric room does not trap everyone in the same argument forever.
 
-Each cell starts from the lattice center and only moves if the loss gives it a reason to move.
-
-## Stage 4: The loss samples the current hypothesis
+## Stage 4: Local search chooses preferred positions
 
 ### Source
 
-- `_phase_field_loss(...)` in `src/repixelizer/phase_field.py`
-- `_sample_rgba(...)`
-- `_sample_scalar(...)`
-- `_sample_patch_rgba(...)`
-- `_sample_patch_scalar(...)`
-
-### Inputs
-
-- current `disp_t`
-- `_PhaseFieldPrep`
-- `SolverHyperParams`
-
-### Outputs
-
-- scalar loss
-- sampled RGBA at current positions
-- per-term diagnostics
+- `_choose_local_preferred_positions_np(...)` in `src/repixelizer/phase_field.py`
+- `_candidate_grid_score_np(...)` in `src/repixelizer/phase_field.py`
 
 ### What the source actually does
 
-The live sample positions are:
+Every `phase_field_local_search_interval` steps, each sample checks a 5x5 candidate grid around its current position.
 
-- `pos_px = uv0_px_t + disp_t`
+The candidate window size is:
 
-The loss then samples two things around those positions:
+- `radius_x = phase_field_local_search_radius_ratio * cell_x`
+- `radius_y = phase_field_local_search_radius_ratio * cell_y`
 
-- premultiplied RGBA from `source_t`
-- edge values from `edge_t`
+Each candidate is scored as:
 
-Sampling is bilinear during optimization because the loss needs gradients.
-
-It then computes five terms.
-
-#### 4A. Local coherence
-
-Code:
-
-- `local_coherence = (neighbor_rgba - center_rgba[..., None, :]).abs().mean()`
+```text
+move_score * phase_field_local_search_move_weight
++ grid_score * phase_field_local_search_grid_weight
+- signal_score * phase_field_signal_weight
+```
 
 Meaning:
 
-The center sample is compared against the eight patch samples around it. If the patch is internally quiet, this term stays small. If the center sits on a messy boundary or mixed cell, it rises.
+- `signal_score` rewards candidates in flat coherent source regions
+- `move_score` discourages jumping to the edge of the search window just because it can
+- `grid_score` optionally asks candidates to preserve local row/column coherence relative to immediate neighbors
 
-#### 4B. Local edge penalty
-
-Code:
-
-- `local_edge = patch_edge.mean()`
-
-Meaning:
-
-The same 9-point patch is sampled from the edge map. Quiet interior regions score low; sharp edges and alpha jumps score high.
-
-This is the direct shove away from "standing on a line."
-
-#### 4C. Edge-aware smoothness
-
-Code:
-
-- midpoints between neighboring sample positions are computed
-- edge strength is sampled at those midpoints
-- weights are `exp(-edge_gate_strength * edge_mid)`
-- neighbor displacement deltas are measured in normalized cell units
-
-Meaning:
-
-Neighboring cells are tied together by springs, but the springs weaken when the midpoint between them crosses a real edge. So the field prefers drifting together in flat regions and breaking rank at actual structure.
-
-#### 4D. Collapse penalty
-
-Code:
-
-- neighboring sample positions along x and y must stay at least `min_spacing_ratio * cell_size` apart
-- violations are squared with `relu(min_step - actual_step)^2`
-
-Meaning:
-
-This is the anti-crumple term. It stops adjacent output cells from collapsing onto the same source pixels or overtaking one another.
-
-#### 4E. Magnitude prior
-
-Code:
-
-- normalized displacement length squared, averaged over the field
-
-Meaning:
-
-The field pays a small tax for wandering too far. Motion has to earn its keep, but the leash is long enough to recover from moderate starting-grid error instead of dying half a cell short of the right blob.
+The best candidate becomes that cell's preferred position.
 
 ### Metaphor
 
-Each worker is standing on a spring-loaded square of graph paper, poking the wall in a 3x3 halo around their boot.
+Each worker looks around a tiny voting booth, asks which nearby floor tile feels calmest, and points at that tile. If the booth is too large, workers poach each other's snacks. If it is too small, nobody reaches the useful tile.
 
-- If the halo feels like one calm slab of paint, good.
-- If it feels jagged and noisy, bad.
-- If neighboring workers want to drift together across a smooth region, fine.
-- If they all try to collapse into the same footprint, the constraint pushes them apart.
-
-## Stage 5: Adam moves the sheet, then projection slaps it back into order
+## Stage 5: Blend and lattice relaxation move the field
 
 ### Source
 
-- the optimization loop in `optimize_phase_field(...)`
-- `_project_displacements_in_place(...)` in `src/repixelizer/phase_field.py`
-
-### Inputs
-
-- current `disp_t`
-- gradients from `_phase_field_loss(...)`
-- min spacing
-- max displacement bounds
-
-### Outputs
-
-- updated, projected `disp_t`
-- `loss_history`
+- `optimize_phase_field(...)` in `src/repixelizer/phase_field.py`
+- `_relax_lattice_springs_np(...)` in `src/repixelizer/phase_field.py`
+- `_explicit_solver_terms_np(...)` in `src/repixelizer/phase_field.py`
 
 ### What the source actually does
 
-For each step:
+After preferred positions are chosen:
 
-1. Zero optimizer gradients.
-2. Compute the loss and its term breakdown.
-3. Backpropagate through the bilinear samples.
-4. Take an Adam step on `disp_t`.
-5. Immediately project the resulting field back into a valid shape.
+```text
+pos = pos * (1 - phase_field_local_search_blend) + preferred * phase_field_local_search_blend
+```
 
-Projection is not decorative. `_project_displacements_in_place(...)` enforces:
+Then `_relax_lattice_springs_np(...)` runs three spring iterations. Horizontal neighbors are pushed toward one `cell_x` of x-spacing and same-row y-alignment. Vertical neighbors are pushed toward one `cell_y` of y-spacing and same-column x-alignment.
 
-- left-to-right order with minimum x spacing
-- top-to-bottom order with minimum y spacing
-- displacement clamps of `[-max_dx, max_dx]` and `[-max_dy, max_dy]`
-- image-bound clamping on the live sample positions
+The spring step is capped:
 
-So the live machine is not "pure unconstrained gradient descent." It is projected Adam on a constrained displacement sheet.
+```text
+spring_step = min(0.22, phase_field_grid_alignment_weight * 0.06)
+```
+
+So grid weights above the cap are equivalent for spring strength, though they still appear in diagnostic loss terms.
+
+`_explicit_solver_terms_np(...)` records a compact diagnostic loss:
+
+```text
+grid_alignment * phase_field_grid_alignment_weight
+- local_signal * phase_field_signal_weight
+```
+
+This is feedback for the GUI and logs. It is not a differentiable Adam objective.
 
 ### Metaphor
 
-Adam is the part of the crew that says, "fine, slide a little left, slide a little down."
+Workers take a measured step toward their preferred tile. Then the graph paper tugs everyone back into rows and columns before the next vote.
 
-Projection is the guide rail saying:
-
-- you two still need to stay in order
-- nobody gets to leave the mural
-- nobody stretches farther than the leash allows
-
-Without that guide rail, the field would drift into invalid configurations.
-
-## Stage 6: Final sampling throws away the bilinear training wheels
+## Stage 6: Final sampling uses real source pixels
 
 ### Source
 
 - final section of `optimize_phase_field(...)`
-- `_nearest_source_rgba(...)`
-
-### Inputs
-
-- final `disp_t`
-- fixed `uv0_px`
-- original source RGBA
-
-### Outputs
-
-- `target_rgba`
-- final `uv_field`
-- stage diagnostics
+- `_nearest_source_rgba(...)` in `src/repixelizer/phase_field.py`
 
 ### What the source actually does
 
 After the loop:
 
-1. Compute `final_px = uv0_px + disp_t`.
-2. Round those positions to integer source pixels.
-3. Index the original source RGBA with those integer positions.
+1. Round final `pos` to integer source pixels.
+2. Index the original source RGBA.
+3. Report `final_disp = pos - uv0_px` and normalized `uv_field`.
 
-That last part matters. The final image is not bilinear soup. Bilinear sampling is only used inside the loss so the field can be optimized. The emitted image is made of actual source pixels.
-
-The solver also packages:
-
-- `uv_field` in normalized coordinates
-- `loss_history`
-- displacement diagnostics for the initial and final states
-- summary phase-field metrics like mean displacement, max displacement, and final loss terms
+The emitted image is made of actual source pixels, not bilinear soup.
 
 ### Metaphor
 
-During training, the workers are allowed to squint and interpolate.
+During solving, workers can consider nearby tiles. At the end, everyone must plant a flag on one real brick in the wall.
 
-At the end, that privilege is revoked. They must plant the flag on a real brick in the wall. The final output is a direct source-pixel choice.
-
-## Stage 7: The pipeline does the boring adult work
+## Stage 7: The pipeline does cleanup, palette, and diagnostics
 
 ### Source
 
@@ -448,41 +282,15 @@ At the end, that privilege is revoked. They must plant the flag on a real brick 
 - palette handling in `src/repixelizer/pipeline.py` and `src/repixelizer/palette.py`
 - diagnostics writing in `src/repixelizer/diagnostics.py`
 
-### Inputs
-
-- `target_rgba`
-- `guidance_strength`
-- optional palette settings
-- diagnostics directory
-
-### Outputs
-
-- final saved output
-- optional palette-constrained output
-- comparison sheets
-- displacement previews
-- `run.json`
-
 ### What the source actually does
 
 After reconstruction:
 
-1. `cleanup_pixels(...)` is called.
-   - Right now the default is `iterations=0`, so cleanup is usually a no-op.
-   - If enabled later, it tries tiny local replacements except in high-guidance regions.
-
+1. `cleanup_pixels(...)` may run, though defaults usually leave cleanup as a no-op.
 2. Optional palette quantization runs.
+3. Diagnostics are written: comparisons, overlays, alpha preview, displacement previews, and `run.json`.
 
-3. Diagnostics are written:
-   - source/output comparison
-   - lattice overlay
-   - alpha preview
-   - displacement previews
-   - `run.json` summary
-
-### Metaphor
-
-The main machine is done. This stage is just sweeping the floor, labeling the crates, and taking pictures for the insurance claim.
+Cleanup is secondary. It is not the real solver.
 
 ## Stage 8: The machine judges itself
 
@@ -493,100 +301,46 @@ The main machine is done. This stage is just sweeping the floor, labeling the cr
 - `source_structure_breakdown(...)` in `src/repixelizer/metrics.py`
 - `_displacement_diagnostics(...)` in `src/repixelizer/phase_field.py`
 
-### Inputs
-
-- source image
-- initial output
-- final output
-- final displacement field
-
-### Outputs
-
-- `source_fidelity`
-- `source_structure`
-- displacement summaries
-- coherence summaries
-
 ### What the source actually does
 
-The repo keeps two families of score now:
+The repo keeps two score families:
 
-- `source_fidelity`
-  - compares the output against a lattice-derived reference raster built from the source
-  - useful, but limited by the quality of that reference
+- `source_fidelity`: agreement with a lattice-derived source reference
+- `source_structure`: visible structural agreement at source size
 
-- `source_structure`
-  - cares about foreground reconstruction, edge placement, wobble, edge support, and exact matches
-  - closer to visible structure in the source image
-
-The solver also reports displacement statistics like:
-
-- mean magnitude
-- orthogonal jitter
-- local residual
-- dominant offset ratio
-
-Those are the closest thing this machine has to an X-ray of its field drift.
+The solver also reports displacement statistics and the explicit local-search terms.
 
 ### Metaphor
 
-This is the inspection bench.
+The inspection bench judges both whether the output agrees with the inferred grid and whether visible linework survived the trip.
 
-The machine gets judged two ways:
+## Current tuned surface
 
-- by a lattice-derived reference, which measures agreement with the inferred grid interpretation
-- by a structure-oriented view, which measures whether visible linework and edges survived the trip
+The current shippable trial config is documented in `docs/solver-tuning-lessons-2026-04-29.md` and lives in `config/solver_params.json`.
 
-## Stable core
+The important tuning lesson:
 
-- one fixed ruler after inference
-- one real optimization variable
-- one compact loss
-- honest final nearest-source sampling
-- explicit order-preserving projection after every step
-
-These pieces all belong to the same model of the machine.
-
-## Current seams
-
-- low-confidence candidate rerank uses only a short preview solve, not the full optimized field
-- the edge scout only knows edge magnitude, not direction, so the solver still struggles with along-stroke versus across-stroke behavior near tapered contours
-
-These are the places where the current implementation is still a little awkward or incomplete.
+- wide local-search windows caused feature poaching
+- the useful radius basin is around `0.20-0.22`
+- `radius=0.215` and `blend=0.24` are the current focused winner
+- signal knobs still need a disciplined follow-up pass around that new motion basin
 
 ## Guardrails
 
-These are the categories of complexity that would change the nature of the solver if they came back:
+These categories of complexity should not come back casually:
 
-- extra per-cell reference rasters used during optimization
-- source-derived reference images that steer the field directly
-- candidate sets or candidate trays for each cell
-- multiple sequential solver stages with separate objectives
-- repeated structural score families that appear in more than one stage
+- lattice phase search or explicit lattice phase controls
+- per-cell candidate trays that persist across stages
+- extra source-derived reference rasters steering the field directly
+- multiple sequential solver religions with separate objectives
+- cleanup pretending to be the real reconstruction engine
 
-The whole point of this machine is that it stays one field, one loss, one final sample.
+The point of this machine is still one ruler, one position field, one local signal, one lattice relaxation, and one final source sample.
 
-## Audit Result
-
-This map is compatible with the current Epiphany workflow as long as it keeps
-doing one job: describing the live machine the repo actually runs.
-
-Right now it passes that test:
-
-- it names the current pipeline instead of a future fantasy machine
-- it anchors every stage to real source files
-- it keeps the prose explanation attached to the control flow instead of
-  replacing it
-- it identifies the current seams and the forbidden complexity that would turn
-  the solver back into a Jenga tower
-
-The important boundary is simple:
+## Documentation boundaries
 
 - live control-flow truth belongs here
-- active hypotheses and next cuts belong in `docs/implementation-plan.md`
-- compact re-entry instructions belong in `notes/fresh-workspace-handoff.md`
+- current shipping state and re-entry instructions belong in `notes/fresh-workspace-handoff.md`
 - durable project truth belongs in `state/map.yaml`
-
-If a future pass adds directional edge awareness, anisotropic behavior, or
-another real control-flow change, update this map after the code lands. If the
-change is still a hypothesis, keep it out of this file.
+- detailed tuning lessons belong in `docs/solver-tuning-lessons-2026-04-29.md`
+- forward work belongs in `docs/implementation-plan.md`

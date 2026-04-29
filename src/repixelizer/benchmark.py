@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import shutil
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
-import json
 
 import numpy as np
 
@@ -41,6 +42,7 @@ def run_roundtrip_benchmark(
     limit_cases: int | None = None,
     keep_existing: bool = False,
     solver_params: SolverHyperParams | None = None,
+    workers: int = 1,
 ) -> dict[str, Any]:
     corpus_path = Path(corpus_dir)
     originals_dir = corpus_path / "originals"
@@ -62,113 +64,39 @@ def run_roundtrip_benchmark(
     if out_path.exists() and not keep_existing:
         shutil.rmtree(out_path)
     out_path.mkdir(parents=True, exist_ok=True)
-    rows: list[dict[str, Any]] = []
+
+    tasks: list[dict[str, Any]] = []
     for case_index, original_path in enumerate(original_paths):
         original = load_rgba(original_path)
-        metadata = _load_metadata(original_path)
         case_id = original_path.relative_to(originals_dir).with_suffix("").as_posix()
         case_dir = out_path / "cases" / Path(case_id)
         case_dir.mkdir(parents=True, exist_ok=True)
         save_rgba(case_dir / "original.png", original)
         for profile_index, profile in enumerate(selected_profiles):
             for variant_index in range(variants):
-                variant_seed = seed + case_index * 1000 + profile_index * 100 + variant_index
-                settings = _variant_settings(variant_seed, profile=profile)
-                variant_dir = case_dir / f"profile-{profile}" / f"variant-{variant_index + 1:02d}"
-                diagnostics_dir = variant_dir / "diagnostics"
-                diagnostics_dir.mkdir(parents=True, exist_ok=True)
-                fake = fake_pixelize(original, seed=variant_seed, **settings)
-                input_path = variant_dir / "input.png"
-                output_path = variant_dir / "optimized.png"
-                save_rgba(input_path, fake)
-
-                locked_target_size = max(original.shape[0], original.shape[1]) if not infer_size else None
-                result = run_pipeline(
-                    input_path,
-                    output_path,
-                    target_size=locked_target_size,
-                    diagnostics_dir=diagnostics_dir,
-                    seed=variant_seed,
-                    steps=steps,
-                    device=device,
-                    solver_params=solver_params,
+                tasks.append(
+                    {
+                        "original_path": original_path,
+                        "originals_dir": originals_dir,
+                        "out_path": out_path,
+                        "case_index": case_index,
+                        "profile_index": profile_index,
+                        "profile": profile,
+                        "variant_index": variant_index,
+                        "seed": seed,
+                        "steps": steps,
+                        "device": device,
+                        "infer_size": infer_size,
+                        "solver_params": solver_params,
+                    }
                 )
 
-                naive = naive_resize_baseline(fake, width=original.shape[1], height=original.shape[0])
-                diffusion = error_diffusion_baseline(fake, width=original.shape[1], height=original.shape[0])
-                save_rgba(variant_dir / "naive.png", naive)
-                save_rgba(variant_dir / "diffusion.png", diffusion)
-                _save_preview(variant_dir / "optimized-preview.png", result.output_rgba, original)
-                _save_preview(variant_dir / "naive-preview.png", naive, original)
-                _save_preview(variant_dir / "diffusion-preview.png", diffusion, original)
-
-                optimized_preview = nearest_resize(result.output_rgba, width=original.shape[1], height=original.shape[0])
-                optimized_error = foreground_reconstruction_error(optimized_preview, original)
-                naive_error = foreground_reconstruction_error(naive, original)
-                diffusion_error = foreground_reconstruction_error(diffusion, original)
-                optimized_adjacency = foreground_adjacency_error(optimized_preview, original)
-                naive_adjacency = foreground_adjacency_error(naive, original)
-                diffusion_adjacency = foreground_adjacency_error(diffusion, original)
-                optimized_motif = foreground_motif_error(optimized_preview, original)
-                naive_motif = foreground_motif_error(naive, original)
-                diffusion_motif = foreground_motif_error(diffusion, original)
-                row = {
-                    "case_id": case_id,
-                    "profile": profile,
-                    "variant": variant_index + 1,
-                    "source_file": str(original_path),
-                    "title": metadata.get("title", ""),
-                    "author": metadata.get("author", ""),
-                    "license": metadata.get("license", ""),
-                    "source_url": metadata.get("source_url", ""),
-                    "original_width": int(original.shape[1]),
-                    "original_height": int(original.shape[0]),
-                    "input_width": int(fake.shape[1]),
-                    "input_height": int(fake.shape[0]),
-                    "upscale": settings["upscale"],
-                    "offset_x": settings["offset_x"],
-                    "offset_y": settings["offset_y"],
-                    "blur_radius": settings["blur_radius"],
-                    "warp_strength": settings["warp_strength"],
-                    "warp_detail": settings["warp_detail"],
-                    "warp_sample_mode": settings["warp_sample_mode"],
-                    "artifact_density": settings["artifact_density"],
-                    "artifact_strength": settings["artifact_strength"],
-                    "primary_metric": "foreground_premultiplied_mae",
-                    "reference_foreground_coverage": foreground_coverage(original, original),
-                    "target_size_locked": not infer_size,
-                    "inferred_width": result.inference.target_width,
-                    "inferred_height": result.inference.target_height,
-                    "inference_confidence": result.inference.confidence,
-                    "optimized_error_to_original": optimized_error,
-                    "naive_error_to_original": naive_error,
-                    "diffusion_error_to_original": diffusion_error,
-                    "optimized_adjacency_error_to_original": optimized_adjacency,
-                    "naive_adjacency_error_to_original": naive_adjacency,
-                    "diffusion_adjacency_error_to_original": diffusion_adjacency,
-                    "optimized_motif_error_to_original": optimized_motif,
-                    "naive_motif_error_to_original": naive_motif,
-                    "diffusion_motif_error_to_original": diffusion_motif,
-                    "optimized_canvas_error_to_original": reconstruction_error(optimized_preview, original),
-                    "naive_canvas_error_to_original": reconstruction_error(naive, original),
-                    "diffusion_canvas_error_to_original": reconstruction_error(diffusion, original),
-                    "optimized_exact_match": foreground_exact_match_ratio(optimized_preview, original),
-                    "naive_exact_match": foreground_exact_match_ratio(naive, original),
-                    "diffusion_exact_match": foreground_exact_match_ratio(diffusion, original),
-                    "optimized_canvas_exact_match": exact_match_ratio(optimized_preview, original),
-                    "naive_canvas_exact_match": exact_match_ratio(naive, original),
-                    "diffusion_canvas_exact_match": exact_match_ratio(diffusion, original),
-                    "optimized_coherence": coherence_breakdown(result.output_rgba)["coherence_score"],
-                    "naive_coherence": coherence_breakdown(naive)["coherence_score"],
-                    "diffusion_coherence": coherence_breakdown(diffusion)["coherence_score"],
-                    "optimized_beats_naive_error": optimized_error <= naive_error,
-                    "optimized_beats_diffusion_error": optimized_error <= diffusion_error,
-                    "optimized_beats_naive_adjacency": optimized_adjacency <= naive_adjacency,
-                    "optimized_beats_diffusion_adjacency": optimized_adjacency <= diffusion_adjacency,
-                    "optimized_beats_naive_motif": optimized_motif <= naive_motif,
-                    "optimized_beats_diffusion_motif": optimized_motif <= diffusion_motif,
-                }
-                rows.append(row)
+    effective_workers = max(1, int(workers))
+    if effective_workers == 1:
+        rows = [_run_roundtrip_row(task) for task in tasks]
+    else:
+        with ProcessPoolExecutor(max_workers=effective_workers) as pool:
+            rows = list(pool.map(_run_roundtrip_row, tasks))
 
     summary = {
         "case_count": len(original_paths),
@@ -178,12 +106,141 @@ def run_roundtrip_benchmark(
         "target_size_locked": not infer_size,
         "primary_metric": "foreground_premultiplied_mae",
         "solver_params": solver_params.to_dict() if solver_params is not None else SolverHyperParams().to_dict(),
+        "workers": effective_workers,
         "cases": _summarize_cases(rows),
         "rows": rows,
     }
     write_compare_csv(out_path / "benchmark.csv", rows)
     write_json(out_path / "benchmark.json", summary)
     return summary
+
+
+def _run_roundtrip_row(task: dict[str, Any]) -> dict[str, Any]:
+    original_path = Path(task["original_path"])
+    originals_dir = Path(task["originals_dir"])
+    out_path = Path(task["out_path"])
+    case_index = int(task["case_index"])
+    profile_index = int(task["profile_index"])
+    profile = str(task["profile"])
+    variant_index = int(task["variant_index"])
+    seed = int(task["seed"])
+    steps = int(task["steps"])
+    device = str(task["device"])
+    infer_size = bool(task["infer_size"])
+    solver_params = task["solver_params"]
+
+    _limit_worker_threads()
+
+    original = load_rgba(original_path)
+    metadata = _load_metadata(original_path)
+    case_id = original_path.relative_to(originals_dir).with_suffix("").as_posix()
+    case_dir = out_path / "cases" / Path(case_id)
+    variant_seed = seed + case_index * 1000 + profile_index * 100 + variant_index
+    settings = _variant_settings(variant_seed, profile=profile)
+    variant_dir = case_dir / f"profile-{profile}" / f"variant-{variant_index + 1:02d}"
+    diagnostics_dir = variant_dir / "diagnostics"
+    diagnostics_dir.mkdir(parents=True, exist_ok=True)
+    fake = fake_pixelize(original, seed=variant_seed, **settings)
+    input_path = variant_dir / "input.png"
+    output_path = variant_dir / "optimized.png"
+    save_rgba(input_path, fake)
+
+    locked_target_size = max(original.shape[0], original.shape[1]) if not infer_size else None
+    result = run_pipeline(
+        input_path,
+        output_path,
+        target_size=locked_target_size,
+        diagnostics_dir=diagnostics_dir,
+        seed=variant_seed,
+        steps=steps,
+        device=device,
+        solver_params=solver_params,
+    )
+
+    naive = naive_resize_baseline(fake, width=original.shape[1], height=original.shape[0])
+    diffusion = error_diffusion_baseline(fake, width=original.shape[1], height=original.shape[0])
+    save_rgba(variant_dir / "naive.png", naive)
+    save_rgba(variant_dir / "diffusion.png", diffusion)
+    _save_preview(variant_dir / "optimized-preview.png", result.output_rgba, original)
+    _save_preview(variant_dir / "naive-preview.png", naive, original)
+    _save_preview(variant_dir / "diffusion-preview.png", diffusion, original)
+
+    optimized_preview = nearest_resize(result.output_rgba, width=original.shape[1], height=original.shape[0])
+    optimized_error = foreground_reconstruction_error(optimized_preview, original)
+    naive_error = foreground_reconstruction_error(naive, original)
+    diffusion_error = foreground_reconstruction_error(diffusion, original)
+    optimized_adjacency = foreground_adjacency_error(optimized_preview, original)
+    naive_adjacency = foreground_adjacency_error(naive, original)
+    diffusion_adjacency = foreground_adjacency_error(diffusion, original)
+    optimized_motif = foreground_motif_error(optimized_preview, original)
+    naive_motif = foreground_motif_error(naive, original)
+    diffusion_motif = foreground_motif_error(diffusion, original)
+    return {
+        "case_id": case_id,
+        "profile": profile,
+        "variant": variant_index + 1,
+        "source_file": str(original_path),
+        "title": metadata.get("title", ""),
+        "author": metadata.get("author", ""),
+        "license": metadata.get("license", ""),
+        "source_url": metadata.get("source_url", ""),
+        "original_width": int(original.shape[1]),
+        "original_height": int(original.shape[0]),
+        "input_width": int(fake.shape[1]),
+        "input_height": int(fake.shape[0]),
+        "upscale": settings["upscale"],
+        "offset_x": settings["offset_x"],
+        "offset_y": settings["offset_y"],
+        "blur_radius": settings["blur_radius"],
+        "warp_strength": settings["warp_strength"],
+        "warp_detail": settings["warp_detail"],
+        "warp_sample_mode": settings["warp_sample_mode"],
+        "artifact_density": settings["artifact_density"],
+        "artifact_strength": settings["artifact_strength"],
+        "primary_metric": "foreground_premultiplied_mae",
+        "reference_foreground_coverage": foreground_coverage(original, original),
+        "target_size_locked": not infer_size,
+        "inferred_width": result.inference.target_width,
+        "inferred_height": result.inference.target_height,
+        "inference_confidence": result.inference.confidence,
+        "optimized_error_to_original": optimized_error,
+        "naive_error_to_original": naive_error,
+        "diffusion_error_to_original": diffusion_error,
+        "optimized_adjacency_error_to_original": optimized_adjacency,
+        "naive_adjacency_error_to_original": naive_adjacency,
+        "diffusion_adjacency_error_to_original": diffusion_adjacency,
+        "optimized_motif_error_to_original": optimized_motif,
+        "naive_motif_error_to_original": naive_motif,
+        "diffusion_motif_error_to_original": diffusion_motif,
+        "optimized_canvas_error_to_original": reconstruction_error(optimized_preview, original),
+        "naive_canvas_error_to_original": reconstruction_error(naive, original),
+        "diffusion_canvas_error_to_original": reconstruction_error(diffusion, original),
+        "optimized_exact_match": foreground_exact_match_ratio(optimized_preview, original),
+        "naive_exact_match": foreground_exact_match_ratio(naive, original),
+        "diffusion_exact_match": foreground_exact_match_ratio(diffusion, original),
+        "optimized_canvas_exact_match": exact_match_ratio(optimized_preview, original),
+        "naive_canvas_exact_match": exact_match_ratio(naive, original),
+        "diffusion_canvas_exact_match": exact_match_ratio(diffusion, original),
+        "optimized_coherence": coherence_breakdown(result.output_rgba)["coherence_score"],
+        "naive_coherence": coherence_breakdown(naive)["coherence_score"],
+        "diffusion_coherence": coherence_breakdown(diffusion)["coherence_score"],
+        "optimized_beats_naive_error": optimized_error <= naive_error,
+        "optimized_beats_diffusion_error": optimized_error <= diffusion_error,
+        "optimized_beats_naive_adjacency": optimized_adjacency <= naive_adjacency,
+        "optimized_beats_diffusion_adjacency": optimized_adjacency <= diffusion_adjacency,
+        "optimized_beats_naive_motif": optimized_motif <= naive_motif,
+        "optimized_beats_diffusion_motif": optimized_motif <= diffusion_motif,
+    }
+
+
+def _limit_worker_threads() -> None:
+    try:
+        import torch
+
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+    except Exception:
+        pass
 
 
 def _load_metadata(original_path: Path) -> dict[str, Any]:

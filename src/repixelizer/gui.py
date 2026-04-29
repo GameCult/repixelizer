@@ -349,12 +349,12 @@ class GuiJob:
                 "candidateCount": int(payload["candidate_count"]),
                 "confidence": float(payload["confidence"]),
             }
-        if event == "lattice_search_started":
+        if event == "lattice_inference_started":
             return {
                 "candidateCount": int(payload["candidate_count"]),
                 "device": str(payload["device"]),
             }
-        if event == "lattice_search_progress":
+        if event == "lattice_inference_progress":
             return {
                 "completedCandidates": int(payload["completed_candidates"]),
                 "totalCandidates": int(payload["total_candidates"]),
@@ -410,7 +410,7 @@ class GuiJob:
                 "cellX": float(payload["cell_x"]),
                 "cellY": float(payload["cell_y"]),
                 "latticeImage": _image_asset(_render_lattice_overlay(self.current_source_rgba, payload["uv0_px"])),
-                "guidanceImage": _image_asset(_scalar_to_rgba(payload["guidance"], tint=(0.92, 0.58, 0.18))),
+                "signalImage": _image_asset(_scalar_to_rgba(payload["signal"], tint=(0.92, 0.58, 0.18))),
             }
         if event in {"phase_field_initial", "phase_field_step", "phase_field_final"}:
             if self.current_source_rgba is None:
@@ -513,9 +513,9 @@ def _normalize_job_options(
     normalized_steps = min(requested_steps, config.max_steps)
     normalized_device = "cpu" if config.hosted_demo else (device.strip() if device.strip() else "auto")
     normalized_strip_background = False if config.hosted_demo else bool(strip_background)
-    inference_mode = "autocorr" if config.hosted_demo and fixed_dims is None else "search"
-    max_inferred_target_size = config.max_output_dimension if config.hosted_demo and fixed_dims is None else None
-    normalized_skip_candidate_rerank = True if config.hosted_demo else bool(skip_candidate_rerank)
+    inference_mode = "autocorr" if fixed_dims is None else "fixed"
+    max_inferred_target_size = config.max_output_dimension if fixed_dims is None else None
+    normalized_skip_candidate_rerank = bool(skip_candidate_rerank)
     return {
         "target_size": normalized_target_size,
         "target_width": normalized_target_width,

@@ -63,8 +63,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dense-phase-field-output",
-        default="tests/fixtures/real/dense-landscape-fixed-512.png",
-        help="Tracked fixed-lattice output used for the dense landscape row.",
+        default="",
+        help="Optional existing dense landscape output. If omitted, the dense row is regenerated with automatic lattice inference.",
     )
     parser.add_argument(
         "--guard-cell-bbox",
@@ -93,29 +93,30 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=126,
         help="Pinned target height for the canonical badge comparison.",
-    )    parser.add_argument(
+    )
+    parser.add_argument(
         "--dense-target-width",
         type=int,
         default=512,
-        help="Pinned target width for the dense landscape comparison.",
+        help="Fallback target width used only when --dense-phase-field-output is supplied.",
     )
     parser.add_argument(
         "--dense-target-height",
         type=int,
         default=512,
-        help="Pinned target height for the dense landscape comparison.",
+        help="Fallback target height used only when --dense-phase-field-output is supplied.",
     )
     parser.add_argument(
         "--dense-auto-inferred-width",
         type=int,
         default=418,
-        help="Current automatic lattice width guess for the dense landscape case.",
+        help="Deprecated display fallback for old fixed-output runs.",
     )
     parser.add_argument(
         "--dense-auto-inferred-height",
         type=int,
         default=418,
-        help="Current automatic lattice height guess for the dense landscape case.",
+        help="Deprecated display fallback for old fixed-output runs.",
     )
     parser.add_argument("--steps", type=int, default=48, help="Optimizer step budget for both runs.")
     parser.add_argument("--device", default="cpu", choices=("auto", "cpu", "cuda"), help="Torch device for generation.")
@@ -369,7 +370,6 @@ def main() -> None:
 
     source_input = Path(args.input)
     dense_input = Path(args.dense_input)
-    dense_phase_field_output = Path(args.dense_phase_field_output)
     out_sheet = Path(args.out_sheet)
     out_guard_crop = Path(args.out_guard_crop)
     out_sheet.parent.mkdir(parents=True, exist_ok=True)
@@ -389,15 +389,43 @@ def main() -> None:
     source_rgba = load_rgba(source_input)
     lanczos = lanczos_resize_baseline(source_rgba, width=args.target_width, height=args.target_height)
     dense_source_rgba = load_rgba(dense_input)
-    dense_phase_field_rgba = load_rgba(dense_phase_field_output)
+    if args.dense_phase_field_output:
+        dense_phase_field_output = Path(args.dense_phase_field_output)
+        dense_phase_field_rgba = load_rgba(dense_phase_field_output)
+        dense_target_width = int(dense_phase_field_rgba.shape[1])
+        dense_target_height = int(dense_phase_field_rgba.shape[0])
+        dense_phase_field_subtitle = f"tracked {dense_target_width}x{dense_target_height} output"
+        dense_title = (
+            f"Dense {dense_source_rgba.shape[1]}px pixel art -> tracked "
+            f"{dense_target_width}x{dense_target_height} output"
+        )
+        dense_output_summary = str(dense_phase_field_output)
+    else:
+        dense_phase_field_result = run_pipeline(
+            dense_input,
+            scratch_dir / "dense-landscape-phase-field-auto.png",
+            diagnostics_dir=scratch_dir / "dense-phase-field-auto-diag",
+            steps=args.steps,
+            device=args.device,
+            lattice_inference_mode="autocorr",
+        )
+        dense_phase_field_rgba = dense_phase_field_result.output_rgba
+        dense_target_width = int(dense_phase_field_result.inference.target_width)
+        dense_target_height = int(dense_phase_field_result.inference.target_height)
+        dense_phase_field_subtitle = f"{dense_target_width}x{dense_target_height} inferred lattice"
+        dense_title = (
+            f"Dense {dense_source_rgba.shape[1]}px pixel art -> "
+            f"{dense_target_width}x{dense_target_height} inferred lattice"
+        )
+        dense_output_summary = str(scratch_dir / "dense-landscape-phase-field-auto.png")
     dense_lanczos = lanczos_resize_baseline(
         dense_source_rgba,
-        width=args.dense_target_width,
-        height=args.dense_target_height,
+        width=dense_target_width,
+        height=dense_target_height,
     )
 
     save_rgba(scratch_dir / "badge-ai-lanczos.png", lanczos)
-    save_rgba(scratch_dir / "dense-landscape-lanczos-512.png", dense_lanczos)
+    save_rgba(scratch_dir / f"dense-landscape-lanczos-{dense_target_width}x{dense_target_height}.png", dense_lanczos)
 
     panel_width = 320
     panel_height = 360
@@ -411,6 +439,13 @@ def main() -> None:
         scale_x=0.5,
         scale_y=0.5,
     )
+    dense_focus_cell_bbox = (
+        int(round(args.dense_focus_cell_bbox[0] * dense_target_width / max(1, args.dense_target_width))),
+        int(round(args.dense_focus_cell_bbox[1] * dense_target_height / max(1, args.dense_target_height))),
+        int(round(args.dense_focus_cell_bbox[2] * dense_target_width / max(1, args.dense_target_width))),
+        int(round(args.dense_focus_cell_bbox[3] * dense_target_height / max(1, args.dense_target_height))),
+    )
+
     rows = [
         PreviewRow(
             row_id="badge",
@@ -427,20 +462,16 @@ def main() -> None:
         ),
         PreviewRow(
             row_id="dense-landscape",
-            title=(
-                "Dense 1254px pixel art -> auto inference "
-                f"{args.dense_auto_inferred_width}x{args.dense_auto_inferred_height}; "
-                f"fixed {args.dense_target_width}x{args.dense_target_height} shown"
-            ),
+            title=dense_title,
             source_rgba=dense_source_rgba,
             source_subtitle=f"{dense_source_rgba.shape[1]}px source",
             lanczos_rgba=dense_lanczos,
-            lanczos_subtitle=f"{args.dense_target_width}x{args.dense_target_height} baseline",
+            lanczos_subtitle=f"{dense_target_width}x{dense_target_height} baseline",
             phase_field_rgba=dense_phase_field_rgba,
-            phase_field_subtitle=f"fixed {args.dense_target_width}x{args.dense_target_height} lattice",
-            target_width=args.dense_target_width,
-            target_height=args.dense_target_height,
-            focus_cell_bbox=tuple(args.dense_focus_cell_bbox),
+            phase_field_subtitle=dense_phase_field_subtitle,
+            target_width=dense_target_width,
+            target_height=dense_target_height,
+            focus_cell_bbox=dense_focus_cell_bbox,
         ),
     ]
     built_rows: list[tuple[PreviewRow, list[RenderedPanel], tuple[int, int, int, int]]] = []
@@ -501,7 +532,7 @@ def main() -> None:
             ],
             "badge_input": str(source_input),
             "dense_input": str(dense_input),
-            "dense_phase_field_output": str(dense_phase_field_output),
+            "dense_phase_field_output": dense_output_summary,
             "guard_cell_bbox": list(args.guard_cell_bbox),
             "guard_source_bbox": list(guard_bbox),
             "out_sheet": str(out_sheet),

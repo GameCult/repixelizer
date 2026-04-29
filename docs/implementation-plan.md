@@ -2,7 +2,7 @@
 
 ## What this file is
 
-This file is the forward plan and active hypothesis ledger for Repixelizer.
+This file is the forward plan for Repixelizer.
 
 It is not the authoritative stage-by-stage control-flow map. That lives in
 `docs/lean-optimizer-algorithm-map.md`.
@@ -13,142 +13,118 @@ intent.
 
 ## Current machine
 
-Repixelizer now has one live reconstruction engine:
+Repixelizer has one live reconstruction engine:
 
 - `phase-field`: the canonical reconstruction engine in `src/repixelizer/phase_field.py`
 
 The live pipeline is:
 
-`source image -> lattice inference -> edge analysis -> phase-field reconstruction -> cleanup -> optional palette fit -> diagnostics`
+`source image -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search + lattice relaxation -> nearest source sample -> cleanup -> optional palette fit -> diagnostics`
 
-Inference now splits three ways:
+Inference splits two ways:
 
 - fixed lattice when the caller pins size explicitly
-- searched lattice for the full local workflow
-- direct autocorr lattice for the hosted demo path: one consensus size, no size search, no candidate rerank
+- autocorr lattice when size is inferred automatically; autocorr can surface multiple candidates, and low-confidence candidates can be preview-reranked
 
-The hosted web shell now also has an auth seam:
+The hosted web shell has an auth seam:
 
 - `src/repixelizer/access.py` owns the app-local access boundary and local ownership checks
 - `src/repixelizer/gui.py` owns hosted route policy, landing-page behavior, and queue/job stamping
-- `GC_ACCESS_MODE=heimdall` now lands the first real shared-auth consumer path there: provider start, backend callback receipt, local JWT verification, and httpOnly session adoption
+- `GC_ACCESS_MODE=heimdall` supports provider start, backend callback receipt, local JWT verification, and httpOnly session adoption
 - self-host and local runs stay permissive by default unless `GC_ACCESS_*` turns the seam on
 
 ## What is working
 
-- lattice size inference are still shared and still CUDA-capable
-- `phase-field` is the only canonical reconstruction path and produces the best-looking badge result in the repo so far
-- compare mode, benchmark mode, diagnostics writing, and tuning all still work after the optimizer cutover
-- the repo now reports both:
-  - `source_fidelity`: agreement with the inferred lattice portrait
-  - `source_structure`: visible structural agreement at source size
+- `phase-field` is the only canonical reconstruction path.
+- The current explicit solver is fast enough for hosted interaction.
+- Compare mode, benchmark mode, diagnostics writing, GUI observer previews, and tuning harnesses exist.
+- The repo reports both `source_fidelity` and `source_structure` because lattice-only scoring can slander better-looking output.
+- Hosted landing/app flow is in place and should be the immediate product path.
 
-That second metric exists because the first one was happily slandering the better-looking output.
+## Current solver shipping state
 
-## Current evidence
+The current solver config is shippable, not final.
 
-### Phase-field
+Useful current values:
 
-Pinned badge case:
+- `phase_field_grid_alignment_weight=4.75`
+- `phase_field_local_search_radius_ratio=0.215`
+- `phase_field_local_search_blend=0.24`
+- `phase_field_local_search_move_weight=0.09`
+- `phase_field_signal_energy_power=1.4`
+- `phase_field_signal_peak_power=3.25`
 
-- fixture: `tests/fixtures/real/ai-badge-cleaned.png`
-- lattice: `126x126`
-- initial lattice centers: canonical
-- steps: `48`
+Tuning lesson:
 
-Useful artifacts:
+- broad local-search radius caused samples to poach neighboring features
+- the focused useful radius basin is around `0.20-0.22`
+- at that tighter radius, stronger blend became useful
+- signal knobs were not fully explored around the new basin
 
-- first pinned badge run: `artifacts/phase-field-v1-badge-126/`
-- tip-focused follow-up: `artifacts/phase-field-v2-badge-126/`
-- structure-metric sanity check: `artifacts/phase-field-metric-check/`
-
-What we know:
-
-- the output preserves the important badge structure better than the deleted optimizer did
-- the tracked blemish is now narrow and specific: the sword-tip stroke widens too much in one local region
-- the tracked focus fixture is `tests/fixtures/real/ai-badge-tip-focus.json`
-
-## Maps
-
-The repo now keeps the living map:
-
-- `docs/lean-optimizer-algorithm-map.md`
-
-If a future pass cannot be explained cleanly against that map, it should not land.
+Detailed tuning notes live in `docs/solver-tuning-lessons-2026-04-29.md`.
 
 ## Current priorities
 
-### 1. Fix the phase-field sword-tip blemish
+### 1. Ship the hosted experiment
 
 Goal:
 
-- keep the current structural win
-- stop widening the dark contour near the tapered sword tip
+- get Repixelizer online
+- stop blocking Heimdall
+- stop Heimdall from blocking StreamPixels
 
-Current hypothesis:
+Practical stance:
 
-- scalar weight nudges are not enough
-- the field needs better anisotropic behavior near sharp tapered contours
-- it likely needs to distinguish motion along a stroke from motion across a stroke
-
-What we just learned:
-
-- the later `d9fa411` phase-field tuning pass was a real regression, not paranoia
-- that pass strengthened the local edge penalty, added a spacing loss plus upper-spacing clamp, and made edge gating more aggressive
-- on the pinned badge case, it removed internal linework and changed `2433 / 15876` output cells relative to the original good `phase-field` run
-- reverting that tuning pass restores the original good badge result exactly; the fresh fixed run under `artifacts/phase-field-regression-fix-badge-126/` is byte-identical to the original `artifacts/phase-field-v1-recheck-badge-126/`
-
-Tracked fixture:
-
-- `tests/fixtures/real/ai-badge-tip-focus.json`
+- do not spend more time polishing solver knobs before hosted launch unless a blocking quality regression appears
+- keep hosted auth and access work isolated to `src/repixelizer/access.py` and `src/repixelizer/gui.py`
+- keep solver and pipeline code out of auth work
 
 ### 2. Keep lattice inference honest
 
 Current stance:
 
-- keep the shipped searched path grounded in autocorrelation only
+- keep automatic inference grounded in autocorrelation
 - let autocorr keep a small near-best lag plateau and use cross-axis consensus before collapsing to one lattice family
-- the hosted demo path now skips multi-size search entirely and uses one autocorr-consensus size , capped by the hosted output limit
-- do not trust the old pixel-walk / change-interval spacing path; it was cut after it kept pruning the badge away from the `126` family
-- do not keep the projected edge-energy spectral pass; it floor-hugged to `2px` / `626`-family nonsense on the dense landscape fixture and did not earn its keep
+- keep hosted demo inference on the autocorr path with candidate rerank available when confidence is low
+- do not revive the old pixel-walk / change-interval spacing path
+- do not revive the projected edge-energy spectral pass
 - treat candidate rerank as optional scaffolding, not sacred machinery
 
-Future options worth exploring, if autocorr stops carrying its weight:
+### 3. Later: retune the phase-field solver deliberately
 
-- distance-transform / medial-radius blob sizing on softened interiors
-- small scale-space blob-size detection (`LoG` / `DoG`)
-- blur-aware correction of observed blob width before converting to lattice size
-- tiny learned size prior trained on synthetic fake-pixel-art fixtures
+The next solver pass should begin from the current live config, not from the old
+wide-radius geometry.
 
-### 3. Keep phase-field honest
+Recommended order:
 
-Rules:
+1. Sweep signal knobs around `radius=0.215, blend=0.24`.
+2. Sweep movement/coherence knobs around the best signal candidate.
+3. Test combinations only after single-knob effects are understood.
+4. Validate on focused artificial cases, real character glint/symbol cases, and the badge fixture.
+5. Run full-corpus validation at the end, not during every exploratory twitch.
 
-- do not reintroduce portrait layers, candidate trays, or solver-stage religions
-- if a new term lands, it must belong cleanly in the one-field objective
-- if a result looks better and the metrics disagree, fix the metrics rather than worshipping them
+Knobs still underexplored in the new basin:
 
-### 4. Keep hosted auth surgery out of the solver
-
-Current stance:
-
-- Heimdall integration belongs in the hosted web layer, not in the reconstruction pipeline
-- queued jobs now resolve ownership from local session/account metadata instead of provider ids
-- `GC_ACCESS_MODE=heimdall` is now the real hosted path: Repixelizer creates auth attempts, asks Heimdall to start provider OAuth, accepts direct backend callbacks, verifies Heimdall Ed25519 access tokens locally, and adopts local cookie sessions without dragging provider tokens through browser URLs
-- `GC_ACCESS_MODE=trusted-header` still exists as the cheap ingress seam for local route-policy tests and reverse-proxy experiments
-- future auth work still belongs in `src/repixelizer/access.py` and `src/repixelizer/gui.py`, not in `src/repixelizer/pipeline.py`, `src/repixelizer/inference.py`, or the solver stack
-
-Immediate auth follow-ups, if the user wants them:
-
-- add more providers or policy bindings without changing the solver
-- surface session/logout state inside `/app/` if hosted UX needs it
-- decide whether auth attempts or adopted sessions need persistence beyond this single-process hosted runtime
+- `phase_field_signal_weight`
+- `phase_field_signal_gradient_weight`
+- `phase_field_signal_curvature_weight`
+- `phase_field_signal_level_decay`
+- `phase_field_signal_pyramid_levels`
+- `phase_field_signal_energy_power`
+- `phase_field_signal_peak_power`
+- `phase_field_local_search_move_weight`
+- `phase_field_grid_alignment_weight`
+- `phase_field_local_search_grid_weight`
 
 ## Guardrails
 
-- prefer one clear hypothesis per pass
-- show the output after every real reconstruction run
-- keep the maps updated
-- revert or delete machinery that does not visibly earn its keep
+- Prefer one clear hypothesis per pass.
+- Show the output after every real reconstruction run when doing visual tuning.
+- Keep maps updated after code changes.
+- Revert or delete machinery that does not visibly earn its keep.
+- Do not reintroduce lattice phase, portrait layers, candidate trays, or solver-stage religions casually.
+- If a new term lands, it must belong cleanly in the one-field / one-signal / one-relaxation model.
+- If a result looks better and the metrics disagree, fix the metrics rather than worshipping them.
 
-This repo already spent enough time as a Jenga tower of maybe-useful cleverness. The machine has to deserve every part.
+This repo already spent enough time as a Jenga tower of maybe-useful cleverness.
+The machine has to deserve every part.

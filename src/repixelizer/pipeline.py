@@ -18,7 +18,7 @@ from .diagnostics import (
     write_lattice_overlay,
 )
 from .discrete import cleanup_pixels
-from .inference import infer_autocorr_lattice, infer_fixed_lattice, infer_lattice, inference_to_json
+from .inference import infer_autocorr_lattice, infer_fixed_lattice, inference_to_json
 from .io import load_rgba, nearest_resize, save_rgba
 from .metrics import (
     foreground_edge_concentration,
@@ -49,7 +49,7 @@ def run_pipeline(
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
     enable_candidate_rerank: bool = True,
-    lattice_inference_mode: str = "search",
+    lattice_inference_mode: str = "autocorr",
     max_inferred_target_size: int | None = None,
     observer: PipelineObserver | None = None,
 ) -> RunResult:
@@ -91,7 +91,7 @@ def run_pipeline_rgba(
     solver_params: SolverHyperParams | None = None,
     strip_background: bool = False,
     enable_candidate_rerank: bool = True,
-    lattice_inference_mode: str = "search",
+    lattice_inference_mode: str = "autocorr",
     max_inferred_target_size: int | None = None,
     observer: PipelineObserver | None = None,
 ) -> RunResult:
@@ -106,7 +106,7 @@ def run_pipeline_rgba(
             "stage_started",
             stage="preprocess",
             label="Background cleanup",
-            detail="Stripping edge-connected neutral junk before lattice search.",
+            detail="Stripping edge-connected neutral junk before lattice inference.",
         )
         source = strip_edge_background(source)
         emit_observer(observer, "preprocess_completed", source_rgba=source.copy(), operation="strip_background")
@@ -120,32 +120,22 @@ def run_pipeline_rgba(
     )
     if fixed_dims is None:
         check_observer_cancelled(observer)
-        if lattice_inference_mode == "autocorr":
-            inference_label = "Autocorr lattice"
-            inference_detail = "Scoring autocorr candidate sizes from canonical cell centers; the phase field is free to drift."
-        elif lattice_inference_mode == "search":
-            inference_label = "Lattice search"
-            inference_detail = "Searching for output size from canonical cell centers; the phase field handles local drift."
-        else:
+        if lattice_inference_mode != "autocorr":
             raise ValueError(f"Unknown lattice_inference_mode '{lattice_inference_mode}'.")
         emit_observer(
             observer,
             "stage_started",
             stage="inference",
-            label=inference_label,
-            detail=inference_detail,
+            label="Autocorr lattice",
+            detail="Scoring autocorr candidate sizes from canonical cell centers; the phase field is free to drift.",
         )
-        if lattice_inference_mode == "autocorr":
-            inference = infer_autocorr_lattice(
-                source,
-                max_target_size=max_inferred_target_size,
-                device=device,
-                observer=observer,
-            )
-            inference_mode = "autocorr"
-        else:
-            inference = infer_lattice(source, target_size=target_size, device=device, observer=observer)
-            inference_mode = "searched"
+        inference = infer_autocorr_lattice(
+            source,
+            max_target_size=max_inferred_target_size,
+            device=device,
+            observer=observer,
+        )
+        inference_mode = "autocorr"
     else:
         check_observer_cancelled(observer)
         emit_observer(
@@ -168,8 +158,8 @@ def run_pipeline_rgba(
         observer,
         "stage_started",
         stage="analysis",
-        label="Input analysis",
-        detail="Mapping sharp cells, edges, and guidance before the solver starts.",
+        label="Diagnostic edge preview",
+        detail="Rendering source edge diagnostics; the solver follows the hierarchical flatness signal.",
     )
     analysis = _prepare_analysis(
         source,
@@ -188,7 +178,6 @@ def run_pipeline_rgba(
     inference = _select_candidate(
         source,
         inference,
-        analysis=analysis,
         steps=steps,
         seed=seed,
         device=device,
@@ -212,7 +201,6 @@ def run_pipeline_rgba(
     solver, reconstruction_diagnostics = _run_reconstruction(
         source,
         inference=inference,
-        analysis=analysis,
         steps=steps,
         seed=seed,
         device=device,
@@ -225,9 +213,9 @@ def run_pipeline_rgba(
         "stage_started",
         stage="cleanup",
         label="Cleanup",
-        detail="Sweeping isolated noise and stubborn single-pixel junk.",
+        detail="Snapping alpha to the final discrete mask.",
     )
-    cleanup = cleanup_pixels(solver.target_rgba, source_guidance=solver.guidance_strength)
+    cleanup = cleanup_pixels(solver.target_rgba)
     emit_observer(
         observer,
         "cleanup_completed",
@@ -348,7 +336,6 @@ def _select_candidate(
     source: np.ndarray,
     inference: InferenceResult,
     *,
-    analysis,
     steps: int = 0,
     seed: int,
     device: str,
@@ -359,7 +346,6 @@ def _select_candidate(
     return _select_candidate_with_reconstruction(
         source,
         inference,
-        analysis=analysis,
         steps=steps,
         seed=seed,
         device=device,
@@ -373,7 +359,6 @@ def _select_candidate_with_reconstruction(
     source: np.ndarray,
     inference: InferenceResult,
     *,
-    analysis,
     steps: int = 0,
     seed: int,
     device: str,
@@ -440,7 +425,6 @@ def _select_candidate_with_reconstruction(
         candidate_artifacts, _candidate_diagnostics = _run_reconstruction(
             source,
             inference=candidate_inference,
-            analysis=analysis,
             steps=preview_steps,
             seed=seed,
             device=device,
@@ -614,34 +598,22 @@ def _run_reconstruction(
     source: np.ndarray,
     *,
     inference: InferenceResult,
-    analysis,
     steps: int,
     seed: int,
     device: str,
     solver_params: SolverHyperParams,
     observer: PipelineObserver | None = None,
 ):
-    if observer is None:
-        solver = optimize_phase_field(
-            source,
-            inference=inference,
-            analysis=analysis,
-            steps=steps,
-            seed=seed,
-            device=device,
-            solver_params=solver_params,
-        )
-    else:
-        solver = optimize_phase_field(
-            source,
-            inference=inference,
-            analysis=analysis,
-            steps=steps,
-            seed=seed,
-            device=device,
-            solver_params=solver_params,
-            observer=observer,
-        )
+    solver_kwargs = {
+        "inference": inference,
+        "steps": steps,
+        "seed": seed,
+        "device": device,
+        "solver_params": solver_params,
+    }
+    if observer is not None:
+        solver_kwargs["observer"] = observer
+    solver = optimize_phase_field(source, **solver_kwargs)
     phase_field_metrics = getattr(solver, "stage_diagnostics", {}).get("phase_field", {})
     return solver, {
         "mode": "phase-field",

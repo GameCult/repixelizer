@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from repixelizer.analysis import analyze_phase_field_source
 from repixelizer.observe import PipelineCancelled
 from repixelizer.phase_field import optimize_phase_field
 from repixelizer.synthetic import fake_pixelize, make_emblem
@@ -25,7 +24,6 @@ def test_optimize_phase_field_emits_displacement_diagnostics_and_source_colors()
     artifacts = optimize_phase_field(
         source,
         inference=inference,
-        analysis=analyze_phase_field_source(source, seed=7),
         steps=4,
         seed=7,
         device="cpu",
@@ -61,7 +59,6 @@ def test_optimize_phase_field_moves_off_zero_when_phase_is_wrong() -> None:
     artifacts = optimize_phase_field(
         fake,
         inference=inference,
-        analysis=analyze_phase_field_source(fake, seed=7),
         steps=6,
         seed=7,
         device="cpu",
@@ -94,7 +91,6 @@ def test_optimize_phase_field_honors_cooperative_cancellation() -> None:
         optimize_phase_field(
             source,
             inference=inference,
-            analysis=analyze_phase_field_source(source, seed=7),
             steps=4,
             seed=7,
             device="cpu",

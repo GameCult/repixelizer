@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep any existing files in the benchmark output directory instead of clearing it first",
     )
+    benchmark_parser.add_argument("--workers", type=int, default=1, help="Parallel benchmark worker processes")
     tune_parser = subparsers.add_parser("tune", help="Run a black-box hyperparameter search on a benchmark slice.")
     tune_parser.add_argument("--corpus-dir", default="examples/corpus", help="Corpus root containing originals/")
     tune_parser.add_argument("--out-dir", default="artifacts/tuning", help="Directory for tuning outputs")
@@ -111,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Let the pipeline infer output size instead of locking it to the original ground-truth size",
     )
+    tune_parser.add_argument("--workers", type=int, default=1, help="Parallel benchmark worker processes per trial")
     prepare_parser = subparsers.add_parser("prepare-corpus", help="Normalize imported corpus sheets into single sprites.")
     prepare_parser.add_argument("--corpus-dir", default="examples/corpus", help="Corpus root containing originals/")
     gui_parser = subparsers.add_parser("gui", help="Launch the web GUI.")
@@ -157,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
             include_cases=args.case,
             limit_cases=args.limit,
             keep_existing=args.keep_existing,
+            workers=args.workers,
         )
         return 0
     if command == "tune":
@@ -172,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             infer_size=args.infer_size,
             include_cases=args.case,
             limit_cases=args.limit,
+            workers=args.workers,
         )
         return 0
     if command == "prepare-corpus":

@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from repixelizer.analysis import analyze_phase_field_source
 from repixelizer.baselines import naive_resize_baseline
 from repixelizer.metrics import coherence_breakdown, foreground_reconstruction_error, source_lattice_consistency_breakdown
 from repixelizer.params import SolverHyperParams
@@ -177,7 +176,7 @@ def test_candidate_rerank_can_override_low_confidence_inference_pick(monkeypatch
         def __init__(self, rgba: np.ndarray) -> None:
             self.target_rgba = rgba
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         assert steps == 8
         return DummyArtifacts(outputs[(inference.target_width, inference.target_height)])
 
@@ -193,7 +192,6 @@ def test_candidate_rerank_can_override_low_confidence_inference_pick(monkeypatch
     selected = _select_candidate(
         source,
         inference,
-        analysis=object(),
         steps=32,
         seed=7,
         device="cpu",
@@ -218,7 +216,7 @@ def test_candidate_rerank_preview_respects_requested_zero_steps(monkeypatch) -> 
         def __init__(self, rgba: np.ndarray) -> None:
             self.target_rgba = rgba
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         assert steps == 0
         return DummyArtifacts(np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32))
 
@@ -227,7 +225,6 @@ def test_candidate_rerank_preview_respects_requested_zero_steps(monkeypatch) -> 
     _select_candidate(
         source,
         inference,
-        analysis=object(),
         steps=0,
         seed=7,
         device="cpu",
@@ -257,7 +254,6 @@ def test_candidate_rerank_honors_cooperative_cancellation(monkeypatch) -> None:
         _select_candidate(
             source,
             inference,
-            analysis=object(),
             steps=8,
             seed=7,
             device="cpu",
@@ -280,7 +276,7 @@ def test_candidate_rerank_can_override_to_better_size_candidate(monkeypatch) -> 
         def __init__(self, rgba: np.ndarray) -> None:
             self.target_rgba = rgba
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         return DummyArtifacts(rgba)
 
@@ -292,7 +288,7 @@ def test_candidate_rerank_can_override_to_better_size_candidate(monkeypatch) -> 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
 
-    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
 
@@ -312,7 +308,7 @@ def test_candidate_rerank_rejects_large_size_jump(monkeypatch) -> None:
         def __init__(self, rgba: np.ndarray) -> None:
             self.target_rgba = rgba
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         return DummyArtifacts(rgba)
 
@@ -324,7 +320,7 @@ def test_candidate_rerank_rejects_large_size_jump(monkeypatch) -> None:
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
     monkeypatch.setattr("repixelizer.pipeline.source_lattice_consistency_breakdown", fake_support)
 
-    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
 
@@ -347,7 +343,6 @@ def test_select_candidate_can_skip_candidate_rerank(monkeypatch) -> None:
     selected = _select_candidate(
         source,
         inference,
-        analysis=object(),
         steps=32,
         seed=7,
         device="cpu",
@@ -377,15 +372,15 @@ def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
     class DummyAnalysis:
         edge_map = np.zeros((6, 6), dtype=np.float32)
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
-        del source_rgba, analysis, steps, seed, device, solver_params
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
+        del source_rgba, steps, seed, device, solver_params
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         rgba[..., 1] = 1.0
         rgba[..., 3] = 1.0
         return SolverArtifacts(
             target_rgba=rgba,
             uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
-            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            signal_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
             initial_rgba=rgba.copy(),
             loss_history=[0.0],
             stage_diagnostics={
@@ -394,7 +389,7 @@ def test_pipeline_runs_phase_field_mode(tmp_path: Path, monkeypatch) -> None:
             },
         )
 
-    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", lambda *args, **kwargs: inference)
+    monkeypatch.setattr("repixelizer.pipeline.infer_autocorr_lattice", lambda *args, **kwargs: inference)
     monkeypatch.setattr("repixelizer.pipeline.analyze_phase_field_source", lambda *args, **kwargs: DummyAnalysis())
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
 
@@ -431,23 +426,23 @@ def test_pipeline_fixed_target_skips_search_inference(tmp_path: Path, monkeypatc
         edge_map = np.zeros((6, 6), dtype=np.float32)
 
     def fail_infer(*args, **kwargs):
-        raise AssertionError("full lattice search should not run for fixed target")
+        raise AssertionError("autocorr lattice inference should not run for fixed target")
 
     def fake_infer_fixed(*args, **kwargs):
         return inference
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         rgba[..., 3] = 1.0
         return SolverArtifacts(
             target_rgba=rgba,
             uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
-            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            signal_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
             initial_rgba=rgba.copy(),
             loss_history=[],
         )
 
-    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", fail_infer)
+    monkeypatch.setattr("repixelizer.pipeline.infer_autocorr_lattice", fail_infer)
     monkeypatch.setattr("repixelizer.pipeline.infer_fixed_lattice", fake_infer_fixed)
     monkeypatch.setattr("repixelizer.pipeline.analyze_phase_field_source", lambda *args, **kwargs: DummyAnalysis())
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
@@ -467,7 +462,7 @@ def test_pipeline_fixed_target_skips_search_inference(tmp_path: Path, monkeypatc
     assert result.inference.target_height == 3
 
 
-def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -> None:
+def test_pipeline_autocorr_mode_uses_autocorr_inference(tmp_path: Path, monkeypatch) -> None:
     source = np.zeros((6, 6, 4), dtype=np.float32)
     source[..., 3] = 1.0
     input_path = tmp_path / "input.png"
@@ -490,24 +485,24 @@ def test_pipeline_autocorr_mode_skips_size_search(tmp_path: Path, monkeypatch) -
         edge_map = np.zeros((6, 6), dtype=np.float32)
 
     def fail_infer(*args, **kwargs):
-        raise AssertionError("searched lattice inference should not run in autocorr mode")
+        raise AssertionError("alternate lattice inference should not run in autocorr mode")
 
     def fake_infer_autocorr(*args, **kwargs):
         assert kwargs["max_target_size"] == 5
         return inference
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         rgba = np.zeros((inference.target_height, inference.target_width, 4), dtype=np.float32)
         rgba[..., 3] = 1.0
         return SolverArtifacts(
             target_rgba=rgba,
             uv_field=np.zeros((inference.target_height, inference.target_width, 2), dtype=np.float32),
-            guidance_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
+            signal_strength=np.zeros((inference.target_height, inference.target_width), dtype=np.float32),
             initial_rgba=rgba.copy(),
             loss_history=[],
         )
 
-    monkeypatch.setattr("repixelizer.pipeline.infer_lattice", fail_infer)
+    monkeypatch.setattr("repixelizer.pipeline.infer_autocorr_lattice", fail_infer)
     monkeypatch.setattr("repixelizer.pipeline.infer_autocorr_lattice", fake_infer_autocorr)
     monkeypatch.setattr("repixelizer.pipeline.analyze_phase_field_source", lambda *args, **kwargs: DummyAnalysis())
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
@@ -547,7 +542,7 @@ def test_candidate_rerank_can_accept_low_confidence_size_jump_with_strong_suppor
         candidate_b.target_width: np.ones((candidate_b.target_height, candidate_b.target_width, 4), dtype=np.float32),
     }
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         return DummyArtifacts(outputs[inference.target_width])
 
     def fake_support(source_rgba, output_rgba, *, target_width, target_height):
@@ -568,7 +563,7 @@ def test_candidate_rerank_can_accept_low_confidence_size_jump_with_strong_suppor
     monkeypatch.setattr("repixelizer.pipeline.foreground_stroke_wobble_error", fake_wobble)
     monkeypatch.setattr("repixelizer.pipeline.foreground_edge_concentration", fake_concentration)
 
-    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_b.target_width
     assert selected.target_height == candidate_b.target_height
 
@@ -588,7 +583,7 @@ def test_candidate_rerank_keeps_high_confidence_candidate_without_probe(monkeypa
         raise AssertionError("rerank probe should not run for high-confidence inference")
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fail)
-    selected = _select_candidate(source, inference, analysis=object(), steps=32, seed=7, device="cpu")
+    selected = _select_candidate(source, inference, steps=32, seed=7, device="cpu")
     assert selected.target_width == candidate_a.target_width
     assert selected.target_height == candidate_a.target_height
 
@@ -625,7 +620,7 @@ def test_candidate_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
         candidate_b.target_width: np.ones((3, 3, 4), dtype=np.float32),
     }
 
-    def fake_optimize_phase_field(source_rgba, inference, analysis, steps, seed, device, solver_params=None):
+    def fake_optimize_phase_field(source_rgba, inference, steps, seed, device, solver_params=None):
         return DummyArtifacts(outputs[inference.target_width])
 
     monkeypatch.setattr("repixelizer.pipeline.optimize_phase_field", fake_optimize_phase_field)
@@ -637,7 +632,6 @@ def test_candidate_rerank_can_prefer_better_line_metrics(monkeypatch) -> None:
     selected = _select_candidate(
         source,
         inference,
-        analysis=object(),
         steps=32,
         seed=7,
         device="cpu",

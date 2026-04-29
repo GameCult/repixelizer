@@ -8,8 +8,8 @@ lattice like grown-ups.
 
 Instead of pretending this is a resize problem, Repixelizer treats it as
 lattice inference plus `phase-field` reconstruction: infer the ruler, scout the
-edges, give every output cell a tiny shove vector, nudge those shoves until the
-cells settle into quieter paint while staying in order, then sample once and go
+edges, let every output cell search a tiny local window for quieter paint,
+relax the whole sheet back into a coherent lattice, then sample once and go
 home.
 
 ## GUI First
@@ -19,7 +19,7 @@ The web GUI is the main way to use this thing unless you enjoy raw flags for spo
 It gives you:
 
 - drag-and-drop input
-- live phase-field feedback while lattice search, rerank, and solving run
+- live phase-field feedback while autocorr inference, rerank, and solving run
 - synchronized input/output inspection zoom for close comparison
 - a built-in output editor for single-pixel cleanup with eyedropper and pencil tools
 
@@ -41,9 +41,9 @@ If you want to support the official hosted deployment and help us scale the poor
 
 This sheet carries two cases: the ugly fake-pixel badge and a dense
 higher-resolution landscape. The badge row shows the core salvage story. The
-landscape row shows a different failure mode: auto lattice inference still
-undershoots that source, so the `phase-field` panel is the tracked fixed
-`512x512` result next to the same cheap Lanczos baseline.
+landscape row is now generated through automatic lattice inference as well, so
+the preview shows the machine we actually ship instead of a pinned-size fairy
+tale wearing a serious hat.
 
 Each row carries its own inset, so the tiny details have nowhere to hide.
 
@@ -53,18 +53,19 @@ Each row carries its own inset, so the tiny details have nowhere to hide.
 
 Repixelizer does one thing:
 
-`source image -> lattice inference -> edge scout -> fixed lattice centers ->
-projected displacement-field optimization -> nearest source sample -> cleanup /
-diagnostics`
+`source image -> lattice inference -> diagnostic edge preview -> fixed lattice centers ->
+hierarchical flatness signal -> explicit local search + lattice relaxation ->
+nearest source sample -> cleanup / diagnostics`
 
 In plainer language:
 
 1. infer the target lattice size
-2. build one edge scout map over the source
+2. build one diagnostic edge preview over the source
 3. nail down fixed lattice centers
-4. run the `phase-field` solve by optimizing one `(dx, dy)` shove vector per
-   output cell
-5. sample the source once from the final displaced cell positions
+4. run the `phase-field` solve by letting each cell search a tiny local window,
+   move toward the flattest nearby source position, and relax back into a
+   coherent lattice
+5. sample the source once from the final cell positions
 6. clean up the discrete result, optionally fit a palette, and write
    diagnostics
 
@@ -85,12 +86,12 @@ What exists now:
 - a tuning harness for offline parameter sweeps
 - metrics that finally care about visible structure instead of only pleasing the lattice accountant
 - `source_structure` is reported alongside `source_fidelity`, because the old metric was happily calling better-looking images worse
-- the tracked sword-tip blemish on the AI badge has its own focused fixture in `tests/fixtures/real/ai-badge-tip-focus.json`
+- a shippable explicit local-search solver config, with tuning notes in `docs/solver-tuning-lessons-2026-04-29.md`
 
 Current weak spots:
 
-- `phase-field` still needs better along-stroke versus across-stroke behavior near tapered contours
-- lattice selection is still low-confidence on some ugly generated inputs, so pinned-size iteration remains an important workflow
+- `phase-field` is usable, not final; signal knobs still need a disciplined follow-up pass around the current motion basin
+- lattice selection is still low-confidence on some ugly generated inputs, so visual inspection and pinned-size iteration remain important workflows
 
 ## Quickstart
 
@@ -193,9 +194,8 @@ Run the focused test suite with:
 ## Regenerating README Assets
 
 The README images are generated from repo-tracked fixtures, not from random
-artifacts left lying around. The dense landscape row reuses the tracked fixed
-`512x512` output fixture because auto lattice inference still undershoots that
-case:
+artifacts left lying around. The dense landscape row runs automatic lattice
+inference instead of pinning a fixed output size:
 
 ```powershell
 .venv\Scripts\python scripts\generate_readme_previews.py --out-sheet docs\readme-assets\badge-example-sheet.png --out-guard-crop docs\readme-assets\guard-right-crop-comparison.png --scratch-dir artifacts\readme-build --device auto

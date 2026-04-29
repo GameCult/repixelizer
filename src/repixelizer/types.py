@@ -49,7 +49,7 @@ class SourceLatticeReference:
 class SolverArtifacts:
     target_rgba: np.ndarray
     uv_field: np.ndarray
-    guidance_strength: np.ndarray
+    signal_strength: np.ndarray
     initial_rgba: np.ndarray
     loss_history: list[float]
     stage_diagnostics: dict[str, Any] = field(default_factory=dict)

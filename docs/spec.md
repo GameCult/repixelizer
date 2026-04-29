@@ -57,13 +57,14 @@ Repixelizer treats this as lattice inference plus reconstruction rather than a r
 The canonical workflow should be fully automatic:
 
 1. load the source image
-2. infer lattice size
-3. analyze source structure
-4. run the `phase-field` reconstruction over the inferred lattice
-5. project that result to a real pixel grid
-6. clean up obvious discrete-grid artifacts
-7. optionally quantize to a palette
-8. write output and diagnostics
+2. infer lattice size from autocorrelation candidates, unless the caller pins it
+3. render a diagnostic edge preview
+4. build the solver's hierarchical flatness signal from the source
+5. run the `phase-field` reconstruction over the inferred lattice
+6. sample real source pixels from the final source-position field
+7. snap alpha to the final discrete mask
+8. optionally quantize to a palette
+9. write output and diagnostics
 
 No manual masks or user-authored region hints are assumed in v1.
 
@@ -81,6 +82,8 @@ repixelize compare input.png --out output.png
 
 Supported flags:
 - `--target-size`
+- `--target-width`
+- `--target-height`
 - `--palette`
 - `--palette-mode off|fit|strict`
 - `--diagnostics-dir`
@@ -103,11 +106,11 @@ Palette constraints are optional because many generated fake-pixel-art images do
 The tool must estimate the resolution of the fake lattice being mimicked.
 
 Requirements:
-- search over candidate target sizes
+- infer candidate target sizes from autocorrelation hints
 - use canonical cell centers for each candidate
 - score candidates using coherence-oriented metrics rather than reconstruction alone
 - expose the top-ranked alternatives in diagnostics
-- if `--target-size` is provided, skip size search
+- if `--target-size`, `--target-width`, or `--target-height` is provided, skip automatic inference
 
 Scoring goals:
 - low isolated-pixel rate
@@ -117,42 +120,39 @@ Scoring goals:
 - lower local color chatter
 - reasonable agreement with source-derived periodicity priors
 
-### 2. Source analysis
+### 2. Diagnostic analysis and solver signal
 
-The solver should derive automatic guidance from the image itself:
-- edge map
-- alpha-aware source structure
+The pipeline keeps two source-derived views separate:
 
-This guidance is used to preserve important boundaries while allowing smoother regions to settle into cleaner pixel clusters.
+- a diagnostic edge preview for GUI and run inspection
+- a hierarchical flatness signal that actually steers the solver
 
-### 3. Phase-field optimization
+The live solver signal is built from multiscale luminance gradient and curvature energy. It rewards calm local source regions while leaving edge preview as a gauge, not a hidden steering wheel.
 
-The optimizer represents each output pixel by a base lattice center plus one learned displacement vector.
+### 3. Phase-field reconstruction
+
+The solver represents each output pixel as one live source-space sample position initialized at a fixed lattice center.
 
 Requirements:
 - operate in premultiplied RGBA space
-- use PyTorch autograd
-- optimize a displacement field initialized at zero from the inferred lattice
-- preserve local adjacency instead of letting the sample field collapse or fold
+- initialize from canonical fixed lattice centers
+- let each sample choose from a small local candidate window
+- blend toward the locally preferred flatter source position
+- relax row and column springs so the sample field stays coherent
+- nearest-sample the original source pixels for final output
 
-Loss components should include:
-- local coherence / solidity so samples settle inside fake-pixel interiors
-- edge-aware smoothing so hard boundaries stay crisp
-- anti-collapse spacing so neighboring cells do not stack onto the same source pixel
-- bounded displacement so the field does not wander off into the weeds
+The current implementation is explicit NumPy local search plus spring relaxation. It is not the old PyTorch autograd / projected-Adam displacement solver.
 
 ### 4. Discrete projection and cleanup
 
 After the phase-field stage, the result must be treated as a true pixel grid.
 
 The discrete stage should:
-- evaluate local neighborhoods
-- remove orphan pixels where possible
-- merge obvious micro-clusters
-- reduce accidental highlight static
-- avoid damaging strong guided boundaries
+- preserve source-sampled RGBA values
+- snap alpha to an opaque/transparent mask
+- leave structural repair to the solver rather than hiding confusion with a cleanup pass
 
-This stage is intentionally heuristic and local in v1.
+Cleanup is intentionally small in v1. It should not become a second solver wearing a trench coat.
 
 ### 5. Baselines and comparison mode
 
