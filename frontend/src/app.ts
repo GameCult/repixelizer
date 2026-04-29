@@ -199,7 +199,6 @@ const targetSizeInput = byId<HTMLInputElement>("targetSizeInput");
 const targetWidthInput = byId<HTMLInputElement>("targetWidthInput");
 const targetHeightInput = byId<HTMLInputElement>("targetHeightInput");
 const stepsInput = byId<HTMLInputElement>("stepsInput");
-const seedInput = byId<HTMLInputElement>("seedInput");
 const runControlsCopy = byId<HTMLParagraphElement>("runControlsCopy");
 const queuePanel = byId<HTMLElement>("queuePanel");
 const queueSummaryPanel = byId<HTMLDivElement>("queueSummary");
@@ -1269,7 +1268,7 @@ function buildFormData(): FormData {
     ["target_width", parseOptionalInteger(targetWidthInput)?.toString() ?? null],
     ["target_height", parseOptionalInteger(targetHeightInput)?.toString() ?? null],
     ["steps", String(normalizedSteps)],
-    ["seed", String(parseOptionalInteger(seedInput) ?? 7)],
+    ["seed", "7"],
     ["device", runtimeConfig?.hostedDemo ? "cpu" : deviceInput.value],
     ["strip_background", runtimeConfig?.hostedDemo ? "false" : stripBackgroundInput.checked ? "true" : "false"],
     ["skip_candidate_rerank", "false"],
