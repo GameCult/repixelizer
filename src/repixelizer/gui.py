@@ -170,7 +170,7 @@ class HostedDemoConfig:
         defaults = {
             "max_upload_bytes": 2 * 1_048_576 if hosted_demo else 16 * 1_048_576,
             "max_input_dimension": 2048 if hosted_demo else 4096,
-            "max_output_dimension": 256 if hosted_demo else 1024,
+            "max_output_dimension": 512 if hosted_demo else 1024,
             "default_steps": 32 if hosted_demo else 48,
             "max_steps": 48 if hosted_demo else 256,
             "queue_capacity": 10 if hosted_demo else 32,
@@ -515,7 +515,7 @@ def _normalize_job_options(
     normalized_strip_background = False if config.hosted_demo else bool(strip_background)
     inference_mode = "autocorr" if fixed_dims is None else "fixed"
     max_inferred_target_size = config.max_output_dimension if fixed_dims is None else None
-    normalized_skip_candidate_rerank = bool(skip_candidate_rerank)
+    normalized_skip_candidate_rerank = False
     return {
         "target_size": normalized_target_size,
         "target_width": normalized_target_width,

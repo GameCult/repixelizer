@@ -386,7 +386,7 @@ def test_gui_static_assets_disable_browser_caching() -> None:
 
     app = create_app()
     html_status, html_headers, html_body = asyncio.run(_get_response(app, "/app/"))
-    js_status, js_headers, _js_body = asyncio.run(_get_response(app, "/app/app.js"))
+    js_status, js_headers, js_body = asyncio.run(_get_response(app, "/app/app.js"))
 
     assert html_status == 200
     assert js_status == 200
@@ -395,8 +395,15 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     assert html_headers["pragma"] == "no-cache"
     assert js_headers["pragma"] == "no-cache"
     html_text = html_body.decode("utf-8")
+    js_text = js_body.decode("utf-8")
     assert "./styles.css?v=" in html_text
     assert "./app.js?v=" in html_text
+    assert 'id="deviceField" class="field" hidden' in html_text
+    assert 'id="stripBackgroundField" class="toggle-row ui-surface ui-frame" hidden' in html_text
+    assert "skipRerankInput" not in html_text
+    assert "Skip candidate rerank" not in html_text
+    assert '["skip_candidate_rerank", "false"]' in js_text
+    assert "skipRerankInput" not in js_text
 
 
 def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> None:
@@ -711,7 +718,8 @@ def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: P
     payload = _response_json(_route_endpoint(app, "/api/config", "GET")())
 
     assert payload["hostedDemo"] is True
-    assert payload["limits"]["maxOutputDimension"] == 256
+    assert payload["limits"]["maxUploadBytes"] == 2 * 1_048_576
+    assert payload["limits"]["maxOutputDimension"] == 512
     assert payload["limits"]["defaultSteps"] == 32
     assert payload["ui"]["showDeviceControl"] is False
     assert payload["ui"]["showStripBackgroundControl"] is False
@@ -943,15 +951,15 @@ def test_gui_heimdall_patreon_auth_start_sends_membership_policy(monkeypatch, tm
     }
 
 
-def test_hosted_job_options_use_autocorr_and_allow_rerank() -> None:
+def test_hosted_job_options_use_autocorr_and_force_rerank() -> None:
     from repixelizer.gui import HostedDemoConfig, _normalize_job_options
 
     config = HostedDemoConfig(
         hosted_demo=True,
         show_queue_panel=True,
-        max_upload_bytes=1_048_576,
+        max_upload_bytes=2 * 1_048_576,
         max_input_dimension=2048,
-        max_output_dimension=256,
+        max_output_dimension=512,
         default_steps=32,
         max_steps=48,
         queue_capacity=10,
@@ -972,12 +980,12 @@ def test_hosted_job_options_use_autocorr_and_allow_rerank() -> None:
         seed=7,
         device="auto",
         strip_background=False,
-        skip_candidate_rerank=False,
+        skip_candidate_rerank=True,
     )
 
     assert options["target_size"] is None
     assert options["lattice_inference_mode"] == "autocorr"
-    assert options["max_inferred_target_size"] == 256
+    assert options["max_inferred_target_size"] == 512
     assert options["skip_candidate_rerank"] is False
 
 
@@ -1153,7 +1161,7 @@ def test_gui_hosted_jobs_dispatch_direct_autocorr_pipeline(monkeypatch, tmp_path
     assert created.status_code == 200
     assert calls
     assert calls[0]["lattice_inference_mode"] == "autocorr"
-    assert calls[0]["max_inferred_target_size"] == 256
+    assert calls[0]["max_inferred_target_size"] == 512
     assert calls[0]["enable_candidate_rerank"] is True
     assert calls[0]["target_size"] is None
 

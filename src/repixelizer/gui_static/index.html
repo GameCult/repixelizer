@@ -175,7 +175,7 @@
               </div>
             </div>
             <form id="controlsForm" class="controls-grid">
-              <label id="deviceField" class="field">
+              <label id="deviceField" class="field" hidden>
                 <span class="field-heading">
                   <span class="field-label">Device</span>
                   <span
@@ -263,7 +263,7 @@
                 </span>
                 <input id="seedInput" class="field-control" name="seed" type="number" min="0" value="7" />
               </label>
-              <label id="stripBackgroundField" class="toggle-row ui-surface ui-frame">
+              <label id="stripBackgroundField" class="toggle-row ui-surface ui-frame" hidden>
                 <input id="stripBackgroundInput" name="stripBackground" type="checkbox" />
                 <span class="toggle-copy">
                   <span>Strip checkerboard-ish junk</span>
@@ -273,20 +273,6 @@
                     role="note"
                     title="Remove light neutral backgrounds connected to the image edge before inference. Useful for fake transparency grids and similar edge junk."
                     aria-label="Remove light neutral backgrounds connected to the image edge before inference. Useful for fake transparency grids and similar edge junk."
-                    >?</span
-                  >
-                </span>
-              </label>
-              <label class="toggle-row ui-surface ui-frame">
-                <input id="skipRerankInput" name="skipRerank" type="checkbox" />
-                <span class="toggle-copy">
-                  <span>Skip candidate rerank</span>
-                  <span
-                    class="help-tip"
-                    tabindex="0"
-                    role="note"
-                    title="Skip the preview rerank pass that rescues shaky size picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
-                    aria-label="Skip the preview rerank pass that rescues shaky size picks when confidence is low. Faster, but more likely to keep a bad lattice guess."
                     >?</span
                   >
                 </span>

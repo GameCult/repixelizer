@@ -49,7 +49,6 @@ const deviceField = byId("deviceField");
 const deviceInput = byId("deviceInput");
 const stripBackgroundField = byId("stripBackgroundField");
 const stripBackgroundInput = byId("stripBackgroundInput");
-const skipRerankInput = byId("skipRerankInput");
 const paintInputs = {
     r: byId("paintR"),
     g: byId("paintG"),
@@ -65,8 +64,8 @@ const eventTypes = [
     "stage_started",
     "source_loaded",
     "preprocess_completed",
-    "lattice_inference_started",
-    "lattice_inference_progress",
+    "lattice_search_started",
+    "lattice_search_progress",
     "inference_candidates_ready",
     "candidate_rerank_started",
     "candidate_rerank_candidate_started",
@@ -92,7 +91,7 @@ const state = {
     sourceImage: null,
     preprocessedImage: null,
     latticeImage: null,
-    signalImage: null,
+    guidanceImage: null,
     inference: null,
     inferenceMode: null,
     latticeSearch: null,
@@ -311,7 +310,7 @@ function applyRuntimeConfig(config) {
     }
     else {
         inputCopy.textContent = "Start with the ugly input.";
-        runControlsCopy.textContent = "Pin what you know. Infer what you do not.";
+        runControlsCopy.textContent = "Pin what you know. Search what you do not.";
     }
 }
 function resetRunArtifacts(options = {}) {
@@ -322,7 +321,7 @@ function resetRunArtifacts(options = {}) {
     }
     state.preprocessedImage = null;
     state.latticeImage = null;
-    state.signalImage = null;
+    state.guidanceImage = null;
     state.inference = null;
     state.inferenceMode = null;
     state.latticeSearch = null;
@@ -496,6 +495,9 @@ function renderInference() {
       <span>${state.inference.target_width} x ${state.inference.target_height}</span>
     </div>
     <div class="info-card summary-card">
+      <strong>Phase</strong>
+    </div>
+    <div class="info-card summary-card">
       <strong>Confidence</strong>
       <span>${formatNumber(state.inference.confidence, 3)}</span>
     </div>
@@ -544,12 +546,7 @@ function renderStatusMetrics() {
     }
     else if (state.stageKey === "analysis" || state.stageKey === "selection") {
         if (state.inference) {
-            const modeLabel = state.inferenceMode === "fixed"
-                ? "pinned"
-                : state.inferenceMode === "autocorr"
-                    ? "autocorr direct"
-                    : state.inferenceMode ?? "search";
-            items.push({ label: "Mode", value: modeLabel });
+            items.push({ label: "Mode", value: state.inferenceMode === "fixed" ? "pinned" : state.inferenceMode ?? "search" });
             items.push({ label: "Grid", value: `${state.inference.target_width} x ${state.inference.target_height}` });
             items.push({ label: "Confidence", value: formatNumber(state.inference.confidence, 3) });
         }
@@ -584,11 +581,11 @@ function renderStatusMetrics() {
     }
     else if (state.stageKey === "solver") {
         const solverTerms = [
-            { label: "Signal", value: formatNumber(frame?.terms.local_signal ?? frame?.solverMetrics.local_signal ?? null, 4) },
-            { label: "Grid align", value: formatNumber(frame?.terms.grid_alignment ?? frame?.solverMetrics.grid_alignment ?? null, 4) },
-            { label: "Smoothness", value: formatNumber(frame?.terms.smoothness ?? frame?.solverMetrics.smoothness ?? null, 4) },
-            { label: "Collapse", value: formatNumber(frame?.terms.collapse ?? frame?.solverMetrics.collapse ?? null, 4) },
-            { label: "Magnitude", value: formatNumber(frame?.terms.magnitude ?? frame?.solverMetrics.magnitude ?? null, 4) },
+            { label: "Coherence", value: formatNumber(frame?.terms.local_coherence ?? null, 4) },
+            { label: "Edge", value: formatNumber(frame?.terms.local_edge ?? null, 4) },
+            { label: "Smoothness", value: formatNumber(frame?.terms.smoothness ?? null, 4) },
+            { label: "Collapse", value: formatNumber(frame?.terms.collapse ?? null, 4) },
+            { label: "Magnitude", value: formatNumber(frame?.terms.magnitude ?? null, 4) },
         ];
         items.push({
             label: "Grid",
@@ -623,23 +620,15 @@ function resolveViewerPanels() {
             leftAsset = state.latticeImage;
             leftLabel = "Lattice Prep";
         }
-        if (state.signalImage) {
-            leftAsset = state.signalImage;
-            leftLabel = "Signal";
+        if (state.guidanceImage) {
+            leftAsset = state.guidanceImage;
+            leftLabel = "Guidance";
         }
         if (frame) {
-            if (state.stageKey === "solver" && state.signalImage) {
-                leftAsset = state.signalImage;
-                rightAsset = frame.samplingOverlayImage;
-                leftLabel = "Signal";
-                rightLabel = "Sampling Overlay";
-            }
-            else {
-                leftAsset = frame.samplingOverlayImage;
-                rightAsset = frame.outputImage;
-                leftLabel = "Sampling Overlay";
-                rightLabel = "Current Output";
-            }
+            leftAsset = frame.samplingOverlayImage;
+            rightAsset = frame.outputImage;
+            leftLabel = "Sampling Overlay";
+            rightLabel = "Current Output";
         }
         else if (state.cleanupImage) {
             if (state.heatmapImage) {
@@ -794,14 +783,12 @@ function renderLossChart() {
     const domainMax = getLossDomainMax();
     const samples = buildLossSamples();
     const observedMaxLoss = samples.length === 0 ? null : Math.max(...samples.map((sample) => sample.loss));
-    const observedMinLoss = samples.length === 0 ? null : Math.min(...samples.map((sample) => sample.loss));
-    if (observedMaxLoss !== null && observedMinLoss !== null) {
-        const observedAbsLoss = Math.max(Math.abs(observedMaxLoss), Math.abs(observedMinLoss));
-        state.lossAxisMax = Math.max(state.lossAxisMax ?? 0, observedAbsLoss);
+    if (observedMaxLoss !== null) {
+        state.lossAxisMax = Math.max(state.lossAxisMax ?? 0, observedMaxLoss);
     }
-    const axisAbsLoss = Math.max(0.001, state.lossAxisMax ?? Math.max(Math.abs(observedMaxLoss ?? 1), Math.abs(observedMinLoss ?? 0)));
-    const maxLoss = axisAbsLoss * 1.05;
-    const minLoss = -axisAbsLoss * 1.05;
+    const axisMaxLoss = Math.max(0.001, state.lossAxisMax ?? observedMaxLoss ?? 1);
+    const maxLoss = axisMaxLoss * 1.05;
+    const minLoss = 0;
     const chartLeft = 88;
     const chartRight = width - 18;
     const chartTop = 16;
@@ -1240,7 +1227,7 @@ function buildFormData() {
         ["seed", String(parseOptionalInteger(seedInput) ?? 7)],
         ["device", runtimeConfig?.hostedDemo ? "cpu" : deviceInput.value],
         ["strip_background", runtimeConfig?.hostedDemo ? "false" : stripBackgroundInput.checked ? "true" : "false"],
-        ["skip_candidate_rerank", skipRerankInput.checked ? "true" : "false"],
+        ["skip_candidate_rerank", "false"],
     ];
     for (const [key, value] of values) {
         if (value !== null) {
@@ -1302,7 +1289,7 @@ async function handleEvent(eventName, payload) {
             state.preprocessedImage = payload.sourceImage;
             addLog("Preprocess", "Stripped edge-connected background noise.");
             break;
-        case "lattice_inference_started":
+        case "lattice_search_started":
             state.latticeSearch = {
                 candidateCount: Number(payload.candidateCount ?? 0),
                 completedCandidates: 0,
@@ -1311,10 +1298,10 @@ async function handleEvent(eventName, payload) {
                 currentTargetHeight: null,
                 bestScore: null,
             };
-            setStage("inference", "Autocorr lattice", `Testing ${state.latticeSearch.candidateCount} autocorr candidate sizes from canonical cell centers.`);
-            addLog("Inference", `Started autocorr lattice inference across ${String(payload.candidateCount)} size candidates.`);
+            setStage("inference", "Lattice search", `Testing ${state.latticeSearch.candidateCount} candidate sizes from canonical cell centers.`);
+            addLog("Search", `Started lattice search across ${String(payload.candidateCount)} size candidates.`);
             break;
-        case "lattice_inference_progress":
+        case "lattice_search_progress":
             if (!state.latticeSearch) {
                 state.latticeSearch = {
                     candidateCount: Number(payload.totalCandidates ?? 0),
@@ -1331,7 +1318,7 @@ async function handleEvent(eventName, payload) {
             state.latticeSearch.currentTargetHeight = Number(payload.targetHeight ?? 0);
             state.latticeSearch.bestScore =
                 payload.bestScore === null || payload.bestScore === undefined ? state.latticeSearch.bestScore : Number(payload.bestScore);
-            setStage("inference", "Autocorr lattice", `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} from canonical cell centers.`);
+            setStage("inference", "Lattice search", `Size ${state.latticeSearch.completedCandidates} / ${state.latticeSearch.candidateCount}: scored ${state.latticeSearch.currentTargetWidth} x ${state.latticeSearch.currentTargetHeight} from canonical cell centers.`);
             break;
         case "inference_candidates_ready":
             state.inference = payload.inference;
@@ -1398,11 +1385,11 @@ async function handleEvent(eventName, payload) {
             addLog("Selection", "Committed to a lattice size.");
             break;
         case "analysis_completed":
-            addLog("Analysis", "Rendered the diagnostic edge preview.");
+            addLog("Scout", "Built the edge map that tells the solver where the floorboards creak.");
             break;
         case "phase_field_prepared":
             state.latticeImage = payload.latticeImage;
-            state.signalImage = payload.signalImage;
+            state.guidanceImage = payload.guidanceImage;
             state.phaseFieldPrep = {
                 targetWidth: Number(payload.targetWidth ?? 0),
                 targetHeight: Number(payload.targetHeight ?? 0),
@@ -1435,8 +1422,8 @@ async function handleEvent(eventName, payload) {
         case "cleanup_completed":
             state.cleanupImage = payload.cleanedImage;
             state.heatmapImage = payload.heatmapImage;
-            setStage("cleanup", "Cleanup", "Snapping alpha to the final discrete mask.");
-            addLog("Cleanup", "Applied alpha snapping.");
+            setStage("cleanup", "Cleanup", "Sweeping isolated artifacts and smoothing the last stubborn junk.");
+            addLog("Cleanup", "Ran the local cleanup sweep.");
             break;
         case "palette_completed":
             state.finalOutputImage = payload.outputImage;

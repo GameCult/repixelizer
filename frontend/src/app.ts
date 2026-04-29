@@ -210,7 +210,6 @@ const deviceField = byId<HTMLElement>("deviceField");
 const deviceInput = byId<HTMLSelectElement>("deviceInput");
 const stripBackgroundField = byId<HTMLElement>("stripBackgroundField");
 const stripBackgroundInput = byId<HTMLInputElement>("stripBackgroundInput");
-const skipRerankInput = byId<HTMLInputElement>("skipRerankInput");
 
 const paintInputs = {
   r: byId<HTMLInputElement>("paintR"),
@@ -1493,7 +1492,7 @@ function buildFormData(): FormData {
     ["seed", String(parseOptionalInteger(seedInput) ?? 7)],
     ["device", runtimeConfig?.hostedDemo ? "cpu" : deviceInput.value],
     ["strip_background", runtimeConfig?.hostedDemo ? "false" : stripBackgroundInput.checked ? "true" : "false"],
-    ["skip_candidate_rerank", skipRerankInput.checked ? "true" : "false"],
+    ["skip_candidate_rerank", "false"],
   ];
   for (const [key, value] of values) {
     if (value !== null) {
