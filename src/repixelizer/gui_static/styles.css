@@ -631,19 +631,6 @@ select.field-control optgroup {
   color: var(--ui-text-bright);
 }
 
-.loss-canvas {
-  width: 100%;
-  height: 148px;
-  display: block;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    linear-gradient(180deg, #0b2138, #050f1c);
-}
-
-.loss-canvas[hidden] {
-  display: none;
-}
-
 .viewer-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

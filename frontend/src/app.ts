@@ -142,7 +142,6 @@ type AppState = {
   heartbeatIntervalSeconds: number;
   staleAfterSeconds: number;
   solverStepBudget: number;
-  lossAxisMax: number | null;
   eventLog: LogItem[];
   viewerInspectZoom: number;
   paintColor: [number, number, number, number];
@@ -180,7 +179,6 @@ const statusMetrics = byId<HTMLDivElement>("statusMetrics");
 const inferenceSummary = byId<HTMLDivElement>("inferenceSummary");
 const candidateList = byId<HTMLDivElement>("candidateList");
 const eventLog = byId<HTMLDivElement>("eventLog");
-const lossCanvas = byId<HTMLCanvasElement>("lossCanvas");
 const leftCanvas = byId<HTMLCanvasElement>("leftCanvas");
 const rightCanvas = byId<HTMLCanvasElement>("rightCanvas");
 const leftVizLabel = byId<HTMLDivElement>("leftVizLabel");
@@ -274,7 +272,6 @@ const state: AppState = {
   heartbeatIntervalSeconds: 10,
   staleAfterSeconds: 30,
   solverStepBudget: 0,
-  lossAxisMax: null,
   eventLog: [],
   viewerInspectZoom: Number(inspectZoomInput.value),
   paintColor: [255, 255, 255, 255],
@@ -515,7 +512,6 @@ function resetRunArtifacts(options: { preserveSourceImage?: boolean } = {}): voi
   state.queueDepth = 0;
   state.waitingCount = 0;
   state.solverStepBudget = 0;
-  state.lossAxisMax = null;
   state.eventLog = [];
   state.editorBaseAsset = null;
   state.editorDirty = false;
@@ -794,11 +790,11 @@ function renderStatusMetrics(): void {
     }
   } else if (state.stageKey === "solver") {
     const solverTerms: StatusMetricItem[] = [
-      { label: "Coherence", value: formatNumber(frame?.terms.local_coherence ?? null, 4) },
-      { label: "Edge", value: formatNumber(frame?.terms.local_edge ?? null, 4) },
-      { label: "Smoothness", value: formatNumber(frame?.terms.smoothness ?? null, 4) },
-      { label: "Collapse", value: formatNumber(frame?.terms.collapse ?? null, 4) },
-      { label: "Magnitude", value: formatNumber(frame?.terms.magnitude ?? null, 4) },
+      { label: "Signal", value: formatNumber(frame?.terms.local_signal ?? null, 4) },
+      { label: "Grid align", value: formatNumber(frame?.terms.grid_alignment ?? null, 4) },
+      { label: "Mean move", value: formatNumber(frame?.solverMetrics.mean_displacement_px ?? null, 2) },
+      { label: "Max dx", value: formatNumber(frame?.solverMetrics.max_abs_dx_px ?? null, 2) },
+      { label: "Max dy", value: formatNumber(frame?.solverMetrics.max_abs_dy_px ?? null, 2) },
     ];
     items.push({
       label: "Grid",
@@ -814,7 +810,6 @@ function renderStatusMetrics(): void {
         ? `${formatNumber(state.phaseFieldPrep.cellX, 1)}x${formatNumber(state.phaseFieldPrep.cellY, 1)} px`
         : "pending",
     });
-    items.push({ label: "Loss", value: frame?.loss === null || frame?.loss === undefined ? "n/a" : formatNumber(frame.loss, 4) });
     items.push(...solverTerms);
   }
   renderStatusMetricItems(items);
@@ -899,221 +894,6 @@ async function renderViewer(): Promise<void> {
       ? drawAssetInspection(rightCanvas, currentViewerPanels.right.asset, viewerInspect, inspectReferenceWidth)
       : drawAsset(rightCanvas, currentViewerPanels.right.asset),
   ]);
-}
-
-function drawWrappedCanvasText(
-  context: CanvasRenderingContext2D,
-  text: string,
-  options: { x: number; y: number; maxWidth: number; lineHeight: number },
-): void {
-  const { x, y, maxWidth, lineHeight } = options;
-  const words = text.split(/\s+/);
-  let line = "";
-  let cursorY = y;
-  for (const word of words) {
-    const nextLine = line ? `${line} ${word}` : word;
-    if (line && context.measureText(nextLine).width > maxWidth) {
-      context.fillText(line, x, cursorY);
-      line = word;
-      cursorY += lineHeight;
-      continue;
-    }
-    line = nextLine;
-  }
-  if (line) {
-    context.fillText(line, x, cursorY);
-  }
-}
-
-function renderLossPlaceholder(context: CanvasRenderingContext2D, width: number, heading: string, detail: string): void {
-  context.textBaseline = "top";
-  context.fontKerning = "none";
-  context.fillStyle = "rgba(255, 216, 74, 0.9)";
-  context.font = "12px 'Press Start 2P', monospace";
-  context.fillText(heading.toUpperCase(), 20, 14);
-  context.fillStyle = "rgba(255,255,255,0.42)";
-  context.font = "20px 'VT323', monospace";
-  drawWrappedCanvasText(context, detail, { x: 20, y: 38, maxWidth: width - 40, lineHeight: 21 });
-}
-
-function getLossDomainMax(): number {
-  const frameDomain = state.frames.reduce((best, frame) => Math.max(best, frame.totalSteps), 0);
-  if (state.solverStepBudget > 0) {
-    return Math.max(1, state.solverStepBudget);
-  }
-  return Math.max(1, frameDomain);
-}
-
-function buildLossSamples(): Array<{ step: number; loss: number }> {
-  return state.frames
-    .filter((frame) => typeof frame.loss === "number" && Number.isFinite(frame.loss))
-    .map((frame) => ({ step: frame.step, loss: frame.loss as number }))
-    .sort((left, right) => left.step - right.step);
-}
-
-function formatTickLabel(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function buildStepTicks(domainMax: number): number[] {
-  if (domainMax <= 1) {
-    return [0, domainMax];
-  }
-  const quarter = domainMax / 4;
-  const ticks = [0, quarter, quarter * 2, quarter * 3, domainMax];
-  const rounded = ticks.map((tick, index) => (index === 0 || index === ticks.length - 1 ? tick : Math.round(tick)));
-  return rounded.filter((tick, index) => rounded.findIndex((candidate) => Math.abs(candidate - tick) < 1e-6) === index);
-}
-
-function lossCanvasScale(): number {
-  return Math.max(1, Math.ceil(window.devicePixelRatio || 1));
-}
-
-function configureLossCanvas(): { context: CanvasRenderingContext2D; width: number; height: number } | null {
-  const context = lossCanvas.getContext("2d");
-  if (!context) {
-    return null;
-  }
-  const rect = lossCanvas.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-  const scale = lossCanvasScale();
-  const pixelWidth = width * scale;
-  const pixelHeight = height * scale;
-  if (lossCanvas.width !== pixelWidth || lossCanvas.height !== pixelHeight) {
-    lossCanvas.width = pixelWidth;
-    lossCanvas.height = pixelHeight;
-  }
-  context.setTransform(scale, 0, 0, scale, 0, 0);
-  context.imageSmoothingEnabled = false;
-  context.clearRect(0, 0, width, height);
-  return { context, width, height };
-}
-
-function snapStroke(value: number): number {
-  return Math.round(value) + 0.5;
-}
-
-function snapText(value: number): number {
-  return Math.round(value);
-}
-
-function renderLossChart(): void {
-  lossCanvas.hidden = state.stageKey !== "solver";
-  if (lossCanvas.hidden) {
-    return;
-  }
-  const configuredCanvas = configureLossCanvas();
-  if (!configuredCanvas) {
-    return;
-  }
-  const { context, width, height } = configuredCanvas;
-  context.fontKerning = "none";
-  context.fillStyle = "rgba(7, 15, 17, 0.96)";
-  context.fillRect(0, 0, width, height);
-  const domainMax = getLossDomainMax();
-  const samples = buildLossSamples();
-  const observedMaxLoss = samples.length === 0 ? null : Math.max(...samples.map((sample) => sample.loss));
-  if (observedMaxLoss !== null) {
-    state.lossAxisMax = Math.max(state.lossAxisMax ?? 0, observedMaxLoss);
-  }
-  const axisMaxLoss = Math.max(0.001, state.lossAxisMax ?? observedMaxLoss ?? 1);
-  const maxLoss = axisMaxLoss * 1.05;
-  const minLoss = 0;
-  const chartLeft = 88;
-  const chartRight = width - 18;
-  const chartTop = 16;
-  const chartBottom = height - 42;
-  const chartWidth = chartRight - chartLeft;
-  const chartHeight = chartBottom - chartTop;
-  const span = Math.max(1e-6, maxLoss - minLoss);
-  const yTicks = 4;
-  context.strokeStyle = "rgba(255,255,255,0.08)";
-  context.lineWidth = 1;
-  context.font = "16px 'VT323', monospace";
-  context.fillStyle = "rgba(255,255,255,0.58)";
-  context.textAlign = "right";
-  context.textBaseline = "middle";
-  for (let index = 0; index <= yTicks; index += 1) {
-    const ratio = index / yTicks;
-    const y = snapStroke(chartTop + ratio * chartHeight);
-    context.beginPath();
-    context.moveTo(chartLeft, y);
-    context.lineTo(chartRight, y);
-    context.stroke();
-    const tickValue = maxLoss - ratio * span;
-    context.fillText(formatNumber(tickValue, 4), chartLeft - 10, snapText(y));
-  }
-  const stepTicks = buildStepTicks(Math.max(1, domainMax));
-  context.textAlign = "center";
-  context.textBaseline = "top";
-  for (const tick of stepTicks) {
-    const x = snapStroke(chartLeft + (tick / Math.max(1, domainMax)) * chartWidth);
-    context.beginPath();
-    context.moveTo(x, chartTop);
-    context.lineTo(x, chartBottom);
-    context.stroke();
-    context.fillText(formatTickLabel(tick), snapText(x), chartBottom + 8);
-  }
-  context.fillStyle = "rgba(255, 216, 74, 0.9)";
-  context.font = "12px 'Press Start 2P', monospace";
-  context.fillText(`SOLVER STEP (0-${domainMax})`, snapText(chartLeft + chartWidth * 0.5), height - 20);
-  context.save();
-  context.translate(26, snapText(chartTop + chartHeight * 0.5));
-  context.rotate(-Math.PI / 2);
-  context.fillText("LOSS", 0, 0);
-  context.restore();
-  context.strokeStyle = "rgba(255, 216, 74, 0.18)";
-  context.lineWidth = 1.5;
-  context.strokeRect(snapStroke(chartLeft), snapStroke(chartTop), Math.round(chartWidth), Math.round(chartHeight));
-  context.strokeStyle = "rgba(255, 216, 74, 0.42)";
-  context.lineWidth = 2;
-  context.beginPath();
-  context.moveTo(snapStroke(chartLeft), snapStroke(chartTop));
-  context.lineTo(snapStroke(chartLeft), snapStroke(chartBottom));
-  context.lineTo(snapStroke(chartRight), snapStroke(chartBottom));
-  context.stroke();
-  if (samples.length === 0) {
-    renderLossPlaceholder(
-      context,
-      width,
-      "Phase-field solve",
-      state.solverStepBudget <= 0
-        ? "Solver steps were pinned to zero, so there is no loss walk to chart."
-        : "Loss samples land here once the solver starts moving.",
-    );
-    return;
-  }
-  context.strokeStyle = "#8fe2c8";
-  context.lineWidth = 3;
-  context.beginPath();
-  samples.forEach((sample, index) => {
-    const x = chartLeft + (sample.step / Math.max(1, domainMax)) * chartWidth;
-    const y = chartBottom - ((sample.loss - minLoss) / span) * chartHeight;
-    if (index === 0) {
-      context.moveTo(x, y);
-    } else {
-      context.lineTo(x, y);
-    }
-  });
-  context.stroke();
-
-  const selected = getSelectedFrame();
-  if (selected && selected.loss !== null) {
-    const matchingIndex = samples.findIndex((sample) => sample.step === selected.step);
-    if (matchingIndex >= 0) {
-      const sample = samples[matchingIndex];
-      const x = chartLeft + (sample.step / Math.max(1, domainMax)) * chartWidth;
-      const y = chartBottom - (((selected.loss as number) - minLoss) / span) * chartHeight;
-      context.fillStyle = "#f5b76b";
-      context.beginPath();
-      context.arc(x, y, 5, 0, Math.PI * 2);
-      context.fill();
-    }
-  }
 }
 
 async function loadEditorAsset(asset: ImageAsset | null): Promise<void> {
@@ -1506,7 +1286,6 @@ async function renderEverything(): Promise<void> {
   renderQueueSummary();
   renderInference();
   renderStatusMetrics();
-  renderLossChart();
   await renderViewer();
 }
 
@@ -1717,7 +1496,7 @@ async function handleEvent(eventName: string, payload: JsonRecord): Promise<void
         "Phase-field solve",
         frame.totalSteps <= 0
           ? "Initial placement committed. No iterative solver steps were requested."
-          : `Solver step ${frame.step} / ${frame.totalSteps}. Loss and drift terms stay live in this panel while it walks.`,
+          : `Solver step ${frame.step} / ${frame.totalSteps}. Signal, grid alignment, and displacement terms stay live in this panel while it walks.`,
       );
       if (eventName === "phase_field_final") {
         addLog("Solver", "Final nearest-input sample committed.");
@@ -2049,19 +1828,6 @@ resetEditorButton.addEventListener("click", () => {
 
 downloadButton.addEventListener("click", () => {
   exportEditorPng();
-});
-
-const lossCanvasResizeObserver = new ResizeObserver(() => {
-  renderLossChart();
-});
-lossCanvasResizeObserver.observe(lossCanvas);
-
-void document.fonts.ready.then(() => {
-  renderLossChart();
-});
-
-window.addEventListener("resize", () => {
-  renderLossChart();
 });
 
 setPaintColor(state.paintColor);
