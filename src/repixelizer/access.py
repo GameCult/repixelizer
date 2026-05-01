@@ -157,6 +157,19 @@ class AccessSubject:
     def has_capability(self, capability: str) -> bool:
         return capability in self.capabilities
 
+    @property
+    def primary_identity_provider(self) -> str | None:
+        identities = self.claims.get("identities")
+        if not isinstance(identities, list):
+            return None
+        for entry in identities:
+            if not isinstance(entry, dict):
+                continue
+            provider = entry.get("provider")
+            if isinstance(provider, str) and provider.strip():
+                return provider.strip().lower()
+        return None
+
     def owns_job(self, *, account_id: str | None, session_id: str | None) -> bool:
         if account_id is not None and self.account_id is not None and account_id == self.account_id:
             return True

@@ -249,6 +249,9 @@ class GuiJob:
     account_id: str | None = None
     session_id: str | None = None
     access_revision: int | None = None
+    display_name: str | None = None
+    auth_mode: str | None = None
+    identity_provider: str | None = None
     created_at: float = field(default_factory=time.time)
     last_heartbeat_at: float = field(default_factory=time.time)
     running_at: float | None = None
@@ -281,18 +284,33 @@ class GuiJob:
             self.events.append(record)
             self._condition.notify_all()
 
+    def actor_log_json(self) -> str:
+        payload: dict[str, str] = {}
+        if self.account_id:
+            payload["accountId"] = self.account_id
+        if self.session_id:
+            payload["sessionId"] = self.session_id
+        if self.display_name:
+            payload["displayName"] = self.display_name
+        if self.auth_mode:
+            payload["authMode"] = self.auth_mode
+        if self.identity_provider:
+            payload["provider"] = self.identity_provider
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
     def mark_running(self) -> None:
         self.status = "running"
         self.running_at = time.time()
         self.touch_heartbeat()
         LOGGER.info(
-            "repixelizer_job_started job_id=%s wait_seconds=%.3f steps=%s target_size=%s target_width=%s target_height=%s",
+            "repixelizer_job_started job_id=%s wait_seconds=%.3f steps=%s target_size=%s target_width=%s target_height=%s actor=%s",
             self.job_id,
             self.running_at - self.created_at,
             self.options.get("steps"),
             self.options.get("target_size"),
             self.options.get("target_width"),
             self.options.get("target_height"),
+            self.actor_log_json(),
         )
         self.publish("job_state", {"status": self.status})
 
@@ -301,11 +319,12 @@ class GuiJob:
         finished_at = time.time()
         run_started_at = self.running_at or finished_at
         LOGGER.info(
-            "repixelizer_job_completed job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f",
+            "repixelizer_job_completed job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f actor=%s",
             self.job_id,
             run_started_at - self.created_at,
             finished_at - run_started_at,
             finished_at - self.created_at,
+            self.actor_log_json(),
         )
         self.publish("job_state", {"status": self.status})
 
@@ -315,12 +334,13 @@ class GuiJob:
         finished_at = time.time()
         run_started_at = self.running_at or finished_at
         LOGGER.warning(
-            "repixelizer_job_failed job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f message=%r",
+            "repixelizer_job_failed job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f message=%r actor=%s",
             self.job_id,
             run_started_at - self.created_at,
             finished_at - run_started_at,
             finished_at - self.created_at,
             message,
+            self.actor_log_json(),
         )
         self.publish("job_failed", {"status": self.status, "message": message})
 
@@ -331,12 +351,13 @@ class GuiJob:
         finished_at = time.time()
         run_started_at = self.running_at or finished_at
         LOGGER.info(
-            "repixelizer_job_canceled job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f message=%r",
+            "repixelizer_job_canceled job_id=%s wait_seconds=%.3f run_seconds=%.3f total_seconds=%.3f message=%r actor=%s",
             self.job_id,
             run_started_at - self.created_at,
             finished_at - run_started_at,
             finished_at - self.created_at,
             message,
+            self.actor_log_json(),
         )
         self.publish("job_canceled", {"status": self.status, "message": message})
         self.publish("job_state", {"status": self.status, "message": message})
@@ -347,7 +368,13 @@ class GuiJob:
     def request_cancel(self, reason: str) -> None:
         self.cancel_reason = reason
         self._cancel_event.set()
-        LOGGER.info("repixelizer_job_cancel_requested job_id=%s status=%s reason=%r", self.job_id, self.status, reason)
+        LOGGER.info(
+            "repixelizer_job_cancel_requested job_id=%s status=%s reason=%r actor=%s",
+            self.job_id,
+            self.status,
+            reason,
+            self.actor_log_json(),
+        )
 
     @property
     def cancellation_message(self) -> str:
@@ -690,6 +717,9 @@ class GuiJobManager:
         account_id: str | None = None,
         session_id: str | None = None,
         access_revision: int | None = None,
+        display_name: str | None = None,
+        auth_mode: str | None = None,
+        identity_provider: str | None = None,
     ) -> GuiJob:
         self.start()
         suffix = Path(filename or "input.png").suffix or ".png"
@@ -701,6 +731,9 @@ class GuiJobManager:
             account_id=account_id,
             session_id=session_id,
             access_revision=access_revision,
+            display_name=display_name,
+            auth_mode=auth_mode,
+            identity_provider=identity_provider,
             phase_field_preview_stride=self.config.phase_field_preview_stride,
         )
         job.spool_path.write_bytes(raw)
@@ -708,10 +741,11 @@ class GuiJobManager:
             if len(self._queued_job_ids) >= self.config.queue_capacity:
                 self._cleanup_spool_file(job)
                 LOGGER.warning(
-                    "repixelizer_queue_full waiting_count=%d queue_capacity=%d upload_bytes=%d",
+                    "repixelizer_queue_full waiting_count=%d queue_capacity=%d upload_bytes=%d actor=%s",
                     len(self._queued_job_ids),
                     self.config.queue_capacity,
                     len(raw),
+                    job.actor_log_json(),
                 )
                 raise QueueFullError(f"Queue is full. {self.config.queue_capacity} waiting jobs are already lined up.")
             self.jobs[job.job_id] = job
@@ -719,13 +753,14 @@ class GuiJobManager:
             job.publish("job_state", {"status": job.status})
             self._publish_queue_state_locked()
             LOGGER.info(
-                "repixelizer_job_queued job_id=%s queue_position=%s queue_depth=%d waiting_count=%d queue_capacity=%d upload_bytes=%d",
+                "repixelizer_job_queued job_id=%s queue_position=%s queue_depth=%d waiting_count=%d queue_capacity=%d upload_bytes=%d actor=%s",
                 job.job_id,
                 self._queue_position_locked(job.job_id),
                 self._queue_depth_locked(),
                 len(self._queued_job_ids),
                 self.config.queue_capacity,
                 len(raw),
+                job.actor_log_json(),
             )
             self._condition.notify_all()
         return job
@@ -1201,6 +1236,9 @@ def create_app():
                 account_id=subject.account_id,
                 session_id=subject.session_id,
                 access_revision=subject.access_revision,
+                display_name=subject.display_name,
+                auth_mode=subject.auth_mode,
+                identity_provider=subject.primary_identity_provider,
             )
         except AccessDenied as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc

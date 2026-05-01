@@ -5,6 +5,7 @@ import io
 import asyncio
 import base64
 import json
+import logging
 import os
 import threading
 import time
@@ -1046,6 +1047,56 @@ def test_gui_job_routes_enforce_bound_subject_ownership(monkeypatch, tmp_path: P
             get_job(job_id)
     assert excinfo.value.status_code == 403
     assert "different local account or session" in str(excinfo.value.detail)
+
+
+def test_gui_job_logs_authenticated_actor_metadata(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "trusted-header")
+    monkeypatch.setenv("GC_ACCESS_REQUIRED", "1")
+
+    app = create_app()
+    create_job = _route_endpoint(app, "/api/jobs", "POST")
+
+    subject = AccessSubject(
+        account_id="acct-1",
+        session_id="sess-1",
+        access_revision=4,
+        display_name="Meta",
+        capabilities=frozenset({"app_access", "queue_submit"}),
+        auth_mode="heimdall",
+        claims={
+            "identities": [
+                {
+                    "provider": "discord",
+                    "providerUserId": "123456789",
+                }
+            ]
+        },
+    )
+
+    caplog.set_level(logging.INFO, logger="repixelizer.gui")
+    with bind_access_subject(subject):
+        created = asyncio.run(
+            create_job(
+                image=UploadFile(filename="tiny.png", file=io.BytesIO(_png_bytes())),
+                target_size=None,
+                target_width=None,
+                target_height=None,
+                steps=None,
+                seed=7,
+                device="auto",
+                strip_background=False,
+                skip_candidate_rerank=False,
+            )
+        )
+
+    assert created.status_code == 200
+    queued_messages = [record.getMessage() for record in caplog.records if "repixelizer_job_queued" in record.getMessage()]
+    assert queued_messages
+    assert 'actor={"accountId":"acct-1","authMode":"heimdall","displayName":"Meta","provider":"discord","sessionId":"sess-1"}' in queued_messages[0]
 
 
 def test_gui_queue_panel_defaults_off_for_local_runs_and_can_be_forced(monkeypatch, tmp_path: Path) -> None:
