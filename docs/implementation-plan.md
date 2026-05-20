@@ -30,6 +30,8 @@ The hosted web shell has an auth seam:
 - `src/repixelizer/access.py` owns the app-local access boundary and local ownership checks
 - `src/repixelizer/gui.py` owns hosted route policy, landing-page behavior, and queue/job stamping
 - `GC_ACCESS_MODE=heimdall` supports provider start, backend callback receipt, local JWT verification, and httpOnly session adoption
+- Heimdall mode also keeps a separate httpOnly refresh cookie and asks
+  Heimdall to reissue short-lived app claims before restarting provider OAuth
 - self-host and local runs stay permissive by default unless `GC_ACCESS_*` turns the seam on
 
 ## What is working

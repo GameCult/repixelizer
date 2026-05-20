@@ -42,6 +42,11 @@ Do not continue implementation automatically from a rehydrate-only request.
 - Low-confidence autocorr candidates can be preview-reranked; hosted mode does not forcibly disable rerank.
 - Hosted access lives in `src/repixelizer/access.py` and `src/repixelizer/gui.py`.
 - `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally and adopts httpOnly local sessions.
+- Heimdall mode stores a separate httpOnly refresh cookie
+  (`gc_access_token_refresh` by default) and calls Heimdall's
+  `/v1/apps/repixelizer/sessions/refresh` endpoint with Repixelizer-owned
+  Discord/Patreon entitlement policies before sending the user through provider
+  OAuth again.
 - Self-host/local runs stay permissive by default unless `GC_ACCESS_*` enables access policy.
 - Do not smear auth logic into `src/repixelizer/pipeline.py`, `src/repixelizer/inference.py`, or the solver stack.
 

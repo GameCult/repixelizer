@@ -1071,7 +1071,11 @@ def create_app():
 
         async def call_with_subject(subject):
             with bind_access_subject(subject):
-                return await call_next(request)
+                response = await call_next(request)
+            refreshed = access_controller.pop_refreshed_session()
+            if refreshed is not None:
+                access_controller.attach_session_cookie(response, refreshed)
+            return response
 
         def resolve_job_subject(capability: str):
             parts = [part for part in path.split("/") if part]

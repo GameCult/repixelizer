@@ -913,6 +913,80 @@ def test_gui_heimdall_callback_flow_adopts_local_cookie_session(monkeypatch, tmp
     assert app_headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
 
 
+def test_gui_heimdall_session_endpoint_refreshes_from_refresh_cookie(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    private_key, jwk, key_id = _heimdall_signing_material()
+    refresh_calls: list[tuple[str, dict[str, object], float]] = []
+
+    def fake_post_json(url: str, payload: dict[str, object], *, timeout_seconds: float):
+        refresh_calls.append((url, payload, timeout_seconds))
+        return {
+            "session": {
+                "accountId": "acct-1",
+                "sessionId": "sess-1",
+                "appSlug": "repixelizer",
+                "accessRevision": 4,
+                "expiresAt": "2026-04-27T13:00:00.000Z",
+            },
+            "accessToken": _heimdall_access_token(private_key, key_id=key_id),
+            "refreshToken": "refresh-token-2",
+            "refresh": {"expiresAt": "2999-04-27T13:00:00.000Z"},
+            "claimSet": {},
+            "verification": {
+                "issuer": "https://heimdall.gamecult.org",
+                "jwksUri": "https://heimdall.gamecult.org/.well-known/jwks.json",
+                "alg": "EdDSA",
+                "kid": key_id,
+            },
+            "sharedCapabilities": ["app_access", "queue_submit"],
+            "hybridCapabilities": [],
+        }
+
+    def fake_fetch_json(url: str, *, timeout_seconds: float):
+        del timeout_seconds
+        assert url == "https://heimdall.gamecult.org/.well-known/jwks.json"
+        return {"keys": [jwk]}
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "heimdall")
+    monkeypatch.setenv("GC_ACCESS_HEIMDALL_BASE_URL", "https://heimdall.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_APP_PUBLIC_BASE_URL", "https://repixelizer.gamecult.org")
+    monkeypatch.setenv("GC_ACCESS_ALLOWED_PROVIDERS", "discord,patreon")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_DISCORD_GUILD_ID", "gamecult-guild")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_DISCORD_ALLOWED_ROLE_IDS", "role-repixelizer,role-patreon")
+    monkeypatch.setenv("REPIXELIZER_ACCESS_PATREON_TIER_TITLE", "Inner Sanctum")
+    monkeypatch.setattr("repixelizer.access._post_json", fake_post_json)
+    monkeypatch.setattr("repixelizer.access._fetch_json", fake_fetch_json)
+
+    app = create_app()
+
+    status, headers, body = asyncio.run(
+        _get_response(app, "/api/auth/session", headers={"cookie": "gc_access_token_refresh=refresh-token-1"})
+    )
+    payload = _response_json(type("Response", (), {"body": body})())
+
+    assert status == 200
+    assert payload["subject"]["authenticated"] is True
+    assert payload["subject"]["accountId"] == "acct-1"
+    assert refresh_calls
+    assert refresh_calls[0][0] == "https://heimdall.gamecult.org/v1/apps/repixelizer/sessions/refresh"
+    assert refresh_calls[0][1]["refreshToken"] == "refresh-token-1"
+    assert refresh_calls[0][1]["entitlementPolicies"] == [
+        {
+            "kind": "discord_role_access",
+            "guildId": "gamecult-guild",
+            "allowedRoleIds": ["role-repixelizer", "role-patreon"],
+        },
+        {
+            "kind": "patreon_membership_access",
+            "requiredTierTitle": "Inner Sanctum",
+        },
+    ]
+    assert "set-cookie" in headers
+
+
 def test_gui_heimdall_patreon_auth_start_sends_membership_policy(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 

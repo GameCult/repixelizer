@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Iterator
 from urllib.parse import urljoin
 
@@ -18,6 +19,10 @@ import jwt
 
 _CURRENT_ACCESS_SUBJECT: contextvars.ContextVar["AccessSubject | None"] = contextvars.ContextVar(
     "repixelizer_current_access_subject",
+    default=None,
+)
+_CURRENT_REFRESHED_SESSION: contextvars.ContextVar["AdoptedAuthSession | None"] = contextvars.ContextVar(
+    "repixelizer_current_refreshed_session",
     default=None,
 )
 
@@ -46,6 +51,7 @@ _AUTH_CALLBACK_PATH = "/api/auth/heimdall/callback"
 _AUTH_START_PATH = "/api/auth/heimdall/start"
 _AUTH_ATTEMPT_PATH_TEMPLATE = "/api/auth/attempts/{attemptId}"
 _AUTH_LOGOUT_PATH = "/api/auth/logout"
+_SESSION_REFRESH_ENDPOINT_TEMPLATE = "/v1/apps/{appSlug}/sessions/refresh"
 
 
 def _env_text(name: str) -> str | None:
@@ -113,6 +119,13 @@ def _read_json_response(response) -> Any:
     if not raw:
         return {}
     return json.loads(raw.decode("utf-8"))
+
+
+def _iso_to_epoch_seconds(value: str) -> float:
+    text = value.strip()
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    return datetime.fromisoformat(text).timestamp()
 
 
 def _fetch_json(url: str, *, timeout_seconds: float) -> Any:
@@ -198,6 +211,7 @@ class AccessRuntimeConfig:
     login_url: str | None
     logout_url: str | None
     session_cookie_name: str
+    refresh_cookie_name: str
     session_cookie_secure: bool
     session_cookie_samesite: str
     session_cookie_domain: str | None
@@ -264,6 +278,8 @@ class AuthAttempt:
     error: str | None = None
     error_description: str | None = None
     access_token: str | None = None
+    refresh_token: str | None = None
+    refresh_expires_at: float | None = None
     subject: AccessSubject | None = None
 
     def sync_status(self, *, now: float) -> None:
@@ -274,6 +290,8 @@ class AuthAttempt:
             self.error = "auth_attempt_expired"
             self.error_description = "This sign-in attempt expired before the local session was adopted."
             self.access_token = None
+            self.refresh_token = None
+            self.refresh_expires_at = None
             self.subject = None
 
     def to_public_json(self, *, now: float) -> dict[str, Any]:
@@ -297,9 +315,11 @@ class AuthAttempt:
 @dataclass(frozen=True, slots=True)
 class AdoptedAuthSession:
     access_token: str
+    refresh_token: str | None
     subject: AccessSubject
     return_to: str
     expires_at: float
+    refresh_expires_at: float | None = None
 
     def to_public_json(self) -> dict[str, Any]:
         return {
@@ -486,6 +506,7 @@ class AccessController:
         attempt_ttl_seconds = max(60, _env_int("GC_ACCESS_AUTH_ATTEMPT_TTL_SECONDS", 900))
         jwks_cache_seconds = max(60, _env_int("GC_ACCESS_JWKS_CACHE_SECONDS", 300))
         session_cookie_name = _env_text("GC_ACCESS_SESSION_COOKIE_NAME") or "gc_access_token"
+        refresh_cookie_name = _env_text("GC_ACCESS_REFRESH_COOKIE_NAME") or f"{session_cookie_name}_refresh"
         session_cookie_samesite = (_env_text("GC_ACCESS_SESSION_COOKIE_SAMESITE") or "lax").lower()
         if session_cookie_samesite not in {"lax", "strict", "none"}:
             session_cookie_samesite = "lax"
@@ -536,6 +557,7 @@ class AccessController:
             login_url=login_url,
             logout_url=logout_url,
             session_cookie_name=session_cookie_name,
+            refresh_cookie_name=refresh_cookie_name,
             session_cookie_secure=session_cookie_secure,
             session_cookie_samesite=session_cookie_samesite,
             session_cookie_domain=session_cookie_domain,
@@ -556,6 +578,12 @@ class AccessController:
 
     def public_payload(self) -> dict[str, Any]:
         return self.runtime.to_public_json()
+
+    def pop_refreshed_session(self) -> AdoptedAuthSession | None:
+        session = _CURRENT_REFRESHED_SESSION.get()
+        if session is not None:
+            _CURRENT_REFRESHED_SESSION.set(None)
+        return session
 
     def current_subject(self) -> AccessSubject:
         subject = _CURRENT_ACCESS_SUBJECT.get()
@@ -635,21 +663,9 @@ class AccessController:
                 "callbackUrl": callback_url,
             },
         }
-        if (
-            provider_slug == "discord"
-            and self.runtime.discord_access_guild_id
-            and self.runtime.discord_access_role_ids
-        ):
-            request_payload["entitlementPolicy"] = {
-                "kind": "discord_role_access",
-                "guildId": self.runtime.discord_access_guild_id,
-                "allowedRoleIds": list(self.runtime.discord_access_role_ids),
-            }
-        elif provider_slug == "patreon":
-            request_payload["entitlementPolicy"] = {
-                "kind": "patreon_membership_access",
-                "requiredTierTitle": self.runtime.patreon_required_tier_title or "Inner Sanctum",
-            }
+        entitlement_policy = self._entitlement_policy(provider_slug)
+        if entitlement_policy is not None:
+            request_payload["entitlementPolicy"] = entitlement_policy
         start_url = urljoin(f"{heimdall_base_url}/", _AUTH_START_ENDPOINT_TEMPLATE.format(provider=provider_slug).lstrip("/"))
         try:
             response_payload = _post_json(
@@ -689,6 +705,55 @@ class AccessController:
             "statusEndpoint": _AUTH_ATTEMPT_PATH_TEMPLATE.format(attemptId=attempt_id),
         }
 
+    def refresh_session(self, refresh_token: str) -> AdoptedAuthSession:
+        self._require_heimdall_mode()
+        heimdall_base_url = self.runtime.heimdall_base_url
+        if heimdall_base_url is None:
+            raise AccessOperationError(503, "Hosted Heimdall auth is misconfigured on this Repixelizer node.")
+        refresh_url = urljoin(
+            f"{heimdall_base_url}/",
+            _SESSION_REFRESH_ENDPOINT_TEMPLATE.format(appSlug=self.runtime.app_slug).lstrip("/"),
+        )
+        payload: dict[str, Any] = {
+            "refreshToken": refresh_token,
+        }
+        policies = [
+            policy
+            for policy in (self._entitlement_policy(provider.slug) for provider in self.runtime.providers)
+            if policy is not None
+        ]
+        if policies:
+            payload["entitlementPolicies"] = policies
+        try:
+            response_payload = _post_json(refresh_url, payload, timeout_seconds=self.runtime.http_timeout_seconds)
+        except urllib.error.HTTPError as exc:
+            raise AccessOperationError(exc.code, self._http_error_detail(exc)) from exc
+        except OSError as exc:
+            raise AccessOperationError(502, f"Failed to contact Heimdall: {exc}.") from exc
+        if not isinstance(response_payload, dict):
+            raise AccessOperationError(502, "Heimdall refresh response was malformed.")
+        access_token = response_payload.get("accessToken")
+        if not isinstance(access_token, str) or not access_token.strip():
+            raise AccessOperationError(502, "Heimdall refresh response did not include an access token.")
+        claims = self._verify_access_token(access_token)
+        subject = self._subject_from_claims(claims)
+        refresh_token_next = response_payload.get("refreshToken")
+        refresh_payload = response_payload.get("refresh")
+        refresh_expires_at = None
+        if isinstance(refresh_payload, dict):
+            refresh_expires_at_raw = refresh_payload.get("expiresAt")
+            if isinstance(refresh_expires_at_raw, str):
+                with contextlib.suppress(ValueError):
+                    refresh_expires_at = _iso_to_epoch_seconds(refresh_expires_at_raw)
+        return AdoptedAuthSession(
+            access_token=access_token,
+            refresh_token=refresh_token_next if isinstance(refresh_token_next, str) and refresh_token_next.strip() else None,
+            subject=subject,
+            return_to=self.runtime.default_return_to or "/app/",
+            expires_at=float(claims["exp"]),
+            refresh_expires_at=refresh_expires_at,
+        )
+
     def get_auth_attempt_status(self, attempt_id: str) -> dict[str, Any]:
         with self._attempt_lock:
             self._prune_attempts_locked(now=time.time())
@@ -714,9 +779,11 @@ class AccessController:
             expires_at = float(claims.get("exp", int(time.time())))
             return AdoptedAuthSession(
                 access_token=attempt.access_token,
+                refresh_token=attempt.refresh_token,
                 subject=attempt.subject,
                 return_to=attempt.return_to,
                 expires_at=expires_at,
+                refresh_expires_at=attempt.refresh_expires_at,
             )
 
     def receive_backend_handoff(self, payload: Any) -> None:
@@ -763,6 +830,8 @@ class AccessController:
                         else "Heimdall reported an upstream auth failure."
                     )
                     attempt.access_token = None
+                    attempt.refresh_token = None
+                    attempt.refresh_expires_at = None
                     attempt.subject = None
             return
 
@@ -781,6 +850,8 @@ class AccessController:
                         "Heimdall authenticated the account, but it did not grant Repixelizer app access."
                     )
                     attempt.access_token = None
+                    attempt.refresh_token = None
+                    attempt.refresh_expires_at = None
                     attempt.subject = None
             return
 
@@ -794,6 +865,14 @@ class AccessController:
             raise AccessOperationError(400, "Heimdall callback session metadata did not match the access token.")
 
         expires_at = float(claims["exp"])
+        refresh_token = payload.get("refreshToken")
+        refresh_payload = payload.get("refresh")
+        refresh_expires_at = None
+        if isinstance(refresh_payload, dict):
+            refresh_expires_at_raw = refresh_payload.get("expiresAt")
+            if isinstance(refresh_expires_at_raw, str):
+                with contextlib.suppress(ValueError):
+                    refresh_expires_at = _iso_to_epoch_seconds(refresh_expires_at_raw)
         with self._attempt_lock:
             attempt = self._attempts.get(attempt_id)
             if attempt is not None:
@@ -801,6 +880,8 @@ class AccessController:
                 attempt.error = None
                 attempt.error_description = None
                 attempt.access_token = access_token
+                attempt.refresh_token = refresh_token if isinstance(refresh_token, str) and refresh_token.strip() else None
+                attempt.refresh_expires_at = refresh_expires_at
                 attempt.subject = subject
                 attempt.expires_at = expires_at
 
@@ -816,10 +897,30 @@ class AccessController:
             path="/",
             domain=self.runtime.session_cookie_domain,
         )
+        if session.refresh_token:
+            refresh_expires_at = session.refresh_expires_at or session.expires_at
+            response.set_cookie(
+                key=self.runtime.refresh_cookie_name,
+                value=session.refresh_token,
+                max_age=max(0, int(refresh_expires_at - time.time())),
+                httponly=True,
+                secure=self.runtime.session_cookie_secure,
+                samesite=self.runtime.session_cookie_samesite,
+                path="/",
+                domain=self.runtime.session_cookie_domain,
+            )
 
     def clear_session_cookie(self, response: Any) -> None:
         response.delete_cookie(
             key=self.runtime.session_cookie_name,
+            path="/",
+            domain=self.runtime.session_cookie_domain,
+            secure=self.runtime.session_cookie_secure,
+            httponly=True,
+            samesite=self.runtime.session_cookie_samesite,
+        )
+        response.delete_cookie(
+            key=self.runtime.refresh_cookie_name,
             path="/",
             domain=self.runtime.session_cookie_domain,
             secure=self.runtime.session_cookie_secure,
@@ -875,17 +976,29 @@ class AccessController:
 
     def _heimdall_subject(self, request: Any, *, allow_anonymous: bool) -> AccessSubject:
         token = request.cookies.get(self.runtime.session_cookie_name)
-        if token is None or not token.strip():
-            if allow_anonymous:
-                return AccessSubject(auth_mode=self.runtime.mode)
-            raise AccessDenied(401, "Sign-in required.")
+        if token is not None and token.strip():
+            try:
+                claims = self._verify_access_token(token)
+                return self._subject_from_claims(claims)
+            except AccessOperationError:
+                pass
+        refreshed = self._refresh_subject_from_cookie(request)
+        if refreshed is not None:
+            return refreshed
+        if allow_anonymous:
+            return AccessSubject(auth_mode=self.runtime.mode)
+        raise AccessDenied(401, "Sign-in required.")
+
+    def _refresh_subject_from_cookie(self, request: Any) -> AccessSubject | None:
+        refresh_token = request.cookies.get(self.runtime.refresh_cookie_name)
+        if refresh_token is None or not refresh_token.strip():
+            return None
         try:
-            claims = self._verify_access_token(token)
+            session = self.refresh_session(refresh_token)
         except AccessOperationError:
-            if allow_anonymous:
-                return AccessSubject(auth_mode=self.runtime.mode)
-            raise AccessDenied(401, "Sign-in required.") from None
-        return self._subject_from_claims(claims)
+            return None
+        _CURRENT_REFRESHED_SESSION.set(session)
+        return session.subject
 
     def _subject_from_claims(self, claims: dict[str, Any]) -> AccessSubject:
         return AccessSubject(
@@ -902,6 +1015,24 @@ class AccessController:
         if self._verifier is None:
             raise AccessOperationError(503, "Heimdall verification is not configured on this node.")
         return self._verifier.verify(token)
+
+    def _entitlement_policy(self, provider_slug: str) -> dict[str, Any] | None:
+        if (
+            provider_slug == "discord"
+            and self.runtime.discord_access_guild_id
+            and self.runtime.discord_access_role_ids
+        ):
+            return {
+                "kind": "discord_role_access",
+                "guildId": self.runtime.discord_access_guild_id,
+                "allowedRoleIds": list(self.runtime.discord_access_role_ids),
+            }
+        if provider_slug == "patreon":
+            return {
+                "kind": "patreon_membership_access",
+                "requiredTierTitle": self.runtime.patreon_required_tier_title or "Inner Sanctum",
+            }
+        return None
 
     def _require_heimdall_mode(self) -> None:
         if self.runtime.mode != "heimdall":

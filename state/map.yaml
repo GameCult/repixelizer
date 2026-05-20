@@ -51,6 +51,7 @@ accepted_design:
   - Hosted demo inference uses autocorr lattice candidates, capped by the hosted output limit, with low-confidence preview rerank available.
   - Hosted mode owns the public front door in `src/repixelizer/gui.py`: `/` is a landing page there, while local/self-host runs keep root as a plain redirect to `/app/`.
   - `src/repixelizer/access.py` owns the hosted access seam: trusted-header ingress still works, `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally, and auth attempts are adopted into local httpOnly cookie sessions.
+  - In Heimdall mode, Repixelizer keeps a separate httpOnly refresh cookie and asks Heimdall to reissue a short-lived access claim before forcing the user back through provider OAuth.
   - The solver starts from fixed lattice centers, adds tiny seeded noise, follows a direct hierarchical flatness signal, enforces local lattice coherence through spring relaxation, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` and `source_structure` separate lattice agreement from visible structure.
@@ -87,7 +88,9 @@ current_status:
     low-confidence autocorr candidates can be preview-reranked. Hosted web
     access is auth-landed without smearing into the
     solver: `src/repixelizer/access.py` verifies Heimdall Ed25519 access tokens
-    locally, tracks auth attempts, and adopts local cookie sessions, while
+    locally, tracks auth attempts, adopts local cookie sessions, and refreshes
+    expired/missing access cookies through Heimdall's signed session-refresh
+    endpoint before falling back to provider OAuth, while
     `src/repixelizer/gui.py` owns provider-start routes, direct backend callback
     receipt, hosted landing-page login buttons, route guards, and queue/job
     ownership checks. Self-host remains permissive by default unless
