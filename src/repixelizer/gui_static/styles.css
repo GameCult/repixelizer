@@ -338,38 +338,63 @@ p {
   align-items: start;
 }
 
-.header-github-link {
+.header-community-links {
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.7rem;
+  line-height: 0;
+  justify-self: center;
+  align-self: start;
+}
+
+.header-community-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 5.2rem;
-  height: 5.2rem;
   padding: 0;
   color: rgba(247, 239, 216, 0.96);
   text-decoration: none;
   line-height: 0;
   flex: 0 0 auto;
-  justify-self: center;
-  align-self: start;
 }
 
-.header-github-link svg {
+.header-community-icon {
+  width: 4.7rem;
+  height: 4.7rem;
+}
+
+.header-community-wordmark {
+  min-width: 10rem;
+  height: 4.7rem;
+}
+
+.header-community-link svg {
   display: block;
-  width: 4rem;
-  height: 4rem;
   fill: currentColor;
   filter:
     drop-shadow(0 0 0.9rem rgba(89, 183, 255, 0.34))
     drop-shadow(0 0 1.6rem rgba(89, 183, 255, 0.14));
 }
 
-.header-github-link:hover,
-.header-github-link:focus-visible {
+.header-community-icon svg {
+  width: 3.5rem;
+  height: 3.5rem;
+}
+
+.header-community-wordmark svg {
+  width: 9rem;
+  height: auto;
+  max-height: 1.35rem;
+}
+
+.header-community-link:hover,
+.header-community-link:focus-visible {
   color: #fff3e8;
 }
 
-.header-github-link:hover svg,
-.header-github-link:focus-visible svg {
+.header-community-link:hover svg,
+.header-community-link:focus-visible svg {
   filter:
     drop-shadow(0 0 0.45rem rgba(255, 216, 74, 0.44))
     drop-shadow(0 0 1.2rem rgba(255, 174, 26, 0.22));
@@ -1060,8 +1085,33 @@ select:focus-visible {
     align-items: flex-start;
   }
 
-  .header-github-link {
+  .header-community-links {
     justify-self: start;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .header-community-icon,
+  .header-community-wordmark {
+    height: 3.9rem;
+  }
+
+  .header-community-icon {
+    width: 3.9rem;
+  }
+
+  .header-community-icon svg {
+    width: 2.9rem;
+    height: 2.9rem;
+  }
+
+  .header-community-wordmark {
+    min-width: 8.6rem;
+  }
+
+  .header-community-wordmark svg {
+    width: 7.8rem;
+    max-height: 1.15rem;
   }
 
   .brand-lockup {

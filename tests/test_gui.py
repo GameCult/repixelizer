@@ -402,6 +402,8 @@ def test_gui_static_assets_disable_browser_caching() -> None:
     css_text = css_body.decode("utf-8")
     assert "./styles.css?v=" in html_text
     assert "./app.js?v=" in html_text
+    assert 'href="https://www.patreon.com/GameCult"' in html_text
+    assert 'href="https://discord.gg/SwaNeVJRSq"' in html_text
     assert 'id="deviceField" class="field" hidden' in html_text
     assert 'id="stripBackgroundField" class="toggle-row ui-surface ui-frame" hidden' in html_text
     assert "skipRerankInput" not in html_text
@@ -426,6 +428,8 @@ def test_gui_hosted_root_serves_landing_page(monkeypatch, tmp_path: Path) -> Non
     assert headers["cache-control"] == "no-store, no-cache, must-revalidate, max-age=0"
     assert "Repixelizer hosted demo" in html
     assert "Force fake pixel art back onto a real grid, then inspect each step with a full solver view." in html
+    assert 'href="https://www.patreon.com/GameCult"' in html
+    assert 'href="https://discord.gg/SwaNeVJRSq"' in html
     assert 'href="/app/"' in html
     assert 'href="/privacy"' in html
     assert 'href="/terms"' in html
