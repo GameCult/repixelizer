@@ -39,6 +39,7 @@ The hosted web shell has an auth seam:
 - `phase-field` is the only canonical reconstruction path.
 - The current explicit solver is fast enough for hosted interaction.
 - Compare mode, benchmark mode, diagnostics writing, GUI observer previews, and tuning harnesses exist.
+- Spritesheet CLI mode detects separated foreground regions, runs the live pipeline per region, and packs the per-sprite outputs back into sheet order.
 - The repo reports both `source_fidelity` and `source_structure` so lattice agreement and visible structure can be inspected separately.
 - Hosted landing/app flow is in place and should be the immediate product path.
 

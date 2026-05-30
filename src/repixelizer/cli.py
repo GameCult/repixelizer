@@ -8,6 +8,7 @@ from .compare import run_compare
 from .corpus import prepare_corpus
 from .gui import main as gui_main
 from .pipeline import run_pipeline
+from .spritesheet import run_spritesheet
 from .tuning import tune_solver_hyperparams
 
 
@@ -48,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_shared_arguments(run_parser)
     compare_parser = subparsers.add_parser("compare", help="Run the optimizer and comparison baselines.")
     add_shared_arguments(compare_parser)
+    spritesheet_parser = subparsers.add_parser("spritesheet", help="Run the optimizer separately on detected spritesheet regions.")
+    add_shared_arguments(spritesheet_parser)
+    spritesheet_parser.add_argument(
+        "--sprite-count",
+        type=int,
+        default=None,
+        help="Expected number of sprites. If omitted, large foreground regions are detected automatically.",
+    )
     benchmark_parser = subparsers.add_parser("benchmark", help="Run the round-trip corpus benchmark.")
     benchmark_parser.add_argument("--corpus-dir", default="examples/corpus", help="Corpus root containing originals/")
     benchmark_parser.add_argument("--out-dir", default="artifacts/benchmark", help="Directory for benchmark outputs")
@@ -124,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    if not raw_argv or raw_argv[0] not in {"run", "compare", "benchmark", "tune", "prepare-corpus", "gui", "-h", "--help"}:
+    if not raw_argv or raw_argv[0] not in {"run", "compare", "spritesheet", "benchmark", "tune", "prepare-corpus", "gui", "-h", "--help"}:
         raw_argv = ["run", *raw_argv]
     parser = build_parser()
     args = parser.parse_args(raw_argv)
@@ -160,6 +169,24 @@ def main(argv: list[str] | None = None) -> int:
             limit_cases=args.limit,
             keep_existing=args.keep_existing,
             workers=args.workers,
+        )
+        return 0
+    if command == "spritesheet":
+        run_spritesheet(
+            args.input,
+            args.out,
+            sprite_count=args.sprite_count,
+            target_size=args.target_size,
+            target_width=args.target_width,
+            target_height=args.target_height,
+            palette_path=args.palette,
+            palette_mode=args.palette_mode,
+            diagnostics_dir=args.diagnostics_dir,
+            seed=args.seed,
+            steps=args.steps,
+            device=args.device,
+            strip_background=args.strip_background,
+            enable_candidate_rerank=not args.skip_candidate_rerank,
         )
         return 0
     if command == "tune":

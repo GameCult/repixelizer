@@ -35,6 +35,9 @@ Do not continue implementation automatically from a rehydrate-only request.
 - The signal is direct hierarchical flatness: multiscale luminance gradient/Laplacian energy, one normalization, inverted to flatness, then sharpened.
 - `source_structure` exists alongside `source_fidelity` so visible structure and lattice agreement can be inspected separately.
 - Cleanup is alpha snap plus diagnostics.
+- `src/repixelizer/spritesheet.py` owns spritesheet region detection and packing.
+  It calls `run_pipeline_rgba(...)` once per detected crop; pinned target sizes
+  apply per sprite, not to the whole sheet.
 
 ## Hosted/web state
 

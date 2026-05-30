@@ -46,6 +46,7 @@ accepted_design:
   - `phase-field` in `src/repixelizer/phase_field.py` is the only live reconstruction engine.
   - The working pipeline is `source image -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search plus lattice relaxation -> nearest source sample -> cleanup -> optional palette fitting -> diagnostics`.
   - `src/repixelizer/pipeline.py` owns orchestration and candidate rerank selection.
+  - `src/repixelizer/spritesheet.py` owns spritesheet region detection and output packing; each detected crop still runs through the canonical `run_pipeline_rgba` solver path.
   - `src/repixelizer/analysis.py` provides the normalized diagnostic edge preview used by observer/GUI/diagnostic paths; it does not steer the solver.
   - `src/repixelizer/phase_field.py` owns the live source-position field: initialize from fixed centers, choose local preferred positions from a 5x5 candidate window, blend toward them, relax lattice springs, then nearest-sample the source.
   - Hosted demo inference uses autocorr lattice candidates, capped by the hosted output limit, with low-confidence preview rerank available.
@@ -64,6 +65,7 @@ landed_baseline:
   - Hosted demo inference uses capped autocorr candidates and allows low-confidence preview rerank.
   - Diagnostic edge preview plus one explicit source-position solver with local search and lattice spring relaxation.
   - Compare mode, diagnostics writing, tuning, and GUI observer plumbing all working on the phase-field path.
+  - Spritesheet CLI mode detects separated foreground regions or selects the largest requested sprite count, then repixelizes each crop independently through `phase-field`.
   - `source_structure` reporting alongside `source_fidelity`.
   - Hosted landing page and Heimdall auth seam in the web layer.
 
@@ -83,8 +85,8 @@ current_status:
   summary: >
     The repo has one live reconstruction engine, `phase-field`, wired through
     lattice inference, diagnostic edge preview, explicit local-search reconstruction,
-    cleanup, optional palette fitting, diagnostics, compare mode, tuning, and
-    GUI observer events. Automatic lattice inference uses autocorr candidates;
+    cleanup, optional palette fitting, diagnostics, compare mode, spritesheet
+    CLI mode, tuning, and GUI observer events. Automatic lattice inference uses autocorr candidates;
     low-confidence autocorr candidates can be preview-reranked. Hosted web
     access is auth-landed without smearing into the
     solver: `src/repixelizer/access.py` verifies Heimdall Ed25519 access tokens

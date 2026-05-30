@@ -66,3 +66,45 @@ def test_gui_command_dispatches_to_gui_main(monkeypatch) -> None:
     exit_code = main(["gui", "--host", "127.0.0.1", "--port", "8123", "--reload"])
     assert exit_code == 0
     assert called == {"host": "127.0.0.1", "port": 8123, "reload": True}
+
+
+def test_spritesheet_command_dispatches_to_spritesheet_runner(monkeypatch, tmp_path: Path) -> None:
+    called = {}
+
+    def fake_run_spritesheet(input_path, output_path, **kwargs):
+        called["input_path"] = input_path
+        called["output_path"] = output_path
+        called["sprite_count"] = kwargs["sprite_count"]
+        called["target_width"] = kwargs["target_width"]
+        called["target_height"] = kwargs["target_height"]
+        called["enable_candidate_rerank"] = kwargs["enable_candidate_rerank"]
+
+    monkeypatch.setattr("repixelizer.cli.run_spritesheet", fake_run_spritesheet)
+    input_path = tmp_path / "sheet.png"
+    output_path = tmp_path / "out.png"
+
+    exit_code = main(
+        [
+            "spritesheet",
+            str(input_path),
+            "--out",
+            str(output_path),
+            "--sprite-count",
+            "6",
+            "--target-width",
+            "32",
+            "--target-height",
+            "32",
+            "--skip-candidate-rerank",
+        ]
+    )
+
+    assert exit_code == 0
+    assert called == {
+        "input_path": str(input_path),
+        "output_path": str(output_path),
+        "sprite_count": 6,
+        "target_width": 32,
+        "target_height": 32,
+        "enable_candidate_rerank": False,
+    }

@@ -11,6 +11,7 @@ The current spine is:
 The relevant source lives in:
 
 - `src/repixelizer/pipeline.py`
+- `src/repixelizer/spritesheet.py`
 - `src/repixelizer/inference.py`
 - `src/repixelizer/analysis.py`
 - `src/repixelizer/phase_field.py`
@@ -35,7 +36,37 @@ These are the pieces that actually matter:
 - `target_rgba`: final output grid after nearest-source sampling
 
 The remaining helpers load inputs, write diagnostics, or carry this state across
-the CLI, GUI, and comparison harness.
+the CLI, GUI, spritesheet wrapper, and comparison harness.
+
+## Spritesheet wrapper
+
+### Source
+
+- `run_spritesheet(...)` and `detect_sprite_regions(...)` in `src/repixelizer/spritesheet.py`
+- CLI dispatch in `src/repixelizer/cli.py`
+
+### Ownership
+
+Spritesheet mode owns region detection and output packing only. It does not own
+lattice inference, reconstruction, cleanup, palette fitting, or metrics.
+
+### What the source actually does
+
+Spritesheet mode:
+
+1. Loads one source sheet.
+2. Builds a foreground mask from alpha, or from edge-connected background
+   stripping when `--strip-background` is requested. Fully opaque sheets use a
+   fast border-color foreground guess by default.
+3. Detects connected foreground regions, optionally selecting the largest
+   requested `--sprite-count`.
+4. Sorts regions in reading order.
+5. Crops each region and calls `run_pipeline_rgba(...)` on that crop.
+6. Packs per-sprite outputs back into source-row order and writes a
+   `spritesheet.json` diagnostic summary when diagnostics are enabled.
+
+Pinned target width, height, or size applies to each sprite crop. Automatic
+inference also runs per crop. The whole sheet never receives one shared lattice.
 
 ## Diagram
 
