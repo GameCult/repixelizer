@@ -46,7 +46,7 @@ accepted_design:
   - `phase-field` in `src/repixelizer/phase_field.py` is the only live reconstruction engine.
   - The working pipeline is `source image -> lattice inference -> diagnostic edge preview -> fixed lattice centers -> hierarchical flatness signal -> explicit local search plus lattice relaxation -> nearest source sample -> cleanup -> optional palette fitting -> diagnostics`.
   - `src/repixelizer/pipeline.py` owns orchestration and candidate rerank selection.
-  - `src/repixelizer/spritesheet.py` owns spritesheet region detection and output packing; each detected crop still runs through the canonical `run_pipeline_rgba` solver path.
+  - `src/repixelizer/spritesheet.py` owns spritesheet region detection, shared texel density sizing, and output packing; each detected crop still runs through the canonical `run_pipeline_rgba` solver path.
   - `src/repixelizer/analysis.py` provides the normalized diagnostic edge preview used by observer/GUI/diagnostic paths; it does not steer the solver.
   - `src/repixelizer/phase_field.py` owns the live source-position field: initialize from fixed centers, choose local preferred positions from a 5x5 candidate window, blend toward them, relax lattice springs, then nearest-sample the source.
   - Hosted demo inference uses autocorr lattice candidates, capped by the hosted output limit, with low-confidence preview rerank available.

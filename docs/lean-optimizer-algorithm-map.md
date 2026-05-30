@@ -47,8 +47,9 @@ the CLI, GUI, spritesheet wrapper, and comparison harness.
 
 ### Ownership
 
-Spritesheet mode owns region detection and output packing only. It does not own
-lattice inference, reconstruction, cleanup, palette fitting, or metrics.
+Spritesheet mode owns region detection, sheet-level texel density selection, and
+output packing only. It does not own reconstruction, cleanup, palette fitting,
+or metrics.
 
 ### What the source actually does
 
@@ -61,12 +62,17 @@ Spritesheet mode:
 3. Detects connected foreground regions, optionally selecting the largest
    requested `--sprite-count`.
 4. Sorts regions in reading order.
-5. Crops each region and calls `run_pipeline_rgba(...)` on that crop.
-6. Packs per-sprite outputs back into source-row order and writes a
+5. When no explicit target size is supplied, probes each crop with autocorr
+   inference, chooses the median source-pixels-per-texel density for the whole
+   sheet, and pins each crop to dimensions derived from that shared density.
+6. Crops each region and calls `run_pipeline_rgba(...)` on that crop.
+7. Packs per-sprite outputs back into source-row order and writes a
    `spritesheet.json` diagnostic summary when diagnostics are enabled.
 
-Pinned target width, height, or size applies to each sprite crop. Automatic
-inference also runs per crop. The whole sheet never receives one shared lattice.
+Pinned target width, height, or size applies to each sprite crop and disables
+shared-density sizing. The whole sheet never receives one shared lattice, but
+automatic sheet mode does use one shared texel density so sub-sprites do not
+silently converge on half- or double-scale rulers.
 
 ## Diagram
 

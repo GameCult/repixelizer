@@ -102,3 +102,58 @@ def test_auto_detect_ignores_wide_stray_components() -> None:
 
     assert len(regions) == 4
     assert all(region.height > 5 for region in regions)
+
+
+def test_spritesheet_auto_mode_pins_shared_density(tmp_path: Path, monkeypatch) -> None:
+    input_path = tmp_path / "sheet.png"
+    output_path = tmp_path / "out.png"
+    save_rgba(input_path, _sheet_with_four_alpha_sprites())
+    pinned_targets: list[tuple[int | None, int | None]] = []
+    probe_targets = iter([(2, 2), (3, 3), (2, 2), (2, 2)])
+
+    class DummyInference:
+        def __init__(self, width: int, height: int) -> None:
+            self.target_width = width
+            self.target_height = height
+
+    def fake_infer_autocorr_lattice(source, **kwargs):
+        del source, kwargs
+        width, height = next(probe_targets)
+        return DummyInference(width, height)
+
+    def fake_run_pipeline_rgba(source, **kwargs):
+        pinned_targets.append((kwargs["target_width"], kwargs["target_height"]))
+        rgba = np.zeros((kwargs["target_height"], kwargs["target_width"], 4), dtype=np.float32)
+        rgba[..., 3] = 1.0
+        inference = InferenceResult(
+            target_width=kwargs["target_width"],
+            target_height=kwargs["target_height"],
+            confidence=1.0,
+        )
+        solver = SolverArtifacts(
+            target_rgba=rgba,
+            uv_field=np.zeros((*rgba.shape[:2], 2), dtype=np.float32),
+            signal_strength=np.zeros(rgba.shape[:2], dtype=np.float32),
+            initial_rgba=rgba.copy(),
+            loss_history=[],
+        )
+        return RunResult(
+            source_rgba=source,
+            output_rgba=rgba,
+            inference=inference,
+            analysis=PhaseFieldSourceAnalysis(edge_map=np.zeros(source.shape[:2], dtype=np.float32)),
+            solver=solver,
+            cleanup=CleanupArtifacts(cleaned_rgba=rgba, isolated_heatmap=np.zeros(rgba.shape[:2], dtype=np.float32)),
+            palette_result=None,
+            diagnostics={},
+        )
+
+    monkeypatch.setattr("repixelizer.spritesheet.infer_autocorr_lattice", fake_infer_autocorr_lattice)
+    monkeypatch.setattr("repixelizer.spritesheet.run_pipeline_rgba", fake_run_pipeline_rgba)
+
+    result = run_spritesheet(input_path, output_path, steps=0, device="cpu")
+
+    assert output_path.exists()
+    assert len(pinned_targets) == 4
+    assert all(width is not None and height is not None for width, height in pinned_targets)
+    assert result.diagnostics["shared_density"]["max_relative_deviation"] < 0.12

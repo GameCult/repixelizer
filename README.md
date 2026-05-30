@@ -80,7 +80,7 @@ What exists now:
 - lattice inference with CUDA support
 - the `phase-field` reconstruction engine in `src/repixelizer/phase_field.py`
 - automatic diagnostics, comparisons, and benchmark runs
-- spritesheet CLI mode that detects separated regions and repixelizes each region independently
+- spritesheet CLI mode that detects separated regions, chooses one shared texel density for the sheet, and repixelizes each region independently
 - a tuning harness for offline parameter sweeps
 - `source_fidelity` and `source_structure` metrics for lattice agreement and visible structure
 - a shippable explicit local-search solver config, with tuning notes in `docs/solver-tuning-lessons-2026-04-29.md`
@@ -125,9 +125,11 @@ repixelize spritesheet sheet.png --out output.png --diagnostics-dir diagnostics
 ```
 
 When `--sprite-count` is omitted, Repixelizer detects large separated foreground
-regions. Pinned target dimensions apply per sprite, not to the whole sheet. Add
-`--strip-background` when the sheet has an opaque edge-connected backdrop that
-should become transparent before cropping.
+regions. By default, automatic spritesheet mode infers each crop once, chooses a
+robust shared texel density for the sheet, and pins each crop to that density
+before reconstruction. Pinned target dimensions apply per sprite, not to the
+whole sheet. Add `--strip-background` when the sheet has an opaque
+edge-connected backdrop that should become transparent before cropping.
 
 ## Corpus And Benchmarks
 
@@ -186,7 +188,7 @@ That keeps benchmark assets, attribution exports, and tuning runs from polluting
 Core modules:
 
 - `inference.py`: target size inference
-- `spritesheet.py`: spritesheet region detection and per-region pipeline orchestration
+- `spritesheet.py`: spritesheet region detection, shared-density sizing, and per-region pipeline orchestration
 - `phase_field.py`: explicit local-search phase-field solver
 - `metrics.py`: fidelity, adjacency, and motif metrics
 - `benchmark.py`: corpus benchmark runner

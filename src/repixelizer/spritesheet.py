@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from .diagnostics import write_json
+from .inference import infer_autocorr_lattice
 from .io import load_rgba, save_rgba
 from .pipeline import run_pipeline_rgba
 from .preprocess import strip_edge_background
@@ -72,17 +73,25 @@ def run_spritesheet(
         diagnostics_path.mkdir(parents=True, exist_ok=True)
         save_rgba(diagnostics_path / "detected-source.png", detection_source)
 
+    inferred_targets = _shared_density_targets(
+        detection_source,
+        regions,
+        device=device,
+        enabled=target_size is None and target_width is None and target_height is None,
+    )
+
     sprite_runs: list[SpriteRun] = []
     for region in regions:
         crop = detection_source[region.top : region.bottom, region.left : region.right].copy()
         sprite_diagnostics = None
         if diagnostics_path is not None:
             sprite_diagnostics = diagnostics_path / f"sprite-{region.index:03d}"
+        pinned_target = inferred_targets.get(region.index)
         result = run_pipeline_rgba(
             crop,
-            target_size=target_size,
-            target_width=target_width,
-            target_height=target_height,
+            target_size=None if pinned_target is not None else target_size,
+            target_width=pinned_target[0] if pinned_target is not None else target_width,
+            target_height=pinned_target[1] if pinned_target is not None else target_height,
             palette_path=palette_path,
             palette_mode=palette_mode,
             diagnostics_dir=sprite_diagnostics,
@@ -103,6 +112,7 @@ def run_spritesheet(
         sprite_count_request=sprite_count,
         sprite_runs=sprite_runs,
         output_shape=output.shape,
+        shared_density=_shared_density_summary(regions, inferred_targets),
     )
     if diagnostics_path is not None:
         write_json(diagnostics_path / "spritesheet.json", diagnostics)
@@ -333,8 +343,9 @@ def _spritesheet_summary(
     sprite_count_request: int | None,
     sprite_runs: list[SpriteRun],
     output_shape: tuple[int, ...],
+    shared_density: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    return {
+    summary = {
         "mode": "spritesheet",
         "source_width": int(source_shape[1]),
         "source_height": int(source_shape[0]),
@@ -355,4 +366,66 @@ def _spritesheet_summary(
             }
             for run in sprite_runs
         ],
+    }
+    if shared_density is not None:
+        summary["shared_density"] = shared_density
+    return summary
+
+
+def _shared_density_targets(
+    source: np.ndarray,
+    regions: list[SpriteRegion],
+    *,
+    device: str,
+    enabled: bool,
+) -> dict[int, tuple[int, int]]:
+    if not enabled or not regions:
+        return {}
+    probes: list[tuple[SpriteRegion, float]] = []
+    for region in regions:
+        crop = source[region.top : region.bottom, region.left : region.right]
+        inference = infer_autocorr_lattice(crop, device=device)
+        density_x = region.width / max(1, inference.target_width)
+        density_y = region.height / max(1, inference.target_height)
+        probes.append((region, (density_x + density_y) * 0.5))
+
+    density = _median_density([probe_density for _region, probe_density in probes])
+    targets: dict[int, tuple[int, int]] = {}
+    for region, _probe_density in probes:
+        targets[region.index] = (
+            max(1, int(round(region.width / max(density, 1e-6)))),
+            max(1, int(round(region.height / max(density, 1e-6)))),
+        )
+    return targets
+
+
+def _median_density(values: list[float]) -> float:
+    if not values:
+        return 1.0
+    return float(np.median(np.asarray(values, dtype=np.float32)))
+
+
+def _shared_density_summary(
+    regions: list[SpriteRegion],
+    targets: dict[int, tuple[int, int]],
+) -> dict[str, Any] | None:
+    if not targets:
+        return None
+    densities = []
+    for region in regions:
+        target = targets.get(region.index)
+        if target is None:
+            continue
+        target_width, target_height = target
+        density_x = region.width / max(1, target_width)
+        density_y = region.height / max(1, target_height)
+        densities.append((density_x + density_y) * 0.5)
+    if not densities:
+        return None
+    raw = np.asarray(densities, dtype=np.float32)
+    return {
+        "density": float(np.median(raw)),
+        "min_density": float(np.min(raw)),
+        "max_density": float(np.max(raw)),
+        "max_relative_deviation": float(np.max(np.abs(raw - np.median(raw)) / max(float(np.median(raw)), 1e-6))),
     }
