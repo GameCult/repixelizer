@@ -173,7 +173,7 @@ class HostedDemoConfig:
     def from_env(cls) -> "HostedDemoConfig":
         hosted_demo = _env_flag("REPIXELIZER_HOSTED_DEMO", False)
         defaults = {
-            "max_upload_bytes": 2 * 1_048_576 if hosted_demo else 16 * 1_048_576,
+            "max_upload_bytes": 5 * 1_048_576 if hosted_demo else 16 * 1_048_576,
             "max_input_dimension": 2048 if hosted_demo else 4096,
             "max_output_dimension": 512 if hosted_demo else 1024,
             "default_steps": 32 if hosted_demo else 48,

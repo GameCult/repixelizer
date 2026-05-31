@@ -728,7 +728,7 @@ def test_gui_hosted_config_endpoint_exposes_demo_limits(monkeypatch, tmp_path: P
     payload = _response_json(_route_endpoint(app, "/api/config", "GET")())
 
     assert payload["hostedDemo"] is True
-    assert payload["limits"]["maxUploadBytes"] == 2 * 1_048_576
+    assert payload["limits"]["maxUploadBytes"] == 5 * 1_048_576
     assert payload["limits"]["maxOutputDimension"] == 512
     assert payload["limits"]["defaultSteps"] == 32
     assert payload["ui"]["showDeviceControl"] is False
@@ -1041,7 +1041,7 @@ def test_hosted_job_options_use_autocorr_and_force_rerank() -> None:
     config = HostedDemoConfig(
         hosted_demo=True,
         show_queue_panel=True,
-        max_upload_bytes=2 * 1_048_576,
+        max_upload_bytes=5 * 1_048_576,
         max_input_dimension=2048,
         max_output_dimension=512,
         default_steps=32,
