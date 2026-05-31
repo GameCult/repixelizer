@@ -75,6 +75,9 @@ def test_spritesheet_command_dispatches_to_spritesheet_runner(monkeypatch, tmp_p
         called["input_path"] = input_path
         called["output_path"] = output_path
         called["sprite_count"] = kwargs["sprite_count"]
+        called["sheet_columns"] = kwargs["sheet_columns"]
+        called["sheet_rows"] = kwargs["sheet_rows"]
+        called["export_sprites_dir"] = kwargs["export_sprites_dir"]
         called["target_width"] = kwargs["target_width"]
         called["target_height"] = kwargs["target_height"]
         called["enable_candidate_rerank"] = kwargs["enable_candidate_rerank"]
@@ -91,6 +94,12 @@ def test_spritesheet_command_dispatches_to_spritesheet_runner(monkeypatch, tmp_p
             str(output_path),
             "--sprite-count",
             "6",
+            "--sheet-columns",
+            "3",
+            "--sheet-rows",
+            "2",
+            "--export-sprites-dir",
+            str(tmp_path / "sprites"),
             "--target-width",
             "32",
             "--target-height",
@@ -104,6 +113,9 @@ def test_spritesheet_command_dispatches_to_spritesheet_runner(monkeypatch, tmp_p
         "input_path": str(input_path),
         "output_path": str(output_path),
         "sprite_count": 6,
+        "sheet_columns": 3,
+        "sheet_rows": 2,
+        "export_sprites_dir": str(tmp_path / "sprites"),
         "target_width": 32,
         "target_height": 32,
         "enable_candidate_rerank": False,

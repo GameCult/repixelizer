@@ -121,6 +121,7 @@ Run a spritesheet as separate sprite regions:
 
 ```powershell
 repixelize spritesheet sheet.png --out output.png --sprite-count 6 --target-width 32 --target-height 32
+repixelize spritesheet sheet.png --out output.png --sheet-columns 3 --sheet-rows 2 --export-sprites-dir sprites
 repixelize spritesheet sheet.png --out output.png --diagnostics-dir diagnostics
 ```
 
@@ -130,6 +131,9 @@ robust shared texel density for the sheet, and pins each crop to that density
 before reconstruction. Pinned target dimensions apply per sprite, not to the
 whole sheet. Add `--strip-background` when the sheet has an opaque
 edge-connected backdrop that should become transparent before cropping.
+Use `--sheet-columns` and `--sheet-rows` for fixed-layout character sheets; grid
+mode exports full cells and does not let disconnected limbs, weapons, shadows,
+or effects become separate sprites.
 
 ## Corpus And Benchmarks
 

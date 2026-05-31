@@ -50,6 +50,9 @@ def run_spritesheet(
     output_path: str | Path,
     *,
     sprite_count: int | None = None,
+    sheet_columns: int | None = None,
+    sheet_rows: int | None = None,
+    export_sprites_dir: str | Path | None = None,
     target_size: int | None = None,
     target_width: int | None = None,
     target_height: int | None = None,
@@ -64,7 +67,12 @@ def run_spritesheet(
 ) -> SpritesheetResult:
     source = load_rgba(input_path)
     detection_source = strip_edge_background(source) if strip_background else source.copy()
-    regions = detect_sprite_regions(detection_source, sprite_count=sprite_count)
+    regions = resolve_sprite_regions(
+        detection_source,
+        sprite_count=sprite_count,
+        sheet_columns=sheet_columns,
+        sheet_rows=sheet_rows,
+    )
     if not regions:
         raise ValueError("No sprite regions were detected in the spritesheet.")
 
@@ -103,6 +111,9 @@ def run_spritesheet(
         )
         sprite_runs.append(SpriteRun(region=region, result=result))
 
+    if export_sprites_dir is not None:
+        _write_individual_sprites(export_sprites_dir, input_path, sprite_runs)
+
     output = _pack_sprite_outputs(sprite_runs)
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     save_rgba(output_path, output)
@@ -110,6 +121,9 @@ def run_spritesheet(
     diagnostics = _spritesheet_summary(
         source_shape=source.shape,
         sprite_count_request=sprite_count,
+        sheet_columns=sheet_columns,
+        sheet_rows=sheet_rows,
+        export_sprites_dir=export_sprites_dir,
         sprite_runs=sprite_runs,
         output_shape=output.shape,
         shared_density=_shared_density_summary(regions, inferred_targets),
@@ -117,6 +131,48 @@ def run_spritesheet(
     if diagnostics_path is not None:
         write_json(diagnostics_path / "spritesheet.json", diagnostics)
     return SpritesheetResult(output_rgba=output, sprites=sprite_runs, diagnostics=diagnostics)
+
+
+def resolve_sprite_regions(
+    rgba: np.ndarray,
+    *,
+    sprite_count: int | None = None,
+    sheet_columns: int | None = None,
+    sheet_rows: int | None = None,
+) -> list[SpriteRegion]:
+    if sheet_columns is None and sheet_rows is None:
+        return detect_sprite_regions(rgba, sprite_count=sprite_count)
+    if sheet_columns is None or sheet_rows is None:
+        raise ValueError("sheet_columns and sheet_rows must be supplied together.")
+    if sprite_count is not None and sprite_count != sheet_columns * sheet_rows:
+        raise ValueError("sprite_count must match sheet_columns * sheet_rows when a sheet grid is supplied.")
+    return grid_sprite_regions(rgba, columns=sheet_columns, rows=sheet_rows)
+
+
+def grid_sprite_regions(rgba: np.ndarray, *, columns: int, rows: int) -> list[SpriteRegion]:
+    if columns <= 0 or rows <= 0:
+        raise ValueError("sheet grid dimensions must be positive.")
+    height, width = rgba.shape[:2]
+    regions: list[SpriteRegion] = []
+    for row in range(rows):
+        top = round(row * height / rows)
+        bottom = round((row + 1) * height / rows)
+        for column in range(columns):
+            left = round(column * width / columns)
+            right = round((column + 1) * width / columns)
+            cell = rgba[top:bottom, left:right]
+            foreground_pixels = int(np.count_nonzero(_foreground_mask(cell))) if cell.size else 0
+            regions.append(
+                SpriteRegion(
+                    index=len(regions),
+                    left=left,
+                    top=top,
+                    right=right,
+                    bottom=bottom,
+                    foreground_pixels=foreground_pixels,
+                )
+            )
+    return regions
 
 
 def detect_sprite_regions(
@@ -337,10 +393,21 @@ def _group_sprite_runs_by_source_row(sprite_runs: list[SpriteRun]) -> list[list[
     return rows
 
 
+def _write_individual_sprites(export_sprites_dir: str | Path, input_path: str | Path, sprite_runs: list[SpriteRun]) -> None:
+    export_path = Path(export_sprites_dir)
+    export_path.mkdir(parents=True, exist_ok=True)
+    stem = Path(input_path).stem
+    for run in sprite_runs:
+        save_rgba(export_path / f"{stem}-sprite-{run.region.index:03d}.png", run.result.output_rgba)
+
+
 def _spritesheet_summary(
     *,
     source_shape: tuple[int, ...],
     sprite_count_request: int | None,
+    sheet_columns: int | None,
+    sheet_rows: int | None,
+    export_sprites_dir: str | Path | None,
     sprite_runs: list[SpriteRun],
     output_shape: tuple[int, ...],
     shared_density: dict[str, Any] | None,
@@ -352,6 +419,9 @@ def _spritesheet_summary(
         "output_width": int(output_shape[1]),
         "output_height": int(output_shape[0]),
         "sprite_count_request": sprite_count_request,
+        "sheet_columns": sheet_columns,
+        "sheet_rows": sheet_rows,
+        "export_sprites_dir": None if export_sprites_dir is None else str(export_sprites_dir),
         "sprite_count_detected": len(sprite_runs),
         "sprites": [
             {

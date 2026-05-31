@@ -5,7 +5,9 @@ from pathlib import Path
 import numpy as np
 
 from repixelizer.io import save_rgba
-from repixelizer.spritesheet import detect_sprite_regions, run_spritesheet
+import pytest
+
+from repixelizer.spritesheet import detect_sprite_regions, grid_sprite_regions, resolve_sprite_regions, run_spritesheet
 from repixelizer.types import CleanupArtifacts, InferenceResult, PhaseFieldSourceAnalysis, RunResult, SolverArtifacts
 
 
@@ -157,3 +159,79 @@ def test_spritesheet_auto_mode_pins_shared_density(tmp_path: Path, monkeypatch) 
     assert len(pinned_targets) == 4
     assert all(width is not None and height is not None for width, height in pinned_targets)
     assert result.diagnostics["shared_density"]["max_relative_deviation"] < 0.12
+
+
+def test_grid_sprite_regions_use_full_cells_in_reading_order() -> None:
+    sheet = np.zeros((40, 60, 4), dtype=np.float32)
+
+    regions = grid_sprite_regions(sheet, columns=3, rows=2)
+
+    assert len(regions) == 6
+    assert [region.index for region in regions] == [0, 1, 2, 3, 4, 5]
+    assert [regions[0].left, regions[0].top, regions[0].right, regions[0].bottom] == [0, 0, 20, 20]
+    assert [regions[5].left, regions[5].top, regions[5].right, regions[5].bottom] == [40, 20, 60, 40]
+
+
+def test_grid_sprite_regions_reject_conflicting_sprite_count() -> None:
+    sheet = np.zeros((40, 60, 4), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="sprite_count"):
+        resolve_sprite_regions(sheet, sprite_count=4, sheet_columns=3, sheet_rows=2)
+
+
+def test_spritesheet_grid_mode_exports_individual_sprites(tmp_path: Path, monkeypatch) -> None:
+    input_path = tmp_path / "sheet.png"
+    output_path = tmp_path / "out.png"
+    export_dir = tmp_path / "sprites"
+    sheet = np.zeros((20, 30, 4), dtype=np.float32)
+    sheet[..., 3] = 1.0
+    save_rgba(input_path, sheet)
+    crop_shapes: list[tuple[int, int]] = []
+
+    def fake_run_pipeline_rgba(source, **kwargs):
+        crop_shapes.append(source.shape[:2])
+        rgba = np.zeros((2, 3, 4), dtype=np.float32)
+        rgba[..., 0] = len(crop_shapes) / 6.0
+        rgba[..., 3] = 1.0
+        inference = InferenceResult(target_width=3, target_height=2, confidence=1.0)
+        solver = SolverArtifacts(
+            target_rgba=rgba,
+            uv_field=np.zeros((2, 3, 2), dtype=np.float32),
+            signal_strength=np.zeros((2, 3), dtype=np.float32),
+            initial_rgba=rgba.copy(),
+            loss_history=[],
+        )
+        return RunResult(
+            source_rgba=source,
+            output_rgba=rgba,
+            inference=inference,
+            analysis=PhaseFieldSourceAnalysis(edge_map=np.zeros(source.shape[:2], dtype=np.float32)),
+            solver=solver,
+            cleanup=CleanupArtifacts(cleaned_rgba=rgba, isolated_heatmap=np.zeros((2, 3), dtype=np.float32)),
+            palette_result=None,
+            diagnostics={},
+        )
+
+    monkeypatch.setattr("repixelizer.spritesheet.run_pipeline_rgba", fake_run_pipeline_rgba)
+    monkeypatch.setattr(
+        "repixelizer.spritesheet.infer_autocorr_lattice",
+        lambda source, **kwargs: InferenceResult(target_width=3, target_height=2, confidence=1.0),
+    )
+
+    result = run_spritesheet(
+        input_path,
+        output_path,
+        sheet_columns=3,
+        sheet_rows=2,
+        export_sprites_dir=export_dir,
+        steps=0,
+        device="cpu",
+    )
+
+    assert output_path.exists()
+    assert len(crop_shapes) == 6
+    assert set(crop_shapes) == {(10, 10)}
+    assert len(list(export_dir.glob("sheet-sprite-*.png"))) == 6
+    assert result.diagnostics["sprite_count_detected"] == 6
+    assert result.diagnostics["sheet_columns"] == 3
+    assert result.diagnostics["sheet_rows"] == 2

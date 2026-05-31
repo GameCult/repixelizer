@@ -36,10 +36,12 @@ Do not continue implementation automatically from a rehydrate-only request.
 - `source_structure` exists alongside `source_fidelity` so visible structure and lattice agreement can be inspected separately.
 - Cleanup is alpha snap plus diagnostics.
 - `src/repixelizer/spritesheet.py` owns spritesheet region detection and packing.
-  In automatic mode it probes crop sizes, chooses one shared
-  source-pixels-per-texel density for the sheet, then calls
-  `run_pipeline_rgba(...)` once per detected crop. Pinned target sizes apply per
-  sprite and bypass shared-density sizing.
+  Explicit grid mode slices full cells with `--sheet-columns` and
+  `--sheet-rows`; this is the conservative path for character sheets. Automatic
+  mode probes crop sizes, chooses one shared source-pixels-per-texel density
+  for the sheet, then calls `run_pipeline_rgba(...)` once per crop. Pinned
+  target sizes apply per sprite and bypass shared-density sizing. Individual
+  sprite PNGs are written when `--export-sprites-dir` is supplied.
 
 ## Hosted/web state
 

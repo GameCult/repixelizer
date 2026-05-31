@@ -57,6 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Expected number of sprites. If omitted, large foreground regions are detected automatically.",
     )
+    spritesheet_parser.add_argument("--sheet-columns", type=int, default=None, help="Split the sheet into this many columns.")
+    spritesheet_parser.add_argument("--sheet-rows", type=int, default=None, help="Split the sheet into this many rows.")
+    spritesheet_parser.add_argument(
+        "--export-sprites-dir",
+        default=None,
+        help="Directory for individual per-sprite PNG exports.",
+    )
     benchmark_parser = subparsers.add_parser("benchmark", help="Run the round-trip corpus benchmark.")
     benchmark_parser.add_argument("--corpus-dir", default="examples/corpus", help="Corpus root containing originals/")
     benchmark_parser.add_argument("--out-dir", default="artifacts/benchmark", help="Directory for benchmark outputs")
@@ -176,6 +183,9 @@ def main(argv: list[str] | None = None) -> int:
             args.input,
             args.out,
             sprite_count=args.sprite_count,
+            sheet_columns=args.sheet_columns,
+            sheet_rows=args.sheet_rows,
+            export_sprites_dir=args.export_sprites_dir,
             target_size=args.target_size,
             target_width=args.target_width,
             target_height=args.target_height,

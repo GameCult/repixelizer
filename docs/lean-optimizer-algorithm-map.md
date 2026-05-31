@@ -47,26 +47,31 @@ the CLI, GUI, spritesheet wrapper, and comparison harness.
 
 ### Ownership
 
-Spritesheet mode owns region detection, sheet-level texel density selection, and
-output packing only. It does not own reconstruction, cleanup, palette fitting,
-or metrics.
+Spritesheet mode owns sprite-region identity, sheet-level texel density
+selection, optional individual exports, and output packing only. It does not own
+reconstruction, cleanup, palette fitting, or metrics.
 
 ### What the source actually does
 
 Spritesheet mode:
 
 1. Loads one source sheet.
-2. Builds a foreground mask from alpha, or from edge-connected background
+2. If `--sheet-columns` and `--sheet-rows` are supplied, slices the sheet into
+   full grid cells in reading order. This is the conservative path for
+   character sheets where limbs, weapons, shadows, and effects can be
+   disconnected.
+3. Otherwise builds a foreground mask from alpha, or from edge-connected background
    stripping when `--strip-background` is requested. Fully opaque sheets use a
    fast border-color foreground guess by default.
-3. Detects connected foreground regions, optionally selecting the largest
+4. Detects connected foreground regions, optionally selecting the largest
    requested `--sprite-count`.
-4. Sorts regions in reading order.
-5. When no explicit target size is supplied, probes each crop with autocorr
+5. Sorts regions in reading order.
+6. When no explicit target size is supplied, probes each crop with autocorr
    inference, chooses the median source-pixels-per-texel density for the whole
    sheet, and pins each crop to dimensions derived from that shared density.
-6. Crops each region and calls `run_pipeline_rgba(...)` on that crop.
-7. Packs per-sprite outputs back into source-row order and writes a
+7. Crops each region and calls `run_pipeline_rgba(...)` on that crop.
+8. Writes individual sprite PNGs when `--export-sprites-dir` is supplied.
+9. Packs per-sprite outputs back into source-row order and writes a
    `spritesheet.json` diagnostic summary when diagnostics are enabled.
 
 Pinned target width, height, or size applies to each sprite crop and disables
