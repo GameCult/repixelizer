@@ -69,6 +69,9 @@ In plainer language:
 That is the machine described in `docs/lean-optimizer-algorithm-map.md`.
 Comparison mode just runs that same `phase-field` result next to the baselines.
 
+For hosted service state, queue visibility, and the future CultCache/CultMesh/Eve
+operator surface, see `docs/verse-service-contract.md`.
+
 ## Current Status
 
 This repo is past the "pile of hopeful heuristics" stage and into "real
