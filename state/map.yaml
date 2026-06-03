@@ -53,6 +53,7 @@ accepted_design:
   - Hosted mode owns the public front door in `src/repixelizer/gui.py`: `/` is a landing page there, while local/self-host runs keep root as a plain redirect to `/app/`.
   - `src/repixelizer/access.py` owns the hosted access seam: trusted-header ingress still works, `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally, and auth attempts are adopted into local httpOnly cookie sessions.
   - In Heimdall mode, Repixelizer keeps a separate httpOnly refresh cookie and asks Heimdall to reissue a short-lived access claim before forcing the user back through provider OAuth.
+  - `src/repixelizer/witness.py` owns the read-only first-cut Odin provider advertisement export. It names Repixelizer job, queue, event, runtime, and auth witness schemas plus the reserved `state/repixelizer.witness.cc` path, but it does not own queue truth or write CultCache.
   - The solver starts from fixed lattice centers, adds tiny seeded noise, follows a direct hierarchical flatness signal, enforces local lattice coherence through spring relaxation, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` and `source_structure` separate lattice agreement from visible structure.
@@ -68,6 +69,7 @@ landed_baseline:
   - Spritesheet CLI mode detects separated foreground regions or selects the largest requested sprite count, then repixelizes each crop independently through `phase-field`.
   - `source_structure` reporting alongside `source_fidelity`.
   - Hosted landing page and Heimdall auth seam in the web layer.
+  - Read-only `gamecult.eve.provider_advertisement.v1` fixture/export for Odin discovery and future CultCache/Eve witness work.
 
 rejected_paths:
   - name: tray_optimizer_sprawl
@@ -95,11 +97,16 @@ current_status:
     endpoint before falling back to provider OAuth, while
     `src/repixelizer/gui.py` owns provider-start routes, direct backend callback
     receipt, hosted landing-page login buttons, route guards, and queue/job
-    ownership checks. Self-host remains permissive by default unless
-    `GC_ACCESS_*` turns the seam on. The solver is shipping with a usable but
-    not final tuned config: local search radius `0.215`, blend `0.24`, move
-    weight `0.09`, grid alignment `4.75`, signal energy power `1.4`, and signal
-    peak power `3.25`, aligned in `config/solver_params.json` and the docs.
+    ownership checks. `src/repixelizer/witness.py` now emits a read-only
+    `gamecult.eve.provider_advertisement.v1` export and checked-in fixture that
+    names the Repixelizer job/queue/event/runtime/auth witness schemas and
+    reserved `state/repixelizer.witness.cc` path for Odin/Huginn discovery,
+    without moving queue ownership out of `gui.py`. Self-host remains
+    permissive by default unless `GC_ACCESS_*` turns the seam on. The solver is
+    shipping with a usable but not final tuned config: local search radius
+    `0.215`, blend `0.24`, move weight `0.09`, grid alignment `4.75`, signal
+    energy power `1.4`, and signal peak power `3.25`, aligned in
+    `config/solver_params.json` and the docs.
     Diagnostic edge analysis remains an observer/GUI gauge. The tuning pass proved that wide
     local-search windows caused neighbor feature poaching and that tighter radius
     plus stronger blend is the current motion-geometry basin. It did not fully

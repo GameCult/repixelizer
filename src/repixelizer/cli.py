@@ -10,6 +10,7 @@ from .gui import main as gui_main
 from .pipeline import run_pipeline
 from .spritesheet import run_spritesheet
 from .tuning import tune_solver_hyperparams
+from .witness import main as witness_advertisement_main
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -131,6 +132,16 @@ def build_parser() -> argparse.ArgumentParser:
     tune_parser.add_argument("--workers", type=int, default=1, help="Parallel benchmark worker processes per trial")
     prepare_parser = subparsers.add_parser("prepare-corpus", help="Normalize imported corpus sheets into single sprites.")
     prepare_parser.add_argument("--corpus-dir", default="examples/corpus", help="Corpus root containing originals/")
+    witness_parser = subparsers.add_parser(
+        "witness-advertisement",
+        help="Emit the read-only Repixelizer Eve provider advertisement.",
+    )
+    witness_parser.add_argument("--out", default=None, help="Write JSON to this path instead of stdout.")
+    witness_parser.add_argument("--updated-at", default=None, help="Override the advertisement timestamp.")
+    witness_parser.add_argument("--verse-id", default=None, help="Authoritative Verse id.")
+    witness_parser.add_argument("--public-base-url", default=None, help="Hosted browser lowering base URL.")
+    witness_parser.add_argument("--cc-witness-path", default=None, help="Reserved CultCache .cc witness path.")
+    witness_parser.add_argument("--eve-surface-key", default=None, help="Planned CultMesh Eve surface key.")
     gui_parser = subparsers.add_parser("gui", help="Launch the web GUI.")
     gui_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
     gui_parser.add_argument("--port", type=int, default=8000, help="Port to bind")
@@ -140,7 +151,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(sys.argv[1:] if argv is None else argv)
-    if not raw_argv or raw_argv[0] not in {"run", "compare", "spritesheet", "benchmark", "tune", "prepare-corpus", "gui", "-h", "--help"}:
+    commands = {
+        "run",
+        "compare",
+        "spritesheet",
+        "benchmark",
+        "tune",
+        "prepare-corpus",
+        "witness-advertisement",
+        "gui",
+        "-h",
+        "--help",
+    }
+    if not raw_argv or raw_argv[0] not in commands:
         raw_argv = ["run", *raw_argv]
     parser = build_parser()
     args = parser.parse_args(raw_argv)
@@ -218,6 +241,19 @@ def main(argv: list[str] | None = None) -> int:
     if command == "prepare-corpus":
         prepare_corpus(args.corpus_dir)
         return 0
+    if command == "witness-advertisement":
+        witness_args: list[str] = []
+        for option, value in (
+            ("--out", args.out),
+            ("--updated-at", args.updated_at),
+            ("--verse-id", args.verse_id),
+            ("--public-base-url", args.public_base_url),
+            ("--cc-witness-path", args.cc_witness_path),
+            ("--eve-surface-key", args.eve_surface_key),
+        ):
+            if value is not None:
+                witness_args.extend([option, str(value)])
+        return witness_advertisement_main(witness_args)
     if command == "gui":
         return gui_main(host=args.host, port=args.port, reload=args.reload)
 

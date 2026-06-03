@@ -1,0 +1,191 @@
+{
+  "commands": [
+    {
+      "authority": "repixelizer-route-policy",
+      "command": "repixelizer.job.submit",
+      "method": "POST",
+      "result": "accepted-denied-or-queued",
+      "route": "/api/jobs",
+      "surfaceId": "repixelizer.web.app",
+      "transport": "http"
+    },
+    {
+      "authority": "repixelizer-job-owner",
+      "command": "repixelizer.job.cancel_own",
+      "method": "DELETE",
+      "result": "accepted-denied-or-not-found",
+      "route": "/api/jobs/{job_id}",
+      "surfaceId": "repixelizer.web.app",
+      "transport": "http"
+    }
+  ],
+  "contacts": [
+    {
+      "kind": "repo",
+      "path": "E:\\Projects\\repixelizer"
+    }
+  ],
+  "freshness": {
+    "lastSeenAt": "2026-06-03T00:00:00Z",
+    "maxAgeMs": 15000,
+    "state": "fresh"
+  },
+  "kind": "service.product",
+  "nestedVerses": [
+    {
+      "authorityBoundary": "repixelizer-local-session-or-heimdall-account",
+      "carryRules": {
+        "commands": "repixelizer-route-policy-only",
+        "identity": "heimdall-claims-projected-when-enabled"
+      },
+      "kind": "session-space",
+      "parentVerseId": "gamecult.local",
+      "stateSchemas": [
+        "repixelizer.job.v0",
+        "repixelizer.job_event.v0",
+        "repixelizer.auth_projection.v0"
+      ],
+      "surfaceIds": [
+        "repixelizer.web.app"
+      ],
+      "verseId": "repixelizer.session.{sessionId}"
+    },
+    {
+      "authorityBoundary": "read-only-first-cut",
+      "kind": "hosted-operator-space",
+      "parentVerseId": "gamecult.local",
+      "stateSchemas": [
+        "repixelizer.job.v0",
+        "repixelizer.queue_snapshot.v0",
+        "repixelizer.job_event.v0",
+        "repixelizer.runtime_config.v0",
+        "repixelizer.auth_projection.v0"
+      ],
+      "surfaceIds": [
+        "repixelizer.operator.surface"
+      ],
+      "verseId": "repixelizer.operator"
+    }
+  ],
+  "providerId": "repixelizer",
+  "runtime": {
+    "auth": {
+      "enabled": false,
+      "mode": "off",
+      "protectQueue": false,
+      "providers": [],
+      "required": false
+    },
+    "hostedDemo": false,
+    "queueCapacity": 32,
+    "showQueuePanel": false,
+    "spoolPath": "C:\\Users\\Meta\\AppData\\Local\\Temp\\repixelizer-gui-spool"
+  },
+  "schema": "gamecult.eve.provider_advertisement.v1",
+  "schemas": [
+    {
+      "authority": "accepted",
+      "description": "Job id, owner binding, status, timestamps, input/output artifact refs, error summary, and retention state.",
+      "owner": "repixelizer.gui",
+      "portable": true,
+      "schema": "repixelizer.job.v0",
+      "storage": "memory-dev-only-with-cc-witness-reserved"
+    },
+    {
+      "authority": "accepted",
+      "description": "Queue capacity, waiting/running counts, active job ids, oldest waiting age, and hosted mode.",
+      "owner": "repixelizer.gui",
+      "portable": true,
+      "schema": "repixelizer.queue_snapshot.v0",
+      "storage": "memory-dev-only-with-cc-witness-reserved"
+    },
+    {
+      "authority": "redacted-projection",
+      "description": "Redacted progress event, stage, index, timestamp, and job id.",
+      "owner": "repixelizer.gui",
+      "portable": true,
+      "schema": "repixelizer.job_event.v0",
+      "storage": "memory-dev-only-with-cc-witness-reserved"
+    },
+    {
+      "authority": "accepted",
+      "description": "Hosted flags, queue limits, visible UI flags, solver config hash placeholder, deployment id, and spool path.",
+      "owner": "repixelizer.gui",
+      "portable": true,
+      "schema": "repixelizer.runtime_config.v0",
+      "storage": "memory-dev-only-with-cc-witness-reserved"
+    },
+    {
+      "authority": "external-authority-projection",
+      "description": "Auth mode, provider availability, subject capability summary, and Heimdall claim freshness without raw tokens.",
+      "owner": "repixelizer.access",
+      "portable": true,
+      "schema": "repixelizer.auth_projection.v0",
+      "storage": "heimdall-projection-with-cc-witness-reserved"
+    }
+  ],
+  "serviceId": "repixelizer.service",
+  "styleCapabilities": [
+    {
+      "lossiness": {
+        "read-only-first-cut": "operator surface names state and routes but does not own queue truth",
+        "tui": "no-pixel-canvas-editing; status, queue, artifact refs, and command intents only"
+      },
+      "preferredLowerings": [
+        "css",
+        "android-native",
+        "native-eve",
+        "tui"
+      ],
+      "styleProfile": "repixelizer.product",
+      "tokenGroups": [
+        "repixelizer.comparisonCanvas",
+        "repixelizer.cleanupTool",
+        "repixelizer.queuePanel",
+        "repixelizer.operatorStatus"
+      ]
+    }
+  ],
+  "surfaces": [
+    {
+      "audience": "operator",
+      "commands": [],
+      "key": "cultmesh://repixelizer/surfaces/operator",
+      "mode": "read-only-first-cut",
+      "schema": "gamecult.eve.surface.v1",
+      "status": "planned",
+      "surfaceId": "repixelizer.operator.surface",
+      "transport": "cultmesh-document"
+    },
+    {
+      "canonical": false,
+      "canonicalSurfaceId": "repixelizer.operator.surface",
+      "schema": "gamecult.eve.surface.v1",
+      "surfaceId": "repixelizer.web.app",
+      "transport": "browser-lowering",
+      "url": "https://repixelizer.gamecult.org/app/"
+    }
+  ],
+  "title": "Repixelizer",
+  "updatedAt": "2026-06-03T00:00:00Z",
+  "verseId": "gamecult.local",
+  "witnesses": [
+    {
+      "freshness": {
+        "state": "planned",
+        "updatedAt": "2026-06-03T00:00:00Z"
+      },
+      "id": "repixelizer.hosted.witness",
+      "kind": "cc-export-path-reserved",
+      "path": "state/repixelizer.witness.cc",
+      "redaction": "bulk-images-raw-tokens-and-private-claims-removed",
+      "schemas": [
+        "repixelizer.job.v0",
+        "repixelizer.queue_snapshot.v0",
+        "repixelizer.job_event.v0",
+        "repixelizer.runtime_config.v0",
+        "repixelizer.auth_projection.v0"
+      ]
+    }
+  ]
+}

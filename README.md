@@ -73,7 +73,9 @@ That is the machine described in `docs/lean-optimizer-algorithm-map.md`.
 Comparison mode just runs that same `phase-field` result next to the baselines.
 
 For hosted service state, queue visibility, and the future CultCache/CultMesh/Eve
-operator surface, see `docs/verse-service-contract.md`.
+operator surface, see `docs/verse-service-contract.md`. The read-only Odin
+advertisement fixture/export is documented in
+`docs/repixelizer-witness-contract.md`.
 
 ## Current Status
 
