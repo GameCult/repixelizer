@@ -3,7 +3,8 @@
 Repixelizer is both a local image tool and a hosted GameCult service. Heimdall
 owns shared auth. Repixelizer owns repixelizing work: uploads, queue admission,
 job lifecycle, progress events, generated outputs, local session/job binding,
-and hosted UI behavior.
+and product presentation state. The current website is a browser lowering; Eve
+is the canonical surface contract.
 
 The current hosted service is intentionally small and single-process. The next
 GameCult Verse cut is not to make it grand. The cut is to make its job and
@@ -24,9 +25,9 @@ living only inside the GUI process.
 - Derived state: browser status panels, frontend queue polling, SSE streams,
   generated preview HTML, diagnostics JSON, and static legal pages are
   projections. They do not own job truth.
-- Forbidden writers: frontend widgets, browser callback pages, Eve/TUI
-  renderers, Heimdall, and Odin must not directly mutate job truth. They submit
-  command intent through Repixelizer routes.
+- Forbidden writers: frontend widgets, browser callback pages, Eve/TUI/native
+  renderers, Heimdall, and Odin must not directly mutate job truth or own the
+  product flow. They submit command intent through Repixelizer routes.
 - Shared paths: local GUI, hosted GUI, API job routes, future CultCache `.cc`
   job witness, CultMesh publication, Odin discovery, and Eve/TUI operator
   surface must describe the same queue/job state.
@@ -60,8 +61,8 @@ the primary queue owner.
 
 ## Eve Surface Target
 
-Repixelizer should publish an Eve GUI/TUI DSL operator surface with these
-panels:
+Repixelizer should publish an Eve GUI/TUI DSL product surface with these panels
+and flows:
 
 1. `Runtime`: deployment mode, solver config hash, hosted-demo flags, CUDA
    availability, queue capacity, current worker state.
@@ -73,10 +74,18 @@ panels:
    queue protection, claim freshness, and denied access reasons.
 5. `Artifacts`: spool/output roots, retention policy, recent cleanup actions,
    and artifact refs without embedding large media in service state.
+6. `Image Flow`: upload, lattice inference, comparison view, zoom/pan,
+   before/after inspection, cleanup tools, palette fitting, export, and
+   artifact handoff.
 
 Eve can render previews by artifact reference, but the artifacts themselves are
 not the state owner. Repixelizer owns the job record that says which artifact is
 current.
+
+The existing web style should translate into Eve style tokens, canvas behavior,
+tool palettes, and component variants. A Kotlin Android Eve runtime should be
+able to run the cleanup flow with native controls while preserving the same
+command boundary and product identity.
 
 ## Migration Order
 
@@ -86,8 +95,12 @@ current.
    `.cc` witness.
 3. Publish the witness through CultMesh.
 4. Add an Eve DSL provider over the witness and existing health/config routes.
-5. Register the surface with Odin.
-6. Only after the witness is stable, decide whether queue ownership should move
+5. Translate the existing browser GUI style and tool behavior into Eve style
+   tokens, canvas primitives, and command descriptors.
+6. Lower the current website from the Eve surface instead of treating it as the
+   product UI owner.
+7. Register the surface with Odin.
+8. Only after the witness is stable, decide whether queue ownership should move
    from in-process memory into the typed store.
 
 The invariant: Heimdall owns shared auth; Repixelizer owns jobs and artifacts.

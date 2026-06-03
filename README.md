@@ -11,11 +11,14 @@ reconstruction: infer the ruler, preview the edges, let every output cell
 search a tiny local window for quieter paint, relax the whole sheet back into a
 coherent lattice, then sample once and go home.
 
-## GUI First
+## Eve Surface First
 
-The web GUI is the main way to use this thing unless you enjoy raw flags for sport.
+The web GUI is the current browser lowering for Repixelizer. The canonical
+presentation target is an Eve surface: the same upload, comparison, cleanup,
+queue, and artifact flow should lower to browser, Kotlin Android Eve, native
+Eve, TUI, or future room clients without becoming five apps in a coat.
 
-It gives you:
+The current browser lowering gives you:
 
 - drag-and-drop input
 - live phase-field feedback while autocorr inference, rerank, and solving run
@@ -100,7 +103,7 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -e .[dev]
 ```
 
-Launch the GUI:
+Launch the current browser lowering:
 
 ```powershell
 .\scripts\run_gui.ps1
