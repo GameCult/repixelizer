@@ -26,7 +26,7 @@
     }
   ],
   "freshness": {
-    "lastSeenAt": "2026-06-03T00:00:00Z",
+    "lastSeenAt": "2026-06-04T00:00:00Z",
     "maxAgeMs": 15000,
     "state": "fresh"
   },
@@ -139,6 +139,7 @@
       ],
       "styleProfile": "repixelizer.product",
       "tokenGroups": [
+        "repixelizer.retro.pixel",
         "repixelizer.comparisonCanvas",
         "repixelizer.cleanupTool",
         "repixelizer.queuePanel",
@@ -149,13 +150,19 @@
   "surfaces": [
     {
       "audience": "operator",
-      "commands": [],
+      "commands": [
+        "repixelizer.web.open",
+        "repixelizer.job.submit",
+        "repixelizer.job.cancel_own"
+      ],
       "key": "cultmesh://repixelizer/surfaces/operator",
       "mode": "read-only-first-cut",
       "schema": "gamecult.eve.surface.v1",
-      "status": "planned",
+      "status": "available",
+      "styleProfile": "repixelizer.retro.pixel",
       "surfaceId": "repixelizer.operator.surface",
-      "transport": "cultmesh-document"
+      "transport": "http-json",
+      "url": "https://repixelizer.gamecult.org/eve/surface"
     },
     {
       "canonical": false,
@@ -167,13 +174,13 @@
     }
   ],
   "title": "Repixelizer",
-  "updatedAt": "2026-06-03T00:00:00Z",
+  "updatedAt": "2026-06-04T00:00:00Z",
   "verseId": "gamecult.local",
   "witnesses": [
     {
       "freshness": {
         "state": "planned",
-        "updatedAt": "2026-06-03T00:00:00Z"
+        "updatedAt": "2026-06-04T00:00:00Z"
       },
       "id": "repixelizer.hosted.witness",
       "kind": "cc-export-path-reserved",

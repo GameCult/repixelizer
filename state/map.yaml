@@ -54,6 +54,7 @@ accepted_design:
   - `src/repixelizer/access.py` owns the hosted access seam: trusted-header ingress still works, `GC_ACCESS_MODE=heimdall` verifies Heimdall Ed25519 access tokens locally, and auth attempts are adopted into local httpOnly cookie sessions.
   - In Heimdall mode, Repixelizer keeps a separate httpOnly refresh cookie and asks Heimdall to reissue a short-lived access claim before forcing the user back through provider OAuth.
   - `src/repixelizer/witness.py` owns the read-only first-cut Odin provider advertisement export. It names Repixelizer job, queue, event, runtime, and auth witness schemas plus the reserved `state/repixelizer.witness.cc` path, but it does not own queue truth or write CultCache.
+  - `src/repixelizer/eve_surface.py` owns the read-only Eve surface projection for Repixelizer's front page, single-page workflow, runtime/auth/queue status, retro style tokens, command descriptors, and Periwinkle lowering comparison; `/eve/surface` serves the live projection from `gui.py` without owning queue truth.
   - The solver starts from fixed lattice centers, adds tiny seeded noise, follows a direct hierarchical flatness signal, enforces local lattice coherence through spring relaxation, then rounds to real source pixels for final output.
   - Cleanup is local and secondary; it does not define the core reconstruction model.
   - `source_fidelity` and `source_structure` separate lattice agreement from visible structure.
@@ -70,6 +71,7 @@ landed_baseline:
   - `source_structure` reporting alongside `source_fidelity`.
   - Hosted landing page and Heimdall auth seam in the web layer.
   - Read-only `gamecult.eve.provider_advertisement.v1` fixture/export for Odin discovery and future CultCache/Eve witness work.
+  - Read-only `gamecult.eve.surface.v1` fixture/export plus hosted `/eve/surface` projection, preserving Repixelizer's retro CSS identity as Eve style tokens and documenting Android/Periwinkle style-control parity gaps.
 
 rejected_paths:
   - name: tray_optimizer_sprawl
@@ -101,7 +103,15 @@ current_status:
     `gamecult.eve.provider_advertisement.v1` export and checked-in fixture that
     names the Repixelizer job/queue/event/runtime/auth witness schemas and
     reserved `state/repixelizer.witness.cc` path for Odin/Huginn discovery,
-    without moving queue ownership out of `gui.py`. Self-host remains
+    and `src/repixelizer/eve_surface.py` emits a read-only
+    `gamecult.eve.surface.v1` projection served at `/eve/surface` and checked in
+    as `docs/fixtures/repixelizer.eve-surface.json`. The Eve surface keeps the
+    browser app as the lossless retro lowering, publishes Press Start 2P/VT323
+    and pixel-shell style tokens, routes commands back to existing GUI routes,
+    and records that Periwinkle's Kotlin renderer can traverse the surface tree
+    but does not yet honor provider style tokens, pixel fonts, image assets, or
+    native upload/canvas controls. These exports do not move queue ownership out
+    of `gui.py`. Self-host remains
     permissive by default unless `GC_ACCESS_*` turns the seam on. The solver is
     shipping with a usable but not final tuned config: local search radius
     `0.215`, blend `0.24`, move weight `0.09`, grid alignment `4.75`, signal

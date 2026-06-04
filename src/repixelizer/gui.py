@@ -1191,6 +1191,20 @@ def create_app():
     def get_queue():
         return JSONResponse(manager.get_queue_summary())
 
+    @app.get("/eve/surface")
+    def get_eve_surface(request: Request):
+        from .eve_surface import build_repixelizer_eve_surface
+
+        base_url = str(request.base_url).rstrip("/")
+        return JSONResponse(
+            build_repixelizer_eve_surface(
+                public_base_url=base_url,
+                config=config,
+                access_controller=access_controller,
+                queue_summary=manager.get_queue_summary(),
+            )
+        )
+
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str):
         job = manager.get_job(job_id)

@@ -67,14 +67,16 @@ The reserved witness path is `state/repixelizer.witness.cc`.
 - schema catalog entries for the witness shapes above
 - a reserved `.cc` witness entry with bulk image bytes, raw tokens, and private
   claims marked as redacted
-- a planned canonical Eve operator surface key:
+- an available canonical Eve operator surface projection at `/eve/surface`,
+  retaining the canonical CultMesh surface key:
   `cultmesh://repixelizer/surfaces/operator`
 - the current browser lowering at `/app/`
-- route-owned command boundaries for job submit and own-job cancellation
+- route-owned command boundaries for web open, job submit, and own-job cancellation
 - nested Verse declarations for session and hosted-operator spaces
 - runtime projection from `HostedDemoConfig.from_env()` and
   `AccessController.from_env()`
 
 This is deliberately read-only. The current queue is still in-process memory.
-The advertisement only tells discovery organs where truth lives and what shape
-future durable witnesses must take.
+The advertisement only tells discovery organs where truth lives, where the
+read-only Eve projection is served, and what shape future durable witnesses must
+take.

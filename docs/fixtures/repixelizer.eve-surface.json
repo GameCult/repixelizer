@@ -1,0 +1,558 @@
+{
+  "commands": [
+    {
+      "authority": "browser-lowering",
+      "command": "repixelizer.web.open",
+      "method": "GET",
+      "route": "/app/",
+      "surfaceId": "repixelizer.operator.surface",
+      "transport": "http"
+    },
+    {
+      "authority": "repixelizer-route-policy",
+      "command": "repixelizer.job.submit",
+      "method": "POST",
+      "route": "/api/jobs",
+      "surfaceId": "repixelizer.operator.surface",
+      "transport": "http"
+    },
+    {
+      "authority": "repixelizer-job-owner",
+      "command": "repixelizer.job.cancel_own",
+      "method": "DELETE",
+      "route": "/api/jobs/{job_id}",
+      "surfaceId": "repixelizer.operator.surface",
+      "transport": "http"
+    }
+  ],
+  "loweringComparison": {
+    "periwinkleAndroidKotlin": {
+      "keeps": [
+        "surface root traversal",
+        "pane/card/text hierarchy",
+        "TextView body content",
+        "basic ProgressBar metric rendering",
+        "node-bound command taps"
+      ],
+      "losesUntilRendererParity": [
+        "Press Start 2P and VT323 font selection",
+        "Repixelizer shell frame, scanlines, pixel grid, corner accents, and chunky border widths",
+        "landing/app image assets; current Android lowerer prints asset refs when images are not explicitly implemented",
+        "upload picker, comparison canvas, pan/zoom inspection, eyedropper, and paint controls",
+        "provider style tokens; current Kotlin toneColor/textColorFor/textSizeFor are hard-coded"
+      ],
+      "minimumParityCuts": [
+        "map surface.styles.tokens before toneColor/textColorFor/textSizeFor",
+        "add packaged pixel fonts or font download cache",
+        "render image assetUri/assetRef as ImageView with pixelated sampling",
+        "lower command controls to Android upload/document picker and job route calls"
+      ],
+      "source": "E:\\Projects\\Eve\\android\\app\\src\\main\\java\\org\\gamecult\\eve\\MainActivity.kt",
+      "status": "surface-tree-renderer-present-style-token-gap"
+    }
+  },
+  "providerId": "repixelizer",
+  "providerKind": "repixelizer.product",
+  "runtime": {
+    "auth": {
+      "appSlug": "repixelizer",
+      "enabled": false,
+      "loginUrl": null,
+      "logoutUrl": null,
+      "mode": "off",
+      "protectQueue": false,
+      "required": false
+    },
+    "hostedDemo": false,
+    "limits": {
+      "defaultSteps": 48,
+      "heartbeatIntervalSeconds": 10,
+      "maxInputDimension": 4096,
+      "maxOutputDimension": 1024,
+      "maxSteps": 256,
+      "maxUploadBytes": 16777216,
+      "queueCapacity": 32,
+      "staleAfterSeconds": 30
+    },
+    "queue": {
+      "activeStatus": null,
+      "hasActiveJob": false,
+      "queueCapacity": 32,
+      "queueDepth": 0,
+      "waitingCount": 0
+    }
+  },
+  "schema": "gamecult.eve.surface.v1",
+  "surface": {
+    "id": "repixelizer.operator.surface",
+    "root": {
+      "children": [
+        {
+          "children": [
+            {
+              "children": [],
+              "id": "repixelizer.hero.copy",
+              "kind": "text",
+              "props": {
+                "role": "body",
+                "text": "Force fake pixel art back onto a real grid, then inspect each solver step without sanding off the crunchy old-machine charm."
+              },
+              "role": "body",
+              "text": "Force fake pixel art back onto a real grid, then inspect each solver step without sanding off the crunchy old-machine charm."
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.hero.open.body",
+                  "kind": "text",
+                  "props": {
+                    "role": "body",
+                    "text": "Browser lowering remains the full interactive app until native Eve gains upload and canvas editing parity."
+                  },
+                  "role": "body",
+                  "text": "Browser lowering remains the full interactive app until native Eve gains upload and canvas editing parity."
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.hero.open.route",
+                  "kind": "text",
+                  "props": {
+                    "method": "GET",
+                    "role": "mono",
+                    "route": "/app/",
+                    "text": "GET /app/"
+                  },
+                  "role": "mono",
+                  "text": "GET /app/"
+                }
+              ],
+              "commandId": "repixelizer.web.open",
+              "id": "repixelizer.hero.open",
+              "kind": "card",
+              "props": {
+                "commandId": "repixelizer.web.open",
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Open demo",
+                "transport": {
+                  "kind": "http",
+                  "method": "GET",
+                  "route": "/app/"
+                }
+              },
+              "role": "group",
+              "style": {
+                "tone": "cool",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Open demo"
+            }
+          ],
+          "id": "repixelizer.hero",
+          "kind": "pane",
+          "layout": {
+            "direction": "vertical",
+            "padding": 10
+          },
+          "props": {
+            "styleProfile": "repixelizer.retro.pixel",
+            "title": "Repixelizer hosted demo"
+          },
+          "role": "section",
+          "style": {
+            "tone": "warm",
+            "variant": "repixelizer-retro-pane"
+          },
+          "text": "Repixelizer hosted demo"
+        },
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.workflow.submit.body",
+                  "kind": "text",
+                  "props": {
+                    "role": "body",
+                    "text": "Submit a PNG/JPEG/WebP/GIF into the GUI job queue; queue ownership stays in repixelizer.gui."
+                  },
+                  "role": "body",
+                  "text": "Submit a PNG/JPEG/WebP/GIF into the GUI job queue; queue ownership stays in repixelizer.gui."
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.workflow.submit.route",
+                  "kind": "text",
+                  "props": {
+                    "method": "POST",
+                    "role": "mono",
+                    "route": "/api/jobs",
+                    "text": "POST /api/jobs"
+                  },
+                  "role": "mono",
+                  "text": "POST /api/jobs"
+                }
+              ],
+              "commandId": "repixelizer.job.submit",
+              "id": "repixelizer.workflow.submit",
+              "kind": "card",
+              "props": {
+                "commandId": "repixelizer.job.submit",
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Upload image",
+                "transport": {
+                  "kind": "http",
+                  "method": "POST",
+                  "route": "/api/jobs"
+                }
+              },
+              "role": "group",
+              "style": {
+                "tone": "cool",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Upload image"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.inspect.source",
+                  "kind": "text",
+                  "props": {
+                    "role": "body",
+                    "text": "source, edge map, lattice overlay, phase field, cleaned output"
+                  },
+                  "role": "body",
+                  "text": "source, edge map, lattice overlay, phase field, cleaned output"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.inspect.canvas",
+                  "kind": "text",
+                  "props": {
+                    "role": "body",
+                    "text": "comparison canvas and editor lower to native only after Periwinkle gets image/control parity"
+                  },
+                  "role": "body",
+                  "text": "comparison canvas and editor lower to native only after Periwinkle gets image/control parity"
+                }
+              ],
+              "id": "repixelizer.workflow.inspect",
+              "kind": "card",
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Inspect solver"
+              },
+              "role": "group",
+              "style": {
+                "tone": "panel",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Inspect solver"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.workflow.cancel.body",
+                  "kind": "text",
+                  "props": {
+                    "role": "body",
+                    "text": "The command intent delegates to the existing owner-bound DELETE route."
+                  },
+                  "role": "body",
+                  "text": "The command intent delegates to the existing owner-bound DELETE route."
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.workflow.cancel.route",
+                  "kind": "text",
+                  "props": {
+                    "method": "DELETE",
+                    "role": "mono",
+                    "route": "/api/jobs/{job_id}",
+                    "text": "DELETE /api/jobs/{job_id}"
+                  },
+                  "role": "mono",
+                  "text": "DELETE /api/jobs/{job_id}"
+                }
+              ],
+              "commandId": "repixelizer.job.cancel_own",
+              "id": "repixelizer.workflow.cancel",
+              "kind": "card",
+              "props": {
+                "commandId": "repixelizer.job.cancel_own",
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Cancel own job",
+                "transport": {
+                  "kind": "http",
+                  "method": "DELETE",
+                  "route": "/api/jobs/{job_id}"
+                }
+              },
+              "role": "group",
+              "style": {
+                "tone": "cool",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Cancel own job"
+            }
+          ],
+          "id": "repixelizer.workflow",
+          "kind": "pane",
+          "layout": {
+            "direction": "vertical",
+            "padding": 10
+          },
+          "props": {
+            "styleProfile": "repixelizer.retro.pixel",
+            "title": "Single page app"
+          },
+          "role": "section",
+          "style": {
+            "tone": "warm",
+            "variant": "repixelizer-retro-pane"
+          },
+          "text": "Single page app"
+        },
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.runtime.hosted",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "hostedDemo: False"
+                  },
+                  "role": "mono",
+                  "text": "hostedDemo: False"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.runtime.steps",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "defaultSteps: 48 maxSteps: 256"
+                  },
+                  "role": "mono",
+                  "text": "defaultSteps: 48 maxSteps: 256"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.runtime.dimensions",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "maxOutputDimension: 1024px"
+                  },
+                  "role": "mono",
+                  "text": "maxOutputDimension: 1024px"
+                }
+              ],
+              "id": "repixelizer.runtime.config",
+              "kind": "card",
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Runtime"
+              },
+              "role": "group",
+              "style": {
+                "tone": "panel",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Runtime"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.queue.depth",
+                  "kind": "text",
+                  "props": {
+                    "role": "strong",
+                    "text": "0 active or waiting / 32 capacity"
+                  },
+                  "role": "strong",
+                  "text": "0 active or waiting / 32 capacity"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.queue.waiting",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "waitingCount: 0"
+                  },
+                  "role": "mono",
+                  "text": "waitingCount: 0"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.queue.active",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "hasActiveJob: False"
+                  },
+                  "role": "mono",
+                  "text": "hasActiveJob: False"
+                }
+              ],
+              "id": "repixelizer.runtime.queue",
+              "kind": "card",
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Queue"
+              },
+              "role": "group",
+              "style": {
+                "tone": "panel",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Queue"
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.auth.mode",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "mode: off"
+                  },
+                  "role": "mono",
+                  "text": "mode: off"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.auth.required",
+                  "kind": "text",
+                  "props": {
+                    "role": "mono",
+                    "text": "required: False"
+                  },
+                  "role": "mono",
+                  "text": "required: False"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.auth.providers",
+                  "kind": "text",
+                  "props": {
+                    "role": "body",
+                    "text": "providers: none"
+                  },
+                  "role": "body",
+                  "text": "providers: none"
+                }
+              ],
+              "id": "repixelizer.runtime.auth",
+              "kind": "card",
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Access"
+              },
+              "role": "group",
+              "style": {
+                "tone": "panel",
+                "variant": "repixelizer-retro-card"
+              },
+              "text": "Access"
+            }
+          ],
+          "id": "repixelizer.runtime",
+          "kind": "pane",
+          "layout": {
+            "direction": "vertical",
+            "padding": 10
+          },
+          "props": {
+            "styleProfile": "repixelizer.retro.pixel",
+            "title": "Live projection"
+          },
+          "role": "section",
+          "style": {
+            "tone": "warm",
+            "variant": "repixelizer-retro-pane"
+          },
+          "text": "Live projection"
+        }
+      ],
+      "id": "repixelizer.surface.root",
+      "kind": "surface",
+      "layout": {
+        "direction": "vertical",
+        "padding": 14
+      },
+      "props": {
+        "browserLowering": "https://repixelizer.gamecult.org/app/",
+        "frontPage": "https://repixelizer.gamecult.org/",
+        "styleProfile": "repixelizer.retro.pixel",
+        "subtitle": "Fake pixel art goes in. Real grid-aligned sprite art comes out.",
+        "title": "Repixelizer"
+      },
+      "role": "root",
+      "style": {
+        "tone": "warm",
+        "variant": "repixelizer-retro-shell"
+      },
+      "text": "Repixelizer"
+    },
+    "schema": "gamecult.eve.surface.v1",
+    "styles": {
+      "assets": {
+        "appUrl": "https://repixelizer.gamecult.org/app/",
+        "fontCss": "https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap",
+        "landingInput": "https://repixelizer.gamecult.org/app/landing-assets/character-input.png",
+        "landingOutput": "https://repixelizer.gamecult.org/app/landing-assets/character-repixelized.png"
+      },
+      "loweringHints": {
+        "android-native": "Load packaged or downloadable Press Start 2P and VT323 fonts, map style tokens before hard-coded tones, and render asset images instead of asset labels.",
+        "css": "Use the tokens as CSS custom properties and retain scanline/pixel-grid overlays.",
+        "tui": "Preserve title/body font distinction as role metadata; canvas editing lowers to artifact refs and command intents only."
+      },
+      "profile": "repixelizer.retro.pixel",
+      "tokens": {
+        "borderBottomWidthPx": 5,
+        "borderWidthPx": 4,
+        "buttonGlyph": ">",
+        "colorAccent": "#ffd84a",
+        "colorAccentStrong": "#ffae1a",
+        "colorBackgroundBottom": "#01050d",
+        "colorBackgroundMid": "#020813",
+        "colorBackgroundTop": "#01040b",
+        "colorCornerAccent": "#ffb72a",
+        "colorMuted": "#d3bb7f",
+        "colorPanel": "#0a2239",
+        "colorPanelAlt": "#061627",
+        "colorPanelBorder": "#0a2740",
+        "colorPanelBorderDeep": "#06192a",
+        "colorPixelGrid": "rgba(0, 0, 0, 0.3)",
+        "colorShadow": "rgba(0, 0, 0, 0.55)",
+        "colorShellSurfaceBottom": "#030b16",
+        "colorShellSurfaceTop": "#061424",
+        "colorText": "#efe5c9",
+        "colorTextBright": "#f7efd8",
+        "cornerAccentPx": 12,
+        "dashedInnerFrame": true,
+        "fontBody": "\"VT323\", \"Courier New\", monospace",
+        "fontMono": "\"VT323\", \"Courier New\", monospace",
+        "fontTitle": "\"Press Start 2P\", \"VT323\", monospace",
+        "imageRendering": "pixelated",
+        "scanlineOverlay": true
+      }
+    },
+    "title": "Repixelizer"
+  },
+  "title": "Repixelizer",
+  "type": "surface-state",
+  "updatedAt": "2026-06-04T00:00:00Z",
+  "version": 1
+}

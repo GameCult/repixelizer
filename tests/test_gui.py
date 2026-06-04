@@ -1195,6 +1195,26 @@ def test_gui_queue_panel_defaults_off_for_local_runs_and_can_be_forced(monkeypat
     assert payload["ui"]["showQueuePanel"] is True
 
 
+def test_gui_serves_eve_surface_from_live_runtime_projection(monkeypatch, tmp_path: Path) -> None:
+    from repixelizer.gui import create_app
+
+    monkeypatch.setenv("REPIXELIZER_HOSTED_DEMO", "1")
+    monkeypatch.setenv("REPIXELIZER_QUEUE_CAPACITY", "5")
+    monkeypatch.setenv("REPIXELIZER_SPOOL_DIR", str(tmp_path / "spool"))
+    monkeypatch.setenv("GC_ACCESS_MODE", "off")
+
+    app = create_app()
+    status, _headers, body = asyncio.run(_get_response(app, "/eve/surface"))
+    payload = _response_json(type("Response", (), {"body": body})())
+
+    assert status == 200
+    assert payload["schema"] == "gamecult.eve.surface.v1"
+    assert payload["surface"]["styles"]["tokens"]["colorAccent"] == "#ffd84a"
+    assert payload["runtime"]["queue"]["queueCapacity"] == 5
+    assert payload["runtime"]["auth"]["mode"] == "off"
+    assert payload["surface"]["styles"]["assets"]["appUrl"] == "http://testserver/app/"
+
+
 def test_gui_queue_rejects_eleventh_waiting_job(monkeypatch, tmp_path: Path) -> None:
     from repixelizer.gui import create_app
 
