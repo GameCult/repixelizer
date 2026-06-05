@@ -44,6 +44,28 @@ def _card(element_id: str, title: str, children: list[dict[str, Any]], *, tone: 
     }
 
 
+def _leaf(element_id: str, kind: str, *, text: str | None = None, role: str = "body", **props: Any) -> dict[str, Any]:
+    payload = {"text": text, "role": role, **props}
+    if text is None:
+        payload.pop("text")
+    return {
+        "id": element_id,
+        "kind": kind,
+        "role": role,
+        "text": text or props.get("label") or props.get("title") or element_id,
+        "props": payload,
+        "children": [],
+    }
+
+
+def _button(element_id: str, label: str, *, command_id: str, **props: Any) -> dict[str, Any]:
+    return _leaf(element_id, "control.button", role="command", label=label, commandId=command_id, **props)
+
+
+def _field(element_id: str, label: str, *, value: str, field_kind: str = "input.number", **props: Any) -> dict[str, Any]:
+    return _leaf(element_id, field_kind, role="field", label=label, value=value, **props)
+
+
 def _pane(element_id: str, title: str, children: list[dict[str, Any]], *, direction: str = "vertical") -> dict[str, Any]:
     return {
         "id": element_id,
@@ -177,6 +199,196 @@ def _runtime_cards(
     ]
 
 
+def _landing_gallery(base: str) -> dict[str, Any]:
+    return _pane(
+        "repixelizer.product.landing",
+        "Hosted demo",
+        [
+            _text(
+                "repixelizer.product.pitch",
+                "You need pixel art for a project, but pixel art is a craft and your favorite AI is mostly vibes in a trench coat.",
+                role="strong",
+            ),
+            {
+                "id": "repixelizer.product.gallery",
+                "kind": "partition",
+                "role": "gallery",
+                "layout": {"direction": "horizontal", "gap": 12},
+                "props": {"split": "x", "gap": 12, "role": "product.gallery"},
+                "children": [
+                    _card(
+                        "repixelizer.product.input",
+                        "The AI gives you this",
+                        [
+                            _leaf(
+                                "repixelizer.product.input.image",
+                                "image.preview",
+                                label="AI-generated hazmat character before repixelizing",
+                                src=f"{base}/app/landing-assets/character-input.png",
+                                imageRendering="pixelated",
+                                aspectRatio="1/1",
+                            ),
+                            _text("repixelizer.product.input.copy", "Looks charming from orbit. Suspiciously charming."),
+                        ],
+                        tone="cool",
+                    ),
+                    _card(
+                        "repixelizer.product.closeup",
+                        "Then you zoom in",
+                        [
+                            _leaf(
+                                "repixelizer.product.closeup.image",
+                                "image.preview",
+                                label="Zoomed close-up showing fake pixel-art artifacts",
+                                src=f"{base}/app/landing-assets/character-input.png",
+                                crop="42% 63%",
+                                zoom=3.45,
+                                imageRendering="pixelated",
+                                aspectRatio="1/1",
+                            ),
+                            _text("repixelizer.product.closeup.copy", "Smears, half-cells, anti-grid nonsense. The crime scene has opinions."),
+                        ],
+                        tone="cool",
+                    ),
+                    _card(
+                        "repixelizer.product.output",
+                        "Repixelizer spits out this",
+                        [
+                            _leaf(
+                                "repixelizer.product.output.image",
+                                "image.preview",
+                                label="Repixelized hazmat character output",
+                                src=f"{base}/app/landing-assets/character-repixelized.png",
+                                imageRendering="pixelated",
+                                aspectRatio="1/1",
+                            ),
+                            _text("repixelizer.product.output.copy", "Real cells on a real lattice, ready for cleanup or export."),
+                        ],
+                        tone="cool",
+                    ),
+                ],
+            },
+        ],
+    )
+
+
+def _workspace_surface(config: HostedDemoConfig, queue_summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": "repixelizer.workspace",
+        "kind": "partition",
+        "role": "workspace",
+        "layout": {"direction": "horizontal", "gap": 12},
+        "props": {"split": "x", "gap": 12, "role": "repixelizer.workspace"},
+        "children": [
+            _pane(
+                "repixelizer.workspace.viewer",
+                "Pipeline Stages",
+                [
+                    _leaf(
+                        "repixelizer.workspace.status",
+                        "status.stage",
+                        label="Idle",
+                        stage="Waiting for input",
+                        detail="Choose a file, then run the machine.",
+                    ),
+                    {
+                        "id": "repixelizer.workspace.compare",
+                        "kind": "partition",
+                        "role": "comparison",
+                        "layout": {"direction": "horizontal", "gap": 10},
+                        "props": {"split": "x", "gap": 10, "role": "comparison"},
+                        "children": [
+                            _leaf("repixelizer.workspace.input.canvas", "canvas.preview", label="Input", state="empty"),
+                            _leaf("repixelizer.workspace.output.canvas", "canvas.preview", label="Output", state="empty"),
+                        ],
+                    },
+                    _card(
+                        "repixelizer.workspace.inspect",
+                        "Zoom",
+                        [
+                            _text("repixelizer.workspace.inspect.copy", "Hold either preview to inspect both panels together."),
+                            _field("repixelizer.workspace.inspect.zoom", "Inspect Zoom", value="8x", field_kind="input.select"),
+                        ],
+                    ),
+                ],
+            ),
+            _pane(
+                "repixelizer.workspace.editor",
+                "Pixel Fixes",
+                [
+                    {
+                        "id": "repixelizer.workspace.editor.actions",
+                        "kind": "partition",
+                        "role": "toolbar",
+                        "layout": {"direction": "horizontal", "gap": 8},
+                        "props": {"split": "x", "gap": 8, "role": "toolbar"},
+                        "children": [
+                            _button("repixelizer.workspace.reset", "Reset Output", command_id="repixelizer.editor.reset"),
+                            _button("repixelizer.workspace.export", "Export PNG", command_id="repixelizer.editor.export"),
+                        ],
+                    },
+                    {
+                        "id": "repixelizer.workspace.paint",
+                        "kind": "partition",
+                        "role": "paint-controls",
+                        "layout": {"direction": "horizontal", "gap": 6},
+                        "props": {"split": "x", "gap": 6, "role": "paint-controls"},
+                        "children": [
+                            _leaf("repixelizer.workspace.swatch", "color.swatch", label="Paint", value="#ffffffff"),
+                            _field("repixelizer.workspace.paint.r", "R", value="255"),
+                            _field("repixelizer.workspace.paint.g", "G", value="255"),
+                            _field("repixelizer.workspace.paint.b", "B", value="255"),
+                            _field("repixelizer.workspace.paint.a", "A", value="255"),
+                            _field("repixelizer.workspace.zoom", "Zoom", value="12x", field_kind="control.range", min=4, max=32),
+                            _leaf("repixelizer.workspace.grid", "control.toggle", label="Grid", value=True),
+                        ],
+                    },
+                    _leaf("repixelizer.workspace.editor.canvas", "canvas.editor", label="Editable output canvas", state="empty"),
+                ],
+            ),
+            _pane(
+                "repixelizer.workspace.sidebar",
+                "Run Controls",
+                [
+                    _card(
+                        "repixelizer.workspace.input",
+                        "Input",
+                        [
+                            _text("repixelizer.workspace.input.copy", "Start with the ugly input."),
+                            _leaf("repixelizer.workspace.file", "input.file", label="Choose File", accept="image/png,image/*"),
+                            _leaf("repixelizer.workspace.dropzone", "dropzone", label="PNG, sprite scrap, cursed logo. Whatever started this."),
+                        ],
+                    ),
+                    _card(
+                        "repixelizer.workspace.controls",
+                        "Controls",
+                        [
+                            _field("repixelizer.workspace.target.size", "Target Size", value="auto"),
+                            _field("repixelizer.workspace.target.width", "Target Width", value="auto"),
+                            _field("repixelizer.workspace.target.height", "Target Height", value="auto"),
+                            _field("repixelizer.workspace.steps", "Steps", value=str(config.default_steps)),
+                            _button("repixelizer.workspace.run", "Run The Machine", command_id="repixelizer.job.submit", route="/api/jobs", method="POST"),
+                        ],
+                    ),
+                    _card(
+                        "repixelizer.workspace.queue",
+                        "Queue",
+                        [
+                            _leaf("repixelizer.workspace.queue.depth", "metric", label="Queue", value=queue_summary.get("queueDepth", 0), max=queue_summary.get("queueCapacity", config.queue_capacity)),
+                            _leaf("repixelizer.workspace.queue.worker", "metric", label="Worker", value=1 if queue_summary.get("hasActiveJob") else 0, max=1),
+                        ],
+                    ),
+                    _card(
+                        "repixelizer.workspace.lattice",
+                        "Lattice",
+                        [_text("repixelizer.workspace.lattice.copy", "No lattice picked yet.")],
+                    ),
+                ],
+            ),
+        ],
+    }
+
+
 def _lowering_comparison() -> dict[str, Any]:
     return {
         "periwinkleAndroidKotlin": {
@@ -259,6 +471,8 @@ def build_repixelizer_eve_surface(
                     ),
                 ],
             ),
+            _landing_gallery(base),
+            _workspace_surface(config, queue_summary),
             _pane(
                 "repixelizer.workflow",
                 "Single page app",

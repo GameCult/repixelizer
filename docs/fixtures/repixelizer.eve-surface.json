@@ -168,6 +168,697 @@
         {
           "children": [
             {
+              "children": [],
+              "id": "repixelizer.product.pitch",
+              "kind": "text",
+              "props": {
+                "role": "strong",
+                "text": "You need pixel art for a project, but pixel art is a craft and your favorite AI is mostly vibes in a trench coat."
+              },
+              "role": "strong",
+              "text": "You need pixel art for a project, but pixel art is a craft and your favorite AI is mostly vibes in a trench coat."
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.product.input.image",
+                      "kind": "image.preview",
+                      "props": {
+                        "aspectRatio": "1/1",
+                        "imageRendering": "pixelated",
+                        "label": "AI-generated hazmat character before repixelizing",
+                        "role": "body",
+                        "src": "https://repixelizer.gamecult.org/app/landing-assets/character-input.png"
+                      },
+                      "role": "body",
+                      "text": "AI-generated hazmat character before repixelizing"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.product.input.copy",
+                      "kind": "text",
+                      "props": {
+                        "role": "body",
+                        "text": "Looks charming from orbit. Suspiciously charming."
+                      },
+                      "role": "body",
+                      "text": "Looks charming from orbit. Suspiciously charming."
+                    }
+                  ],
+                  "id": "repixelizer.product.input",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "The AI gives you this"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "cool",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "The AI gives you this"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.product.closeup.image",
+                      "kind": "image.preview",
+                      "props": {
+                        "aspectRatio": "1/1",
+                        "crop": "42% 63%",
+                        "imageRendering": "pixelated",
+                        "label": "Zoomed close-up showing fake pixel-art artifacts",
+                        "role": "body",
+                        "src": "https://repixelizer.gamecult.org/app/landing-assets/character-input.png",
+                        "zoom": 3.45
+                      },
+                      "role": "body",
+                      "text": "Zoomed close-up showing fake pixel-art artifacts"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.product.closeup.copy",
+                      "kind": "text",
+                      "props": {
+                        "role": "body",
+                        "text": "Smears, half-cells, anti-grid nonsense. The crime scene has opinions."
+                      },
+                      "role": "body",
+                      "text": "Smears, half-cells, anti-grid nonsense. The crime scene has opinions."
+                    }
+                  ],
+                  "id": "repixelizer.product.closeup",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Then you zoom in"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "cool",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Then you zoom in"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.product.output.image",
+                      "kind": "image.preview",
+                      "props": {
+                        "aspectRatio": "1/1",
+                        "imageRendering": "pixelated",
+                        "label": "Repixelized hazmat character output",
+                        "role": "body",
+                        "src": "https://repixelizer.gamecult.org/app/landing-assets/character-repixelized.png"
+                      },
+                      "role": "body",
+                      "text": "Repixelized hazmat character output"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.product.output.copy",
+                      "kind": "text",
+                      "props": {
+                        "role": "body",
+                        "text": "Real cells on a real lattice, ready for cleanup or export."
+                      },
+                      "role": "body",
+                      "text": "Real cells on a real lattice, ready for cleanup or export."
+                    }
+                  ],
+                  "id": "repixelizer.product.output",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Repixelizer spits out this"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "cool",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Repixelizer spits out this"
+                }
+              ],
+              "id": "repixelizer.product.gallery",
+              "kind": "partition",
+              "layout": {
+                "direction": "horizontal",
+                "gap": 12
+              },
+              "props": {
+                "gap": 12,
+                "role": "product.gallery",
+                "split": "x"
+              },
+              "role": "gallery"
+            }
+          ],
+          "id": "repixelizer.product.landing",
+          "kind": "pane",
+          "layout": {
+            "direction": "vertical",
+            "padding": 10
+          },
+          "props": {
+            "styleProfile": "repixelizer.retro.pixel",
+            "title": "Hosted demo"
+          },
+          "role": "section",
+          "style": {
+            "tone": "warm",
+            "variant": "repixelizer-retro-pane"
+          },
+          "text": "Hosted demo"
+        },
+        {
+          "children": [
+            {
+              "children": [
+                {
+                  "children": [],
+                  "id": "repixelizer.workspace.status",
+                  "kind": "status.stage",
+                  "props": {
+                    "detail": "Choose a file, then run the machine.",
+                    "label": "Idle",
+                    "role": "body",
+                    "stage": "Waiting for input"
+                  },
+                  "role": "body",
+                  "text": "Idle"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.input.canvas",
+                      "kind": "canvas.preview",
+                      "props": {
+                        "label": "Input",
+                        "role": "body",
+                        "state": "empty"
+                      },
+                      "role": "body",
+                      "text": "Input"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.output.canvas",
+                      "kind": "canvas.preview",
+                      "props": {
+                        "label": "Output",
+                        "role": "body",
+                        "state": "empty"
+                      },
+                      "role": "body",
+                      "text": "Output"
+                    }
+                  ],
+                  "id": "repixelizer.workspace.compare",
+                  "kind": "partition",
+                  "layout": {
+                    "direction": "horizontal",
+                    "gap": 10
+                  },
+                  "props": {
+                    "gap": 10,
+                    "role": "comparison",
+                    "split": "x"
+                  },
+                  "role": "comparison"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.inspect.copy",
+                      "kind": "text",
+                      "props": {
+                        "role": "body",
+                        "text": "Hold either preview to inspect both panels together."
+                      },
+                      "role": "body",
+                      "text": "Hold either preview to inspect both panels together."
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.inspect.zoom",
+                      "kind": "input.select",
+                      "props": {
+                        "label": "Inspect Zoom",
+                        "role": "field",
+                        "value": "8x"
+                      },
+                      "role": "field",
+                      "text": "Inspect Zoom"
+                    }
+                  ],
+                  "id": "repixelizer.workspace.inspect",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Zoom"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "panel",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Zoom"
+                }
+              ],
+              "id": "repixelizer.workspace.viewer",
+              "kind": "pane",
+              "layout": {
+                "direction": "vertical",
+                "padding": 10
+              },
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Pipeline Stages"
+              },
+              "role": "section",
+              "style": {
+                "tone": "warm",
+                "variant": "repixelizer-retro-pane"
+              },
+              "text": "Pipeline Stages"
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.reset",
+                      "kind": "control.button",
+                      "props": {
+                        "commandId": "repixelizer.editor.reset",
+                        "label": "Reset Output",
+                        "role": "command"
+                      },
+                      "role": "command",
+                      "text": "Reset Output"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.export",
+                      "kind": "control.button",
+                      "props": {
+                        "commandId": "repixelizer.editor.export",
+                        "label": "Export PNG",
+                        "role": "command"
+                      },
+                      "role": "command",
+                      "text": "Export PNG"
+                    }
+                  ],
+                  "id": "repixelizer.workspace.editor.actions",
+                  "kind": "partition",
+                  "layout": {
+                    "direction": "horizontal",
+                    "gap": 8
+                  },
+                  "props": {
+                    "gap": 8,
+                    "role": "toolbar",
+                    "split": "x"
+                  },
+                  "role": "toolbar"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.swatch",
+                      "kind": "color.swatch",
+                      "props": {
+                        "label": "Paint",
+                        "role": "body",
+                        "value": "#ffffffff"
+                      },
+                      "role": "body",
+                      "text": "Paint"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.paint.r",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "R",
+                        "role": "field",
+                        "value": "255"
+                      },
+                      "role": "field",
+                      "text": "R"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.paint.g",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "G",
+                        "role": "field",
+                        "value": "255"
+                      },
+                      "role": "field",
+                      "text": "G"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.paint.b",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "B",
+                        "role": "field",
+                        "value": "255"
+                      },
+                      "role": "field",
+                      "text": "B"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.paint.a",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "A",
+                        "role": "field",
+                        "value": "255"
+                      },
+                      "role": "field",
+                      "text": "A"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.zoom",
+                      "kind": "control.range",
+                      "props": {
+                        "label": "Zoom",
+                        "max": 32,
+                        "min": 4,
+                        "role": "field",
+                        "value": "12x"
+                      },
+                      "role": "field",
+                      "text": "Zoom"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.grid",
+                      "kind": "control.toggle",
+                      "props": {
+                        "label": "Grid",
+                        "role": "body",
+                        "value": true
+                      },
+                      "role": "body",
+                      "text": "Grid"
+                    }
+                  ],
+                  "id": "repixelizer.workspace.paint",
+                  "kind": "partition",
+                  "layout": {
+                    "direction": "horizontal",
+                    "gap": 6
+                  },
+                  "props": {
+                    "gap": 6,
+                    "role": "paint-controls",
+                    "split": "x"
+                  },
+                  "role": "paint-controls"
+                },
+                {
+                  "children": [],
+                  "id": "repixelizer.workspace.editor.canvas",
+                  "kind": "canvas.editor",
+                  "props": {
+                    "label": "Editable output canvas",
+                    "role": "body",
+                    "state": "empty"
+                  },
+                  "role": "body",
+                  "text": "Editable output canvas"
+                }
+              ],
+              "id": "repixelizer.workspace.editor",
+              "kind": "pane",
+              "layout": {
+                "direction": "vertical",
+                "padding": 10
+              },
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Pixel Fixes"
+              },
+              "role": "section",
+              "style": {
+                "tone": "warm",
+                "variant": "repixelizer-retro-pane"
+              },
+              "text": "Pixel Fixes"
+            },
+            {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.input.copy",
+                      "kind": "text",
+                      "props": {
+                        "role": "body",
+                        "text": "Start with the ugly input."
+                      },
+                      "role": "body",
+                      "text": "Start with the ugly input."
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.file",
+                      "kind": "input.file",
+                      "props": {
+                        "accept": "image/png,image/*",
+                        "label": "Choose File",
+                        "role": "body"
+                      },
+                      "role": "body",
+                      "text": "Choose File"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.dropzone",
+                      "kind": "dropzone",
+                      "props": {
+                        "label": "PNG, sprite scrap, cursed logo. Whatever started this.",
+                        "role": "body"
+                      },
+                      "role": "body",
+                      "text": "PNG, sprite scrap, cursed logo. Whatever started this."
+                    }
+                  ],
+                  "id": "repixelizer.workspace.input",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Input"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "panel",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Input"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.target.size",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "Target Size",
+                        "role": "field",
+                        "value": "auto"
+                      },
+                      "role": "field",
+                      "text": "Target Size"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.target.width",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "Target Width",
+                        "role": "field",
+                        "value": "auto"
+                      },
+                      "role": "field",
+                      "text": "Target Width"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.target.height",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "Target Height",
+                        "role": "field",
+                        "value": "auto"
+                      },
+                      "role": "field",
+                      "text": "Target Height"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.steps",
+                      "kind": "input.number",
+                      "props": {
+                        "label": "Steps",
+                        "role": "field",
+                        "value": "48"
+                      },
+                      "role": "field",
+                      "text": "Steps"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.run",
+                      "kind": "control.button",
+                      "props": {
+                        "commandId": "repixelizer.job.submit",
+                        "label": "Run The Machine",
+                        "method": "POST",
+                        "role": "command",
+                        "route": "/api/jobs"
+                      },
+                      "role": "command",
+                      "text": "Run The Machine"
+                    }
+                  ],
+                  "id": "repixelizer.workspace.controls",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Controls"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "panel",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Controls"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.queue.depth",
+                      "kind": "metric",
+                      "props": {
+                        "label": "Queue",
+                        "max": 32,
+                        "role": "body",
+                        "value": 0
+                      },
+                      "role": "body",
+                      "text": "Queue"
+                    },
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.queue.worker",
+                      "kind": "metric",
+                      "props": {
+                        "label": "Worker",
+                        "max": 1,
+                        "role": "body",
+                        "value": 0
+                      },
+                      "role": "body",
+                      "text": "Worker"
+                    }
+                  ],
+                  "id": "repixelizer.workspace.queue",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Queue"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "panel",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Queue"
+                },
+                {
+                  "children": [
+                    {
+                      "children": [],
+                      "id": "repixelizer.workspace.lattice.copy",
+                      "kind": "text",
+                      "props": {
+                        "role": "body",
+                        "text": "No lattice picked yet."
+                      },
+                      "role": "body",
+                      "text": "No lattice picked yet."
+                    }
+                  ],
+                  "id": "repixelizer.workspace.lattice",
+                  "kind": "card",
+                  "props": {
+                    "styleProfile": "repixelizer.retro.pixel",
+                    "title": "Lattice"
+                  },
+                  "role": "group",
+                  "style": {
+                    "tone": "panel",
+                    "variant": "repixelizer-retro-card"
+                  },
+                  "text": "Lattice"
+                }
+              ],
+              "id": "repixelizer.workspace.sidebar",
+              "kind": "pane",
+              "layout": {
+                "direction": "vertical",
+                "padding": 10
+              },
+              "props": {
+                "styleProfile": "repixelizer.retro.pixel",
+                "title": "Run Controls"
+              },
+              "role": "section",
+              "style": {
+                "tone": "warm",
+                "variant": "repixelizer-retro-pane"
+              },
+              "text": "Run Controls"
+            }
+          ],
+          "id": "repixelizer.workspace",
+          "kind": "partition",
+          "layout": {
+            "direction": "horizontal",
+            "gap": 12
+          },
+          "props": {
+            "gap": 12,
+            "role": "repixelizer.workspace",
+            "split": "x"
+          },
+          "role": "workspace"
+        },
+        {
+          "children": [
+            {
               "children": [
                 {
                   "children": [],
@@ -553,6 +1244,6 @@
   },
   "title": "Repixelizer",
   "type": "surface-state",
-  "updatedAt": "2026-06-04T00:00:00Z",
+  "updatedAt": "2026-06-05T00:00:00Z",
   "version": 1
 }
