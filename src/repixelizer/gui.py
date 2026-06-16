@@ -24,6 +24,7 @@ from .inference import inference_to_json
 from .observe import PipelineCancelled
 from .pipeline import _resolve_requested_target_dims, run_pipeline_rgba
 from .types import InferenceResult, PaletteResult
+from .verse_state import RepixelizerVerseRuntime, RepixelizerVerseRuntimeConfig
 
 
 LOGGER = logging.getLogger(__name__)
@@ -788,6 +789,57 @@ class GuiJobManager:
                 "activeStatus": None if self._active_job_id is None else self.jobs[self._active_job_id].status,
             }
 
+    def snapshot_runtime_state(self, *, max_events_per_job: int = 32) -> dict[str, Any]:
+        with self._condition:
+            queue_depth = self._queue_depth_locked()
+            waiting_count = len(self._queued_job_ids)
+            jobs = []
+            for job in sorted(self.jobs.values(), key=lambda item: item.created_at):
+                jobs.append(
+                    {
+                        "jobId": job.job_id,
+                        "filename": job.filename,
+                        "status": job.status,
+                        "error": job.error,
+                        "createdAt": job.created_at,
+                        "runningAt": job.running_at,
+                        "lastHeartbeatAt": job.last_heartbeat_at,
+                        "eventCount": len(job.events),
+                        "accountId": job.account_id,
+                        "sessionId": job.session_id,
+                        "accessRevision": job.access_revision,
+                        "displayName": job.display_name,
+                        "authMode": job.auth_mode,
+                        "identityProvider": job.identity_provider,
+                        "queuePosition": self._queue_position_locked(job.job_id),
+                        "queueDepth": queue_depth,
+                        "waitingCount": waiting_count,
+                        "spoolPath": str(job.spool_path),
+                        "options": dict(job.options),
+                        "events": [
+                            {
+                                "id": int(event["id"]),
+                                "event": str(event["event"]),
+                                "timestamp": float(event["timestamp"]),
+                                "payload": dict(event["payload"]),
+                            }
+                            for event in job.events[-max_events_per_job:]
+                        ],
+                    }
+                )
+            return {
+                "queue": {
+                    "queueDepth": queue_depth,
+                    "waitingCount": waiting_count,
+                    "queueCapacity": self.config.queue_capacity,
+                    "hasActiveJob": self._active_job_id is not None,
+                    "activeStatus": None if self._active_job_id is None else self.jobs[self._active_job_id].status,
+                    "activeJobId": self._active_job_id,
+                    "queuedJobIds": list(self._queued_job_ids),
+                },
+                "jobs": jobs,
+            }
+
     def heartbeat(self, job_id: str) -> dict[str, Any] | None:
         with self._condition:
             job = self.jobs.get(job_id)
@@ -1044,13 +1096,21 @@ def create_app():
     config = HostedDemoConfig.from_env()
     manager = GuiJobManager(config)
     access_controller = AccessController.from_env(hosted_demo=config.hosted_demo)
+    verse_runtime = RepixelizerVerseRuntime(
+        RepixelizerVerseRuntimeConfig.from_env(config),
+        config,
+        access_controller,
+        manager,
+    )
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
         manager.start()
         try:
+            verse_runtime.start()
             yield
         finally:
+            verse_runtime.stop()
             manager.stop()
 
     app = FastAPI(title="Repixelizer GUI", version="0.1.0", lifespan=lifespan)
@@ -1117,8 +1177,8 @@ def create_app():
         return await call_with_subject(subject)
 
     @app.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health():
+        return JSONResponse(verse_runtime.build_health_payload())
 
     @app.get("/api/config")
     def get_config():
