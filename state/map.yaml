@@ -122,8 +122,16 @@ current_status:
     plus stronger blend is the current motion-geometry basin. It did not fully
     retune signal knobs around that basin.
   next_action: >
-    Ship the hosted experiment with the current usable solver config so
-    Repixelizer stops blocking Heimdall and StreamPixels. Later tuning should
-    start from `docs/solver-tuning-lessons-2026-04-29.md`: sweep signal knobs
-    around `radius=0.215, blend=0.24` first, then movement/coherence knobs, then
+    Repixelizer is now the next Idunn transport cut on Yggdrasil. Keep the
+    current solver config stable, but move daemon truth out of
+    `repixelizer-gui.service` plus `/api/health` / `/api/config` compatibility
+    checks by wiring the existing Python CultLib lane
+    (`E:\Projects\CultLib\packages\cultcache-py`) into the live GUI runtime.
+    The next implementation pass should add a daemon-owned `.cc` witness export
+    from `GuiJobManager`, publish Repixelizer daemon health to Idunn over
+    CultNet/RUDP, publish runtime-owned command-boundary and transport-profile
+    state, and teach the Yggdrasil deploy lane to ship the CultLib Python
+    snapshot alongside the app artifact. Later tuning should start from
+    `docs/solver-tuning-lessons-2026-04-29.md`: sweep signal knobs around
+    `radius=0.215, blend=0.24` first, then movement/coherence knobs, then
     combinations, and only then run final full-corpus validation.

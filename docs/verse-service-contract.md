@@ -59,6 +59,29 @@ The first pass should export these as a `.cc` witness from the current
 single-process manager. A later pass can decide whether the typed store becomes
 the primary queue owner.
 
+The next live cut is not speculative anymore. The Python CultLib lane already
+exists in `E:\Projects\CultLib\packages\cultcache-py`, including `cultcache_py`
+for `.cc` persistence and `cultnet_py` for CultNet/RUDP transport. Repixelizer
+needs to wire that runtime into the hosted GUI process so the live owner can:
+
+- write a daemon-owned `.cc` witness from `GuiJobManager`
+- publish daemon health to Idunn over CultNet/RUDP
+- advertise command-boundary and transport-profile state from the runtime
+- keep `/api/health`, `/api/config`, nginx, and systemd as compatibility
+  witnesses instead of the keepalive truth
+
+## Current Compatibility Boundary
+
+Today Yggdrasil still verifies Repixelizer through:
+
+- `repixelizer-gui.service`
+- `GET /api/health`
+- `GET /api/config`
+- nginx host-routed `/app/` and `/api/health`
+
+Those checks prove deployment and public routing. They do not satisfy the daemon
+truth contract Idunn expects.
+
 ## Eve Surface Target
 
 Repixelizer should publish an Eve GUI/TUI DSL product surface with these panels
@@ -118,16 +141,22 @@ The hosted GUI serves the live projection at `/eve/surface`. It reads
 2. Publish a read-only `gamecult.eve.provider_advertisement.v1` fixture/export
    that names those shapes and the reserved `.cc` witness path.
 3. Add a read-only export from the current `gui.py` queue/job manager into a
-   `.cc` witness.
-4. Publish the witness through CultMesh.
-5. Add an Eve DSL provider over the witness and existing health/config routes.
+   daemon-owned `.cc` witness using `cultcache-py`.
+4. Publish Repixelizer daemon health to Idunn over CultNet/RUDP from the live
+   GUI process using `cultnet_py`, with a dedicated Repixelizer health contract.
+5. Publish runtime-owned command-boundary and transport-profile state beside
+   the witness so deploy/restart authority is typed instead of implicit ops lore.
+6. Update the Yggdrasil deploy lane to ship the required CultLib Python package
+   snapshot with the app artifact and install it before the Repixelizer package.
+7. Publish the witness through CultMesh.
+8. Add an Eve DSL provider over the witness and existing health/config routes.
    First read-only HTTP projection is live at `/eve/surface`.
-6. Translate the existing browser GUI style and tool behavior into Eve style
+9. Translate the existing browser GUI style and tool behavior into Eve style
    tokens, canvas primitives, and command descriptors.
-7. Lower the current website from the Eve surface instead of treating it as the
+10. Lower the current website from the Eve surface instead of treating it as the
    product UI owner.
-8. Register the surface with Odin.
-9. Only after the witness is stable, decide whether queue ownership should move
+11. Register the surface with Odin.
+12. Only after the witness is stable, decide whether queue ownership should move
    from in-process memory into the typed store.
 
 The invariant: Heimdall owns shared auth; Repixelizer owns jobs and artifacts.
