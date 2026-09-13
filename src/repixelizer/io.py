@@ -41,12 +41,6 @@ def box_resize(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
     return np.asarray(resized, dtype=np.float32) / 255.0
 
 
-def bilinear_resize(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
-    image = Image.fromarray(np.clip(np.rint(rgba * 255.0), 0, 255).astype(np.uint8), mode="RGBA")
-    resized = image.resize((width, height), resample=Image.Resampling.BILINEAR)
-    return np.asarray(resized, dtype=np.float32) / 255.0
-
-
 def lanczos_resize(rgba: np.ndarray, width: int, height: int) -> np.ndarray:
     image = Image.fromarray(np.clip(np.rint(rgba * 255.0), 0, 255).astype(np.uint8), mode="RGBA")
     resized = image.resize((width, height), resample=Image.Resampling.LANCZOS)

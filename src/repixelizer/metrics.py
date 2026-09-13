@@ -496,19 +496,3 @@ def _motif_blocks(premul: np.ndarray) -> np.ndarray:
     centered = blocks - np.mean(blocks, axis=-2, keepdims=True)
     scale = np.maximum(1e-4, np.mean(np.abs(centered), axis=(-2, -1), keepdims=True))
     return centered / scale
-
-
-def lattice_source_rgba(
-    source_rgba: np.ndarray,
-    *,
-    target_width: int,
-    target_height: int,
-    alpha_threshold: float = 0.05,
-) -> tuple[np.ndarray, float]:
-    reference = build_source_lattice_reference(
-        source_rgba,
-        target_width=target_width,
-        target_height=target_height,
-        alpha_threshold=alpha_threshold,
-    )
-    return reference.mean_rgba, reference.dispersion
