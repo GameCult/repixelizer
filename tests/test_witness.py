@@ -33,6 +33,11 @@ def test_provider_advertisement_names_witness_schemas(monkeypatch, tmp_path: Pat
     assert witness["kind"] == "cc-export-path-reserved"
     assert witness["path"] == "state/repixelizer.witness.cc"
     assert witness["freshness"]["state"] == "planned"
+    surface = payload["surfaces"][0]
+    assert surface["status"] == "available"
+    assert surface["transport"] == "http-json"
+    assert surface["url"] == "https://repixelizer.gamecult.org/eve/surface"
+    assert surface["styleProfile"] == "repixelizer.retro.pixel"
 
 
 def test_witness_advertisement_cli_writes_json(monkeypatch, tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ import sys
 from .benchmark import run_roundtrip_benchmark
 from .compare import run_compare
 from .corpus import prepare_corpus
+from .eve_surface import main as eve_surface_main
 from .gui import main as gui_main
 from .pipeline import run_pipeline
 from .spritesheet import run_spritesheet
@@ -142,6 +143,13 @@ def build_parser() -> argparse.ArgumentParser:
     witness_parser.add_argument("--public-base-url", default=None, help="Hosted browser lowering base URL.")
     witness_parser.add_argument("--cc-witness-path", default=None, help="Reserved CultCache .cc witness path.")
     witness_parser.add_argument("--eve-surface-key", default=None, help="Planned CultMesh Eve surface key.")
+    eve_surface_parser = subparsers.add_parser(
+        "eve-surface",
+        help="Emit the read-only Repixelizer Eve surface projection.",
+    )
+    eve_surface_parser.add_argument("--out", default=None, help="Write JSON to this path instead of stdout.")
+    eve_surface_parser.add_argument("--updated-at", default=None, help="Override the surface timestamp.")
+    eve_surface_parser.add_argument("--public-base-url", default=None, help="Hosted browser lowering base URL.")
     gui_parser = subparsers.add_parser("gui", help="Launch the web GUI.")
     gui_parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind")
     gui_parser.add_argument("--port", type=int, default=8000, help="Port to bind")
@@ -159,6 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         "tune",
         "prepare-corpus",
         "witness-advertisement",
+        "eve-surface",
         "gui",
         "-h",
         "--help",
@@ -254,6 +263,16 @@ def main(argv: list[str] | None = None) -> int:
             if value is not None:
                 witness_args.extend([option, str(value)])
         return witness_advertisement_main(witness_args)
+    if command == "eve-surface":
+        eve_surface_args: list[str] = []
+        for option, value in (
+            ("--out", args.out),
+            ("--updated-at", args.updated_at),
+            ("--public-base-url", args.public_base_url),
+        ):
+            if value is not None:
+                eve_surface_args.extend([option, str(value)])
+        return eve_surface_main(eve_surface_args)
     if command == "gui":
         return gui_main(host=args.host, port=args.port, reload=args.reload)
 

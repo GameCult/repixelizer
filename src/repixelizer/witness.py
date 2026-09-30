@@ -113,12 +113,14 @@ def build_provider_advertisement(
             {
                 "surfaceId": "repixelizer.operator.surface",
                 "schema": "gamecult.eve.surface.v1",
-                "transport": "cultmesh-document",
+                "transport": "http-json",
                 "key": eve_surface_key,
+                "url": f"{public_base_url.rstrip('/')}/eve/surface",
                 "audience": "operator",
                 "mode": "read-only-first-cut",
-                "commands": [],
-                "status": "planned",
+                "commands": ["repixelizer.web.open", "repixelizer.job.submit", "repixelizer.job.cancel_own"],
+                "status": "available",
+                "styleProfile": "repixelizer.retro.pixel",
             },
             {
                 "surfaceId": "repixelizer.web.app",
@@ -179,6 +181,7 @@ def build_provider_advertisement(
             {
                 "styleProfile": "repixelizer.product",
                 "tokenGroups": [
+                    "repixelizer.retro.pixel",
                     "repixelizer.comparisonCanvas",
                     "repixelizer.cleanupTool",
                     "repixelizer.queuePanel",
