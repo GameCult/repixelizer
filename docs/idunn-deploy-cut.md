@@ -11,6 +11,21 @@ recommendations as defaults, and the operator may overrule any of them:
 - Q4: do not declare Heimdall as a dependency.
 - Q5: flip when the old unit is idle, then soak for 48 h.
 
+**Cuts 0-1 landed, 2026-09-30 (Self).**
+- Baseline: fixture `tests/fixtures/real/ai-badge-cleaned.png` (sha256 `50e1c421...d755`), default settings
+  (seed 7, 200 steps, CPU), gives a 125x125 RGBA PNG with sha256
+  `95a296bd1d14cc76b1c76719270c7320bf767217f09d196b306a917bb7ed1a2b`. It is byte-identical across thread counts.
+  The legacy code is `01dfab9`, with torch 2.11.0+cpu and CultLib `d595f5a5`.
+- The merge is `8e4f649`. There were no conflicts, and 110 tests pass on both the merge and `01dfab9`. The codex
+  branch is kept, which supersedes this map's "delete after merge".
+- **Cut 4 correction:** `repixelizer/cli.py` has no `__main__` guard, so `python -m repixelizer.cli` exits 0 and
+  writes nothing. The acceptance step must go through a real entry point and assert that the output file exists and
+  that its hash matches the baseline.
+- The legacy venv's `repixelize` shebang points at a renamed venv and is broken. That changes nothing for
+  production; it is recorded because Cut 8 archives the venv anyway.
+- At `d595f5a5`, CultLib shipped cultnet and cultmesh inside `cultcache-py`. Cut 3 must pin a CultLib that has the
+  split packages.
+
 Status: cut map, no cuts landed. There is no separate target document. The
 **Ends** section below holds the ends. The rest of this document holds the
 means. Written 2026-09-30 by Imagination from source at repixelizer `main`
